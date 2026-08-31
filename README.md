@@ -106,10 +106,10 @@ See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 These commands install **this fork** (`agustif/slk`). Use `@main` (not `@latest`): Git tags still point at upstream history, so `@latest` is the wrong tree until this fork cuts its own release.
 
-**Homebrew** (macOS and Linux) — tap is [agustif/homebrew-slk](https://github.com/agustif/homebrew-slk), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
+**Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 
 ```bash
-brew install --HEAD agustif/slk/slk
+brew install --HEAD agustif/tap/slk
 ```
 
 **Arch** — AUR package `slk` is upstream. Build this fork’s PKGBUILD:

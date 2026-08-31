@@ -6,16 +6,16 @@ Use Go `@main` (not `@latest`). Existing Git tags are from upstream; `@latest` w
 
 ## Homebrew (macOS and Linux)
 
-The formula lives in a dedicated tap, [agustif/homebrew-slk](https://github.com/agustif/homebrew-slk) (`brew tap agustif/slk` clones that repo). It is **not** [gammons/tap](https://github.com/gammons/homebrew-tap).
+The formula lives in a dedicated tap, [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) (`brew tap agustif/tap` clones that repo). It is **not** [gammons/tap](https://github.com/gammons/homebrew-tap).
 
 ```bash
 # Drop the upstream cask if it is already installed (same binary name):
 brew uninstall --cask slk 2>/dev/null || true
 
-brew install --HEAD agustif/slk/slk
+brew install --HEAD agustif/tap/slk
 ```
 
-That auto-taps `agustif/homebrew-slk` and builds this fork’s `main` from source.
+That auto-taps `agustif/homebrew-tap` and builds this fork’s `main` from source.
 
 Update later with `brew upgrade --fetch-HEAD slk`.
 

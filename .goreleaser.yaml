@@ -196,6 +196,6 @@ release:
     Verify downloads with `checksums.txt`.
     {{- end }}
 
-# Homebrew for this fork is the tap github.com/agustif/homebrew-slk
-# (`brew install --HEAD agustif/slk/slk`). Do not upload casks to
+# Homebrew for this fork is the tap github.com/agustif/homebrew-tap
+# (`brew install --HEAD agustif/tap/slk`). Do not upload casks to
 # gammons/homebrew-tap — that is upstream.
