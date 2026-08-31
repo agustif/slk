@@ -289,6 +289,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			return a.openMessageContextMenu(false, 0, 0)
 		}
 
+	case key.Matches(msg, a.keys.ChannelMembers):
+		return a.openChannelMembers()
+
 	case key.Matches(msg, a.keys.Reaction):
 		if a.focusedPanel == PanelMessages {
 			return a.openPickerFromMessage()

@@ -59,6 +59,7 @@ type KeyMap struct {
 	NavBack             key.Binding
 	NavForward          key.Binding
 	Help                key.Binding
+	ChannelMembers      key.Binding
 	SaveThread          key.Binding
 	ListReactions       key.Binding
 	WindowPrefix        key.Binding
@@ -142,6 +143,7 @@ func DefaultKeyMap() KeyMap {
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		NavForward:          key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "navigate forward")),
 		Help:                key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		ChannelMembers:      key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "channel members")),
 		SaveThread:          key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
 		ListReactions:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
 		// Window commands (design §4). WindowPrefix is the only real

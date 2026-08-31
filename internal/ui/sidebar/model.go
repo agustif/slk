@@ -1004,6 +1004,18 @@ func (m *Model) VisibleItems() []ChannelItem {
 	return result
 }
 
+// PresenceOf returns the live presence for userID from the presence
+// map, and ok=false when that user has never been recorded. The
+// members overlay uses this so it only draws a dot for users already
+// in the map — it does not subscribe extra presence.
+func (m *Model) PresenceOf(userID string) (string, bool) {
+	if userID == "" || m.presenceByUser == nil {
+		return "", false
+	}
+	p, ok := m.presenceByUser[userID]
+	return p, ok
+}
+
 // UpdatePresenceByUser records the authoritative live presence for a user
 // and updates any DM item whose DMUserID matches. Recording in
 // presenceByUser (even when no item matches yet) makes the value survive

@@ -213,6 +213,9 @@ func (m *Model) SetChannel(name string) {
 	}
 }
 
+// ChannelName returns the display name last passed to SetChannel.
+func (m Model) ChannelName() string { return m.channelName }
+
 // SetPlaceholderOverride sets a custom placeholder string. Pass "" to
 // clear the override and restore the default channel-aware placeholder.
 //
@@ -929,6 +932,21 @@ func (m *Model) SetChannelMembership(channelID string, memberIDs []string) {
 	if channelID == m.activeChannelID {
 		m.rebuildMentionUsers()
 	}
+}
+
+// ChannelMemberIDs returns the stored member set for channelID and
+// whether a snapshot has been loaded (distinguishing "zero members"
+// from "not fetched yet").
+func (m *Model) ChannelMemberIDs(channelID string) ([]string, bool) {
+	if !m.channelMembersOK[channelID] {
+		return nil, false
+	}
+	set := m.channelMembers[channelID]
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	return ids, true
 }
 
 // MentionUsers returns the most recent derived user list handed to

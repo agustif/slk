@@ -29,6 +29,7 @@ import (
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/activityview"
 	"github.com/gammons/slk/internal/ui/channelfinder"
+	"github.com/gammons/slk/internal/ui/channelmembers"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/confirmprompt"
@@ -107,6 +108,7 @@ type App struct {
 	compose          compose.Model
 	statusbar        statusbar.Model
 	channelFinder    channelfinder.Model
+	channelMembers   channelmembers.Model
 	searchResults    searchresults.Model
 	newMessagePicker newmessagepicker.Model
 	workspaceFinder  workspacefinder.Model
@@ -259,6 +261,11 @@ type App struct {
 	// resolved. Read by SetUserNames when building the mention-picker User
 	// slice so IsExternal is set on each entry.
 	externalUsers map[string]bool
+	// guestUsers tracks which user IDs carried is_restricted /
+	// is_ultra_restricted on the user object. The members overlay
+	// shows a [guest] tag when the ID is in this map; IDs we have
+	// never seen a user object for are omitted (no extra fetch).
+	guestUsers map[string]bool
 	// Last (channelID, threadTS) auto-opened from the threads view.
 	// openSelectedThreadCmd compares against these to dedup repeat calls
 	// (j/k keystrokes and ThreadsListLoadedMsg refreshes both fire
@@ -531,6 +538,7 @@ func NewApp() *App {
 		compose:               compose.New(""),
 		statusbar:             statusbar.New(),
 		channelFinder:         channelfinder.New(),
+		channelMembers:        channelmembers.New(),
 		searchResults:         searchresults.New(),
 		newMessagePicker:      newmessagepicker.New(),
 		workspaceFinder:       workspacefinder.New(),
@@ -564,6 +572,7 @@ func NewApp() *App {
 		mouseWheelLines:       3,
 		userNames:             map[string]string{},
 		externalUsers:         map[string]bool{},
+		guestUsers:            map[string]bool{},
 		presence:              newPresenceController(),
 		renderCache:           newPanelRenderCache(),
 		drag:                  newDragState(),
@@ -2639,6 +2648,74 @@ func (a *App) SetExternalUsers(externalIDs map[string]bool) {
 func (a *App) SetChannelMembership(channelID string, memberIDs []string) {
 	a.compose.SetChannelMembership(channelID, memberIDs)
 	a.threadCompose.SetChannelMembership(channelID, memberIDs)
+	if channelID == a.activeChannelID {
+		a.messagepane.SetMemberCount(len(memberIDs))
+		if a.channelMembers.IsVisible() {
+			a.seedChannelMembersOverlay(memberIDs)
+		}
+	}
+}
+
+// SetGuestUsers replaces the set of user IDs known to be workspace
+// guests (is_restricted / is_ultra_restricted). The members overlay
+// consults this map when seeding rows. Pass nil to clear.
+func (a *App) SetGuestUsers(guestIDs map[string]bool) {
+	if guestIDs == nil {
+		guestIDs = map[string]bool{}
+	}
+	a.guestUsers = guestIDs
+}
+
+// openChannelMembers opens the channel-members overlay for the
+// active channel. Reuses the membership snapshot already pushed to
+// compose when one is loaded; otherwise fires MembershipFetch
+// (conversations.members) and shows a loading row until the result
+// lands. No-op on the Threads/Activity views or with no channel.
+func (a *App) openChannelMembers() tea.Cmd {
+	if a.view != ViewChannels || a.activeChannelID == "" {
+		return nil
+	}
+	a.channelMembers.SetChannel(a.compose.ChannelName())
+	memberIDs, loaded := a.compose.ChannelMemberIDs(a.activeChannelID)
+	if loaded {
+		a.seedChannelMembersOverlay(memberIDs)
+	} else {
+		a.channelMembers.SetMembers(nil)
+		a.channelMembers.SetLoading(true)
+		channels := a.channels
+		channelID := ids.ChannelID(a.activeChannelID)
+		go channels.MembershipFetch(channelID)
+	}
+	a.channelMembers.Open()
+	a.SetMode(ModeChannelMembers)
+	return nil
+}
+
+// seedChannelMembersOverlay fills the overlay from member IDs plus
+// the in-memory name / presence / guest maps. Does not Open().
+func (a *App) seedChannelMembersOverlay(ids []string) {
+	a.channelMembers.SetChannel(a.compose.ChannelName())
+	a.channelMembers.SetMembers(a.membersFromIDs(ids))
+}
+
+func (a *App) membersFromIDs(ids []string) []channelmembers.Member {
+	out := make([]channelmembers.Member, 0, len(ids))
+	for _, id := range ids {
+		name := a.userNames[id]
+		if name == "" {
+			name = id
+		}
+		presence, _ := a.sidebar.PresenceOf(id)
+		out = append(out, channelmembers.Member{
+			ID:          id,
+			DisplayName: name,
+			Username:    name,
+			Presence:    presence,
+			IsGuest:     a.guestUsers[id],
+			IsExternal:  a.externalUsers[id],
+		})
+	}
+	return out
 }
 
 // SetCustomEmoji rebuilds the emoji entry list (built-ins + the active

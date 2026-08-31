@@ -384,6 +384,9 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 	}
 	a.statusbar.SetChannel(name)
 	a.statusbar.SetChannelType(chType)
+	if memberIDs, ok := a.compose.ChannelMemberIDs(id); ok {
+		a.messagepane.SetMemberCount(len(memberIDs))
+	}
 	// Clear any syncing indicator stranded by an in-flight tier-2
 	// verify fetch: the SetSyncing(false) in the MessagesLoadedMsg arm
 	// is gated on the then-active channel, so a focus change away from

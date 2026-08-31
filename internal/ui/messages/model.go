@@ -243,6 +243,9 @@ type Model struct {
 	channelType  string // "channel", "private", "dm", "group_dm" -- drives header glyph
 	bookmarks    []Bookmark
 	pins         []Pin
+	// memberCount is the known membership size for the header chrome
+	// ("# general · 42"). -1 means unknown (don't render a count).
+	memberCount  int
 	loading      bool
 	spinnerFrame int               // braille-spinner frame index for "Loading messages..." animation
 	avatarFn     AvatarFunc        // optional: returns half-block avatar for a userID
@@ -272,6 +275,7 @@ type Model struct {
 	chromeChannel     string
 	chromeTopic       string
 	chromeChannelType string
+	chromeMemberCount int
 	chromeCacheValid  bool
 	chromeHits        []chromeHit
 	chromeExtrasRow   int // -1 = no extras row
@@ -629,6 +633,7 @@ func New(msgs []MessageItem, channelName string) Model {
 		messages:        msgs,
 		selected:        selected,
 		channelName:     channelName,
+		memberCount:     -1,
 		imgRenderer:     imgrender.NewRenderer(),
 		chromeExtrasRow: -1,
 	}
@@ -658,9 +663,20 @@ func (m *Model) SetChannel(name, topic string) {
 		m.pins = nil
 		m.chromeHits = nil
 		m.chromeExtrasRow = -1
+		m.memberCount = -1
 	}
 	m.channelName = name
 	m.channelTopic = topic
+}
+
+// SetMemberCount updates the optional member-count suffix in the
+// channel header. Pass -1 to hide the count.
+func (m *Model) SetMemberCount(n int) {
+	if m.memberCount != n {
+		m.chromeCacheValid = false
+		m.dirty()
+	}
+	m.memberCount = n
 }
 
 // SetChannelType sets the channel type used to pick the header glyph
@@ -2869,7 +2885,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	// Chrome (header + separator) is cached; only rebuilt on width / channel
 	// name / topic change. This avoids per-keypress strings.Repeat + lipgloss
 	// renders that don't depend on the selection.
-	if !m.chromeCacheValid || m.chromeWidth != width || m.chromeChannel != m.channelName || m.chromeTopic != m.channelTopic || m.chromeChannelType != m.channelType {
+	if !m.chromeCacheValid || m.chromeWidth != width || m.chromeChannel != m.channelName || m.chromeTopic != m.channelTopic || m.chromeChannelType != m.channelType || m.chromeMemberCount != m.memberCount {
 		// Channel title sits in the message pane, immediately inside the
 		// panel's top border. Bold + TextPrimary on Background matches
 		// the surrounding messages. The panel border itself provides
@@ -2885,7 +2901,11 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 			Foreground(styles.TextPrimary).
 			Bold(true).
 			Padding(0, 1)
-		header := headerStyle.Render(fmt.Sprintf("%s %s", channelGlyph(m.channelType), m.channelName))
+		title := fmt.Sprintf("%s %s", channelGlyph(m.channelType), m.channelName)
+		if m.memberCount >= 0 {
+			title = fmt.Sprintf("%s · %d", title, m.memberCount)
+		}
+		header := headerStyle.Render(title)
 		if m.channelTopic != "" {
 			// Width(width) pads every wrapped topic line to the full pane
 			// width. This keeps the invariant that EVERY chrome line is
@@ -2908,6 +2928,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		m.chromeChannel = m.channelName
 		m.chromeTopic = m.channelTopic
 		m.chromeChannelType = m.channelType
+		m.chromeMemberCount = m.memberCount
 		m.chromeCacheValid = true
 	}
 	chrome := m.chromeCache

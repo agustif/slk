@@ -48,6 +48,7 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 			return nil, true
 		}
 		a.newMessagePicker.Close()
+		a.channelMembers.Close()
 		a.newMessageInFlightID = 0
 		a.newMessageCancelled = false
 		a.SetMode(ModeInsert)

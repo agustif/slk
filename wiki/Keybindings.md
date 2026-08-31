@@ -14,6 +14,11 @@
 | `*` | Normal | Star / unstar the selected sidebar channel (or the active channel if the message pane is focused) |
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |
+| `I` | Normal | Show members of the active channel |
+| `j` / `k` | Members | Move down/up in the members list |
+| type | Members | Filter members |
+| `Enter` | Members | Open a DM with the selected member |
+| `Esc` | Members | Close the members overlay |
 | `Esc` | Insert / Command | Return to normal mode |
 | `Enter` | Insert | Send message |
 | `Shift+Enter` | Insert | Newline |
