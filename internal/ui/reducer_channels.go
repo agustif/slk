@@ -89,6 +89,9 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if nav := a.completePendingLinkNav(m.ID, !fetchFired); nav != nil {
 			cmd = tea.Batch(cmd, nav)
 		}
+		if extra := a.completePendingDraftOpen(m.ID); extra != nil {
+			cmd = tea.Batch(cmd, extra)
+		}
 		return cmd, true
 
 	case MessagesLoadedMsg:
@@ -129,7 +132,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			// window its own copy — two same-channel windows must not
 			// alias one slice (in-place model writes would cross-leak).
 			if m.Messages != nil {
-				mm.SetMessages(cloneMessageItems(m.Messages))
+				mm.SetMessages(a.applyStarredFlags(m.ChannelID, cloneMessageItems(m.Messages)))
 			}
 		}
 		// Authoritative permalink completion: this is the freshest
@@ -166,10 +169,13 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case MessagesAroundLoadedMsg:
-		debuglog.Cache("MessagesAroundLoadedMsg: channel=%s active=%s count=%d err=%v",
-			m.ChannelID, a.activeChannelID, len(m.Messages), m.Err)
+		debuglog.Cache("MessagesAroundLoadedMsg: channel=%s active=%s count=%d err=%v jump_date=%v",
+			m.ChannelID, a.activeChannelID, len(m.Messages), m.Err, m.JumpDate)
 		if m.ChannelID != a.activeChannelID {
 			return nil, true // stale: user navigated away
+		}
+		if m.JumpDate {
+			return reduceJumpDateLoaded(a, m), true
 		}
 		if m.Err != nil || len(m.Messages) == 0 {
 			return func() tea.Msg { return ToastMsg{Text: "Failed to load history around message"} }, true
@@ -188,7 +194,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if !found {
 			return func() tea.Msg { return ToastMsg{Text: "Message not found in loaded history"} }, true
 		}
-		a.messagepane.SetMessages(m.Messages)
+		a.messagepane.SetMessages(a.applyStarredFlags(m.ChannelID, m.Messages))
 		a.messagepane.SelectByTS(m.TargetTS)
 		return nil, true
 
@@ -247,6 +253,32 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		channels := a.channels
 		id, name := ids.ChannelID(m.ID), m.Name
 		return func() tea.Msg { return channels.Leave(id, name) }, true
+
+	case CloseChannelMsg:
+		channels := a.channels
+		id, name := ids.ChannelID(m.ID), m.Name
+		return func() tea.Msg { return channels.Close(id, name) }, true
+
+	case ChannelClosedMsg:
+		return reduceChannelClosed(a, m), true
+
+	case ChannelCloseFailedMsg:
+		return toastWithClear(a, fmt.Sprintf("Failed to close %s: %v", m.Name, m.Err), 3*time.Second), true
+
+	case ChannelReopenedMsg:
+		items := a.sidebar.Items()
+		out := make([]sidebar.ChannelItem, len(items))
+		copy(out, items)
+		for i := range out {
+			if out[i].ID == m.ID {
+				out[i].Closed = false
+			}
+		}
+		a.SetChannels(out)
+		return nil, true
+
+	case ChannelReopenFailedMsg:
+		return nil, true
 
 	case ChannelLeftMsg:
 		return reduceChannelLeft(a, m), true
@@ -307,6 +339,26 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 // reduceChannelLeft removes the left channel from the sidebar and
 // finder, then switches to last-visited (nav history) or Threads.
+func reduceChannelClosed(a *App, m ChannelClosedMsg) tea.Cmd {
+	items := a.sidebar.Items()
+	out := make([]sidebar.ChannelItem, len(items))
+	copy(out, items)
+	for i := range out {
+		if out[i].ID == m.ID {
+			out[i].Closed = true
+		}
+	}
+	a.SetChannels(out)
+	toast := toastWithClear(a, "Closed "+m.Name, 2*time.Second)
+	if a.view == ViewDMs {
+		return toast
+	}
+	if a.activeChannelID == m.ID {
+		return tea.Batch(toast, a.switchAfterLeave(m.ID))
+	}
+	return toast
+}
+
 func reduceChannelLeft(a *App, m ChannelLeftMsg) tea.Cmd {
 	items := a.sidebar.Items()
 	next := make([]sidebar.ChannelItem, 0, len(items))
@@ -404,6 +456,21 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 // message-fetch was dispatched (i.e. a MessagesLoadedMsg will follow).
 // The permalink-completion hook uses !fetchFired as its `authoritative`
 // flag.
+func (a *App) selectionIsDirect(m ChannelSelectedMsg) bool {
+	if channelTypeIsDirect(m.Type) {
+		return true
+	}
+	if m.Type != "" {
+		return false
+	}
+	for _, it := range a.sidebar.Items() {
+		if it.ID == m.ID {
+			return channelTypeIsDirect(it.Type)
+		}
+	}
+	return false
+}
+
 func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		return a.uploadToastCmd("Upload in progress", 2*time.Second), false
@@ -425,11 +492,14 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		}()
 	}
 	a.cancelEdit()
-	// Picking a channel always exits the Threads view.
-	a.view = ViewChannels
-	a.sidebar.SetThreadsActive(false)
-	a.sidebar.SetActivityActive(false)
-	a.sidebar.SetLaterActive(false)
+	// Opening a DM from the DMs tab stays on that tab so the full
+	// conversation list remains the second sidebar. Any other
+	// destination (Home channel, finder, permalink) returns to Home.
+	if a.view == ViewDMs && a.selectionIsDirect(m) {
+		a.setInboxView(ViewDMs)
+	} else {
+		a.setInboxView(ViewChannels)
+	}
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
 	// Close thread panel when switching channels.
@@ -446,6 +516,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	// sees this channel at the top of the recents.
 	now := time.Now().Unix()
 	a.channelFinder.UpdateLastVisited(m.ID, now)
+	a.sidebar.TouchVisit(m.ID, now)
 	// Persist the visit (SQLite write + WorkspaceContext map update)
 	// asynchronously via main.go's recorder closure.
 	a.channels.RecordVisit(ids.ChannelID(m.ID))
@@ -494,7 +565,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		// -- e.g., a channel verified empty within the last 30s).
 		// Mark-as-read if non-empty. No fetch.
 		a.messagepane.SetLoading(false)
-		a.messagepane.SetMessages(cached)
+		a.messagepane.SetMessages(a.applyStarredFlags(m.ID, cached))
 		a.statusbar.SetSyncing(false)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=1_fresh", m.ID)
 		tier = "1_fresh"
@@ -517,7 +588,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		//     render + fire fetch + show indicator so the user
 		//     knows it's being checked.
 		a.messagepane.SetLoading(false)
-		a.messagepane.SetMessages(cached)
+		a.messagepane.SetMessages(a.applyStarredFlags(m.ID, cached))
 		a.statusbar.SetSyncing(true)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=2_verify", m.ID)
 		tier = "2_verify"
@@ -539,13 +610,27 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 // so it runs in parallel with the messages load (or alone on tier 1).
 func withChromeFetch(a *App, channelID string, cmd tea.Cmd) tea.Cmd {
 	chrome := a.chromeFetchCmd(channelID)
-	if chrome == nil {
-		return cmd
+	reopen := a.reopenClosedDMCmd(channelID)
+	return tea.Batch(chrome, reopen, cmd)
+}
+
+func (a *App) reopenClosedDMCmd(channelID string) tea.Cmd {
+	closed := false
+	direct := false
+	for _, it := range a.sidebar.Items() {
+		if it.ID != channelID {
+			continue
+		}
+		closed = it.Closed
+		direct = channelTypeIsDirect(it.Type)
+		break
 	}
-	if cmd == nil {
-		return chrome
+	if !closed || !direct {
+		return nil
 	}
-	return tea.Batch(cmd, chrome)
+	channels := a.channels
+	id := ids.ChannelID(channelID)
+	return func() tea.Msg { return channels.Reopen(id) }
 }
 
 func (a *App) chromeFetchCmd(channelID string) tea.Cmd {

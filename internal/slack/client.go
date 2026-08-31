@@ -621,6 +621,20 @@ func (c *Client) LeaveChannel(ctx context.Context, channelID string) error {
 	return nil
 }
 
+// CloseConversation closes a 1:1 or group DM via conversations.close.
+// Slack's Home sidebar hides closed IMs; the Direct Messages tab still
+// lists them. Idempotent: already-closed is success.
+func (c *Client) CloseConversation(ctx context.Context, channelID string) error {
+	if channelID == "" {
+		return fmt.Errorf("conversations.close: channel required")
+	}
+	raw, err := c.PostForm(ctx, "conversations.close", url.Values{"channel": {channelID}})
+	if err != nil {
+		return fmt.Errorf("conversations.close: %w", err)
+	}
+	return parseSlackAPIAck("conversations.close", raw)
+}
+
 // GetUserProfile fetches a single user's profile by ID.
 func (c *Client) GetUserProfile(userID string) (*slack.User, error) {
 	user, err := c.api.GetUserInfo(userID)
@@ -639,6 +653,30 @@ func (c *Client) GetBotInfo(ctx context.Context, botID string) (*slack.Bot, erro
 		return nil, fmt.Errorf("getting bot info: %w", err)
 	}
 	return bot, nil
+}
+
+// GetLatestMessage returns the newest top-level message in a
+// conversation (conversations.history limit=1). Used to hydrate the
+// Direct Messages tab preview/recency when the local cache is empty.
+func (c *Client) GetLatestMessage(ctx context.Context, channelID string) (*slack.Message, error) {
+	if channelID == "" {
+		return nil, fmt.Errorf("getting latest: missing channel")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	resp, err := c.api.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: channelID,
+		Limit:     1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting latest %s: %w", channelID, err)
+	}
+	if len(resp.Messages) == 0 {
+		return nil, fmt.Errorf("getting latest %s: empty", channelID)
+	}
+	msg := resp.Messages[0]
+	return &msg, nil
 }
 
 // GetHistory retrieves message history for a channel.
@@ -719,6 +757,73 @@ func (c *Client) GetHistoryAround(ctx context.Context, channelID, ts string, lim
 	out = append(out, newer.Messages...)
 	out = append(out, older.Messages...)
 	return out, nil
+}
+
+// GetSingleMessage loads one message by channel+ts. Channel history
+// first (top-level posts). conversations.replies with ts as parent
+// covers thread parents. Thread replies that never appear in channel
+// history are found by treating the immediately-older channel message
+// as a candidate parent and scanning that thread for ts.
+func (c *Client) GetSingleMessage(ctx context.Context, channelID, ts string) (*slack.Message, error) {
+	if channelID == "" || ts == "" {
+		return nil, fmt.Errorf("getting message: missing channel or ts")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var parents []string
+	resp, err := c.api.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: channelID,
+		Latest:    ts,
+		Inclusive: true,
+		Limit:     10,
+	})
+	if err == nil && resp != nil {
+		for i := range resp.Messages {
+			if resp.Messages[i].Timestamp == ts {
+				msg := resp.Messages[i]
+				return &msg, nil
+			}
+			if t := resp.Messages[i].Timestamp; t != "" && t != ts {
+				parents = append(parents, t)
+			}
+		}
+	}
+	if msg, rerr := c.lookupReply(channelID, ts, ts); rerr == nil && msg != nil {
+		return msg, nil
+	}
+	for _, parent := range parents {
+		if msg, rerr := c.lookupReply(channelID, parent, ts); rerr == nil && msg != nil {
+			return msg, nil
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting message %s: %w", ts, err)
+	}
+	return nil, fmt.Errorf("getting message %s: not found", ts)
+}
+
+func (c *Client) lookupReply(channelID, parentTS, wantTS string) (*slack.Message, error) {
+	if parentTS == "" || wantTS == "" {
+		return nil, fmt.Errorf("missing ts")
+	}
+	replies, _, _, err := c.api.GetConversationReplies(&slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: parentTS,
+		Inclusive: true,
+		Latest:    wantTS,
+		Limit:     50,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i := range replies {
+		if replies[i].Timestamp == wantTS {
+			msg := replies[i]
+			return &msg, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
 }
 
 // SearchMessages runs a workspace-wide message search via Slack's
@@ -901,6 +1006,78 @@ func (c *Client) ScheduleMessage(ctx context.Context, channelID, text string, po
 	return scheduledID, mr, nil
 }
 
+// ScheduledMessage is one chat.scheduledMessages.list row.
+type ScheduledMessage struct {
+	ID      string
+	Channel string
+	PostAt  int64
+	Text    string
+}
+
+type scheduledListResponse struct {
+	OK                bool   `json:"ok"`
+	Error             string `json:"error"`
+	ScheduledMessages []struct {
+		ID      string `json:"id"`
+		Channel string `json:"channel_id"`
+		PostAt  int64  `json:"post_at"`
+		Text    string `json:"text"`
+	} `json:"scheduled_messages"`
+}
+
+// ListScheduledMessages returns pending chat.scheduleMessage rows
+// (chat.scheduledMessages.list). channelID empty lists the workspace.
+func (c *Client) ListScheduledMessages(ctx context.Context, channelID string) ([]ScheduledMessage, error) {
+	form := url.Values{"limit": {"100"}}
+	if channelID != "" {
+		form.Set("channel", channelID)
+	}
+	raw, err := c.PostForm(ctx, "chat.scheduledMessages.list", form)
+	if err != nil {
+		return nil, fmt.Errorf("chat.scheduledMessages.list: %w", err)
+	}
+	var res scheduledListResponse
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("chat.scheduledMessages.list: decoding: %w", err)
+	}
+	if !res.OK {
+		errStr := res.Error
+		if errStr == "" {
+			errStr = "ok=false"
+		}
+		return nil, fmt.Errorf("chat.scheduledMessages.list: %s", errStr)
+	}
+	out := make([]ScheduledMessage, 0, len(res.ScheduledMessages))
+	for _, e := range res.ScheduledMessages {
+		if e.ID == "" {
+			continue
+		}
+		out = append(out, ScheduledMessage{
+			ID:      e.ID,
+			Channel: e.Channel,
+			PostAt:  e.PostAt,
+			Text:    e.Text,
+		})
+	}
+	return out, nil
+}
+
+// DeleteScheduledMessage cancels a pending scheduled message.
+func (c *Client) DeleteScheduledMessage(ctx context.Context, channelID, scheduledID string) error {
+	if channelID == "" || scheduledID == "" {
+		return fmt.Errorf("chat.deleteScheduledMessage: channel and id required")
+	}
+	form := url.Values{
+		"channel":              {channelID},
+		"scheduled_message_id": {scheduledID},
+	}
+	raw, err := c.PostForm(ctx, "chat.deleteScheduledMessage", form)
+	if err != nil {
+		return fmt.Errorf("chat.deleteScheduledMessage: %w", err)
+	}
+	return parseSlackAPIAck("chat.deleteScheduledMessage", raw)
+}
+
 // OpenConversation opens (or returns) a direct message channel (1 user)
 // or a multi-person direct message / MPIM (2-8 users). Idempotent:
 // when the conversation already exists, Slack returns it with
@@ -923,6 +1100,22 @@ func (c *Client) OpenConversation(ctx context.Context, userIDs []string) (string
 		return "", false, fmt.Errorf("opening conversation: %w", err)
 	}
 	return ch.ID, alreadyOpen, nil
+}
+
+// ReopenConversation resumes a closed IM or MPIM via conversations.open
+// with the channel id (Slack's Home is_open flag).
+func (c *Client) ReopenConversation(ctx context.Context, channelID string) error {
+	if channelID == "" {
+		return fmt.Errorf("conversations.open: channel required")
+	}
+	_, _, _, err := c.api.OpenConversationContext(ctx, &slack.OpenConversationParameters{
+		ChannelID: channelID,
+		ReturnIM:  true,
+	})
+	if err != nil {
+		return fmt.Errorf("conversations.open: %w", err)
+	}
+	return nil
 }
 
 // UploadFile uploads a single file to a channel (and optional thread)
@@ -1487,6 +1680,26 @@ func (c *Client) GetMutedChannels(ctx context.Context) ([]string, error) {
 // JSON-encoded string (Slack quirk), so callers should pass the raw
 // string contents directly. Returns an empty slice on any decode
 // failure — mute is best-effort UI sugar, not safety-critical.
+// ParseVIPUsers splits Slack's prefs.vip_users value (comma-separated
+// user/bot IDs the authenticated user marked VIP in Preferences → VIP).
+func ParseVIPUsers(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		id := strings.TrimSpace(p)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
 func ParseMutedFromAllNotificationsPrefs(raw string) []string {
 	if raw == "" {
 		return nil
@@ -1756,6 +1969,15 @@ type starsListResponse struct {
 type starsListItem struct {
 	Type    string `json:"type"`
 	Channel string `json:"channel"` // populated when Type == "channel" or "im"
+	Message struct {
+		TS string `json:"ts"`
+	} `json:"message"`
+}
+
+// StarredMessage is a stars.list item of type=message.
+type StarredMessage struct {
+	ChannelID string
+	TS        string
 }
 
 type starsListPaging struct {
@@ -1808,6 +2030,28 @@ func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+// GetStarredMessages returns message-typed items from stars.list.
+func (c *Client) GetStarredMessages(ctx context.Context) ([]StarredMessage, error) {
+	raw, err := c.postForm(ctx, "stars.list", url.Values{"limit": {"1000"}})
+	if err != nil {
+		return nil, fmt.Errorf("stars.list: %w", err)
+	}
+	var slr starsListResponse
+	if err := json.Unmarshal(raw, &slr); err != nil {
+		return nil, fmt.Errorf("parsing stars.list response: %w", err)
+	}
+	if !slr.OK {
+		return nil, fmt.Errorf("stars.list API error: %s", slr.Error)
+	}
+	var out []StarredMessage
+	for _, it := range slr.Items {
+		if it.Type == "message" && it.Channel != "" && it.Message.TS != "" {
+			out = append(out, StarredMessage{ChannelID: it.Channel, TS: it.Message.TS})
+		}
+	}
+	return out, nil
+}
+
 // StarChannel stars a conversation (public/private channel, or DM)
 // via stars.add. Only the channel-item form is sent — no timestamp —
 // so this never stars a message.
@@ -1819,6 +2063,40 @@ func (c *Client) StarChannel(ctx context.Context, channelID string) error {
 // channel-item form as StarChannel (no timestamp).
 func (c *Client) UnstarChannel(ctx context.Context, channelID string) error {
 	return c.starChannelOp(ctx, "stars.remove", channelID, "no_star")
+}
+
+// StarMessage stars a message via stars.add with channel + timestamp.
+func (c *Client) StarMessage(ctx context.Context, channelID, ts string) error {
+	return c.starMessageOp(ctx, "stars.add", channelID, ts, "already_starred")
+}
+
+// UnstarMessage removes a message star via stars.remove.
+func (c *Client) UnstarMessage(ctx context.Context, channelID, ts string) error {
+	return c.starMessageOp(ctx, "stars.remove", channelID, ts, "no_star")
+}
+
+func (c *Client) starMessageOp(ctx context.Context, method, channelID, ts, idempotentErr string) error {
+	if channelID == "" || ts == "" {
+		return fmt.Errorf("%s: empty channel or timestamp", method)
+	}
+	raw, err := c.postForm(ctx, method, url.Values{"channel": {channelID}, "timestamp": {ts}})
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("parsing %s response: %w (body=%q)", method, err, truncateForLog(raw))
+	}
+	if !resp.OK {
+		if resp.Error == idempotentErr {
+			return nil
+		}
+		return fmt.Errorf("%s API error: %s", method, resp.Error)
+	}
+	return nil
 }
 
 func (c *Client) starChannelOp(ctx context.Context, method, channelID, idempotentErr string) error {
@@ -2385,4 +2663,13 @@ func (c *Client) HistoryWithVersions(ctx context.Context, channelID string, opts
 		LatestUpdates: resp.LatestUpdates,
 		HasMore:       resp.HasMore,
 	}, nil
+}
+
+// UnreadHistory fetches the All Unreads pane window for one conversation.
+// Captured from the official web client's Home Unreads view (2026-08-31):
+// conversations.history with limit=28, ignore_replies=true, inclusive=true,
+// oldest=<last_read>, include_date_joined=false. Delegates to
+// HistoryWithVersions so the request shape stays in one place.
+func (c *Client) UnreadHistory(ctx context.Context, channelID, lastRead string) (HistoryResult, error) {
+	return c.HistoryWithVersions(ctx, channelID, HistoryOpts{Oldest: lastRead})
 }

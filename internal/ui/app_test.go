@@ -20,11 +20,13 @@ import (
 	imgpkg "github.com/gammons/slk/internal/image"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/compose"
+	"github.com/gammons/slk/internal/ui/draftsview"
 	"github.com/gammons/slk/internal/ui/laterview"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/ui/unreadsview"
 	"github.com/gammons/slk/internal/ui/workspace"
 	"golang.design/x/clipboard"
 )
@@ -743,6 +745,332 @@ func TestApp_LaterCountsUpdatesBadge(t *testing.T) {
 	_, _ = app.Update(LaterCountsMsg{TeamID: "T2", Count: 99})
 	if app.sidebar.LaterUnreadCount() != 4 {
 		t.Errorf("other-team counts should be ignored; got %d", app.sidebar.LaterUnreadCount())
+	}
+}
+
+func TestApp_DMsViewKeepsDirectConversation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.activeChannelID = "D1"
+	app.sidebar.SetItems([]sidebar.ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel"},
+		{ID: "D1", Name: "alice", Type: "dm"},
+	})
+	_, _ = app.Update(DMsViewActivatedMsg{})
+	if app.sidebar.SelectedID() != "D1" {
+		t.Errorf("open DM should stay selected in the DMs list, got %q", app.sidebar.SelectedID())
+	}
+}
+
+func TestApp_DMsViewDoesNotSelectChannel(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.activeChannelID = "C1"
+	app.sidebar.SetItems([]sidebar.ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel"},
+		{ID: "D1", Name: "alice", Type: "dm"},
+	})
+	_, _ = app.Update(DMsViewActivatedMsg{})
+	if app.sidebar.SelectedID() == "D1" {
+		t.Fatal("opening DMs from a channel must not highlight an unrelated DM")
+	}
+	if app.sidebar.SelectedID() == "C1" {
+		t.Fatal("public channel must not stay selected in the DMs list")
+	}
+	if !app.sidebar.IsHomeSelected() {
+		t.Errorf("expected Home row, selected=%q home=%v", app.sidebar.SelectedID(), app.sidebar.IsHomeSelected())
+	}
+}
+
+func TestApp_QuitConfirmFlushesComposeDrafts(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.activeChannelID = "C1"
+	saved := map[string]string{}
+	app.SetDraftStore(func(workspaceID, key, text string) {
+		saved[key] = text
+	}, nil)
+	app.compose.SetValue("typed then quit")
+	app.openQuitConfirm()
+	cmd := handleConfirmMode(app, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("confirm should return a cmd")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("confirm should quit after flushing drafts")
+	}
+	if saved["C1"] != "typed then quit" {
+		t.Errorf("quit flush saved %q, want typed then quit", saved["C1"])
+	}
+}
+
+func TestApp_DMsViewActivation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SetItems([]sidebar.ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel"},
+		{ID: "D1", Name: "alice", Type: "dm"},
+	})
+	_, _ = app.Update(DMsViewActivatedMsg{})
+	if app.view != ViewDMs {
+		t.Fatalf("after activation view = %v, want ViewDMs", app.view)
+	}
+	if !app.sidebar.DMsView() {
+		t.Fatal("sidebar should be in DMs-list mode")
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "D1", Name: "alice", Type: "dm"})
+	if app.view != ViewDMs {
+		t.Errorf("selecting a DM should stay in ViewDMs, got %v", app.view)
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"})
+	if app.view != ViewChannels {
+		t.Errorf("selecting a channel should leave ViewDMs, got %v", app.view)
+	}
+}
+
+func TestApp_HandleEnterOnDMsRowActivatesView(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SelectDMsRow()
+	if !app.sidebar.IsDMsSelected() {
+		t.Fatal("precondition: Direct Messages row selected")
+	}
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(DMsViewActivatedMsg); !ok {
+		t.Errorf("expected DMsViewActivatedMsg, got %T", msg)
+	}
+}
+
+func TestApp_DraftsViewActivation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(DraftsViewActivatedMsg{})
+	if app.view != ViewDrafts {
+		t.Fatalf("after activation view = %v, want ViewDrafts", app.view)
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
+	if app.view != ViewChannels {
+		t.Errorf("after ChannelSelectedMsg view = %v, want ViewChannels", app.view)
+	}
+}
+
+func TestApp_DraftsCountsUpdatesBadge(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(DraftsCountsMsg{TeamID: "T1", Count: 3})
+	if app.sidebar.DraftsUnreadCount() != 3 {
+		t.Errorf("DraftsUnreadCount = %d, want 3", app.sidebar.DraftsUnreadCount())
+	}
+	_, _ = app.Update(DraftsCountsMsg{TeamID: "T2", Count: 99})
+	if app.sidebar.DraftsUnreadCount() != 3 {
+		t.Errorf("other-team counts should be ignored; got %d", app.sidebar.DraftsUnreadCount())
+	}
+}
+
+func TestApp_HandleEnterOnDraftsRowActivatesView(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SelectDraftsRow()
+	if !app.sidebar.IsDraftsSelected() {
+		t.Fatal("precondition: Drafts row selected")
+	}
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(DraftsViewActivatedMsg); !ok {
+		t.Errorf("expected DraftsViewActivatedMsg, got %T", msg)
+	}
+}
+
+func TestApp_HandleEnterOnDraftsViewOpensChannel(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.view = ViewDrafts
+	app.focusedPanel = PanelMessages
+	app.draftsView.SetItems([]draftsview.Item{{
+		Kind: draftsview.KindDraft, ID: "Dr1", ChannelID: "C9",
+		Text: "unsent", ChannelName: "later-ch", ChannelType: "channel",
+	}})
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected cmd")
+	}
+	msg := cmd()
+	sel, ok := msg.(ChannelSelectedMsg)
+	if !ok {
+		t.Fatalf("got %T, want ChannelSelectedMsg", msg)
+	}
+	if sel.ID != "C9" {
+		t.Errorf("ID = %q, want C9", sel.ID)
+	}
+	if app.pendingDraftOpen == nil || app.pendingDraftOpen.channelID != "C9" {
+		t.Errorf("pendingDraftOpen = %+v", app.pendingDraftOpen)
+	}
+}
+
+func TestApp_ChannelSelectedCompletesDraftOpen(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.compose.SwapDraft("C9")
+	app.compose.SetValue("old local")
+	app.pendingDraftOpen = &pendingDraftOpen{channelID: "C9"}
+	app.compose.ReplaceTextDraft("C9", "from card")
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C9", Name: "later-ch", Type: "channel"})
+	if app.pendingDraftOpen != nil {
+		t.Fatal("pendingDraftOpen should clear after a successful channel open")
+	}
+	if app.mode != ModeInsert {
+		t.Errorf("mode = %v, want ModeInsert", app.mode)
+	}
+	if app.compose.Value() != "from card" {
+		t.Errorf("compose = %q, want from card", app.compose.Value())
+	}
+}
+
+func TestApp_DraftOpenClearedOnOtherChannel(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.pendingDraftOpen = &pendingDraftOpen{channelID: "C9"}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"})
+	if app.pendingDraftOpen != nil {
+		t.Fatal("pendingDraftOpen should clear when a different channel is selected")
+	}
+	if app.mode == ModeInsert {
+		t.Fatal("other-channel select must not enter insert for a pending draft")
+	}
+}
+
+func TestApp_DeleteDraftKey(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.view = ViewDrafts
+	app.focusedPanel = PanelMessages
+	app.draftsView.SetItems([]draftsview.Item{{
+		Kind: draftsview.KindDraft, ID: "Dr1", ChannelID: "C1",
+		LastUpdatedTS: "1.0", Text: "unsent",
+	}})
+	var deletedID string
+	app.SetDraftsService(NewDraftsService(DraftsServiceFuncs{
+		Delete: func(id, lastUpdatedTS string) error {
+			deletedID = id
+			if lastUpdatedTS != "1.0" {
+				t.Errorf("lastUpdatedTS = %q, want 1.0", lastUpdatedTS)
+			}
+			return nil
+		},
+	}))
+	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'D', Text: "D"})
+	if cmd == nil {
+		t.Fatal("expected cmd from D")
+	}
+	msg := cmd()
+	if deletedID != "Dr1" {
+		t.Errorf("Delete called with %q, want Dr1", deletedID)
+	}
+	del, ok := msg.(DraftDeletedMsg)
+	if !ok {
+		t.Fatalf("got %T, want DraftDeletedMsg", msg)
+	}
+	if del.ID != "Dr1" || del.Err != nil {
+		t.Errorf("DraftDeletedMsg = %+v", del)
+	}
+}
+
+func TestApp_UnreadsViewActivation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(UnreadsViewActivatedMsg{})
+	if app.view != ViewUnreads {
+		t.Fatalf("after activation view = %v, want ViewUnreads", app.view)
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
+	if app.view != ViewChannels {
+		t.Errorf("after ChannelSelectedMsg view = %v, want ViewChannels", app.view)
+	}
+}
+
+func TestApp_HandleEnterOnUnreadsRowActivatesView(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SelectUnreadsRow()
+	if !app.sidebar.IsUnreadsSelected() {
+		t.Fatal("precondition: Unreads row selected")
+	}
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(UnreadsViewActivatedMsg); !ok {
+		t.Errorf("expected UnreadsViewActivatedMsg, got %T", msg)
+	}
+}
+
+func TestApp_HandleEnterOnUnreadsMessageOpensChannel(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.view = ViewUnreads
+	app.focusedPanel = PanelMessages
+	app.unreadsView.SetBlocks([]unreadsview.Block{{
+		ChannelID: "C9", ChannelName: "later-ch", ChannelType: "channel",
+		LastRead: "1.0", LatestTS: "2.0",
+		Messages: []unreadsview.Message{{TS: "2.0", UserID: "U1", Text: "hello"}},
+	}})
+	app.unreadsView.MoveDown() // onto the message
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected cmd")
+	}
+	msg := cmd()
+	sel, ok := msg.(ChannelSelectedMsg)
+	if !ok {
+		t.Fatalf("got %T, want ChannelSelectedMsg", msg)
+	}
+	if sel.ID != "C9" {
+		t.Errorf("ID = %q, want C9", sel.ID)
+	}
+	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "2.0" {
+		t.Errorf("pendingLinkNav = %+v", app.pendingLinkNav)
+	}
+}
+
+func TestApp_HandleEnterOnUnreadsHeaderMarksRead(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.view = ViewUnreads
+	app.focusedPanel = PanelMessages
+	app.unreadsView.SetBlocks([]unreadsview.Block{{
+		ChannelID: "C9", ChannelName: "later-ch", ChannelType: "channel",
+		LastRead: "1.0", LatestTS: "2.0",
+		Messages: []unreadsview.Message{{TS: "2.0", UserID: "U1", Text: "hello"}},
+	}})
+	var marked string
+	app.SetUnreadsService(NewUnreadsService(UnreadsServiceFuncs{
+		MarkRead: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+			marked = string(channelID) + " " + string(ts)
+			return nil
+		},
+	}))
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected cmd")
+	}
+	msg := cmd()
+	if marked != "C9 2.0" {
+		t.Errorf("MarkRead = %q, want C9 2.0", marked)
+	}
+	got, ok := msg.(UnreadsMarkedMsg)
+	if !ok {
+		t.Fatalf("got %T, want UnreadsMarkedMsg", msg)
+	}
+	if got.ChannelID != "C9" || got.Undo || got.Err != nil {
+		t.Errorf("UnreadsMarkedMsg = %+v", got)
 	}
 }
 

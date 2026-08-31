@@ -41,6 +41,112 @@ func TestBuildChannelItem_DM(t *testing.T) {
 	}
 }
 
+func TestBuildChannelItem_ClosedIM(t *testing.T) {
+	wctx := &WorkspaceContext{
+		BotUserIDs: map[string]bool{},
+		UserNames:  map[string]string{"U123": "alice"},
+	}
+	closed := slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "D1", IsIM: true, User: "U123", IsOpen: false},
+		},
+	}
+	item, _ := buildChannelItem(closed, wctx, config.Config{}, "T1")
+	if !item.Closed {
+		t.Error("closed IM should set Closed")
+	}
+	open := closed
+	open.IsOpen = true
+	item, _ = buildChannelItem(open, wctx, config.Config{}, "T1")
+	if item.Closed {
+		t.Error("open IM should not be Closed")
+	}
+}
+
+func TestBuildChannelItem_GroupDMAvatarFromMembers(t *testing.T) {
+	wctx := &WorkspaceContext{
+		UserID:    "Ume",
+		UserNames: map[string]string{"Upeer": "bob", "Ume": "me"},
+	}
+	ch := slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G1", IsMpIM: true},
+			Name:         "mpdm-me--bob-1",
+			Members:      []string{"Ume", "Upeer"},
+		},
+	}
+	item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
+	if item.Type != "group_dm" {
+		t.Fatalf("Type = %q", item.Type)
+	}
+	if item.DMUserID != "Upeer" {
+		t.Errorf("DMUserID = %q, want Upeer (first other member)", item.DMUserID)
+	}
+}
+
+func TestBuildChannelItem_GroupDMVIPUsesPeerID(t *testing.T) {
+	store := service.NewVIPStore()
+	store.Replace([]string{"Upeer"})
+	wctx := &WorkspaceContext{
+		UserID:    "Ume",
+		UserNames: map[string]string{"Upeer": "bob", "Ume": "me"},
+		VIPStore:  store,
+	}
+	ch := slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G1", IsMpIM: true},
+			Name:         "mpdm-me--bob-1",
+			Members:      []string{"Ume", "Upeer"},
+		},
+	}
+	item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
+	if !item.IsVIP {
+		t.Fatal("group DM should be VIP when the peer is in vip_users (not ch.User, which is empty)")
+	}
+}
+
+func TestBuildChannelItem_GroupDMAvatarFromHandle(t *testing.T) {
+	wctx := &WorkspaceContext{
+		UserID:          "Ume",
+		UserNames:       map[string]string{"Upeer": "Bob"},
+		UserIDsByHandle: map[string]string{"me": "Ume", "bob": "Upeer"},
+	}
+	ch := slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G1", IsMpIM: true},
+			Name:         "mpdm-me--bob-1",
+		},
+	}
+	item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
+	if item.DMUserID != "Upeer" {
+		t.Errorf("DMUserID = %q, want Upeer from mpdm handle", item.DMUserID)
+	}
+}
+
+func TestBuildChannelItem_LastActivityFromLatest(t *testing.T) {
+	wctx := &WorkspaceContext{
+		BotUserIDs: map[string]bool{},
+		UserNames:  map[string]string{"U123": "alice"},
+	}
+	ch := slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{
+				ID:   "D1",
+				IsIM: true,
+				User: "U123",
+				Latest: &slack.Message{Msg: slack.Msg{
+					Timestamp: "1700000001.000200",
+					Text:      "hi",
+				}},
+			},
+		},
+	}
+	item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
+	if item.LastActivity != 1700000001 {
+		t.Errorf("LastActivity = %d, want 1700000001", item.LastActivity)
+	}
+}
+
 func TestBuildChannelItem_DMUnknownFallsBackToUserID(t *testing.T) {
 	wctx := &WorkspaceContext{
 		BotUserIDs:        map[string]bool{},
@@ -84,6 +190,24 @@ func TestBuildChannelItem_GroupDM(t *testing.T) {
 	}
 	if item.Name != "Alice, Bob" {
 		t.Errorf("Name = %q, want %q", item.Name, "Alice, Bob")
+	}
+}
+
+func TestBuildChannelItem_GroupDMFromMpdmNameWithoutFlag(t *testing.T) {
+	wctx := &WorkspaceContext{
+		BotUserIDs:        map[string]bool{},
+		UserNames:         map[string]string{},
+		UserNamesByHandle: map[string]string{"alice": "Alice", "bob": "Bob"},
+	}
+	ch := slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G2", IsPrivate: true},
+			Name:         "mpdm-alice--bob-1",
+		},
+	}
+	item, _ := buildChannelItem(ch, wctx, config.Config{}, "T1")
+	if item.Type != "group_dm" {
+		t.Errorf("Type = %q, want group_dm (mpdm-* name, no is_mpim)", item.Type)
 	}
 }
 

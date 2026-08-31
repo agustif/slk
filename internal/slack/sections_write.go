@@ -136,3 +136,69 @@ func (c *Client) CreateChannelSection(ctx context.Context, name, emoji string) (
 	}
 	return id, nil
 }
+
+// UpdateChannelSection POSTs users.channelSections.update. Slack's
+// list/WS payloads already carry name, emoji, and
+// next_channel_section_id on this object; the official client writes
+// the same fields. Empty strings are omitted so a rename does not
+// blank emoji, and a reorder does not blank the name.
+func (c *Client) UpdateChannelSection(ctx context.Context, sectionID, name, emoji string) error {
+	return c.updateChannelSection(ctx, sectionID, name, emoji, nil)
+}
+
+func (c *Client) updateChannelSection(ctx context.Context, sectionID, name, emoji string, next *string) error {
+	const method = "users.channelSections.update"
+	if sectionID == "" {
+		return fmt.Errorf("%s: section id required", method)
+	}
+	form := url.Values{"channel_section_id": {sectionID}}
+	if name != "" {
+		form.Set("name", name)
+	}
+	if emoji != "" {
+		form.Set("emoji", emoji)
+	}
+	if next != nil {
+		form.Set("next_channel_section_id", *next)
+	}
+	raw, err := c.PostForm(ctx, method, form)
+	if err != nil {
+		return fmt.Errorf("%s: %w", method, err)
+	}
+	return parseSlackAPIAck(method, raw)
+}
+
+// DeleteChannelSection POSTs users.channelSections.delete.
+func (c *Client) DeleteChannelSection(ctx context.Context, sectionID string) error {
+	const method = "users.channelSections.delete"
+	if sectionID == "" {
+		return fmt.Errorf("%s: section id required", method)
+	}
+	form := url.Values{"channel_section_id": {sectionID}}
+	raw, err := c.PostForm(ctx, method, form)
+	if err != nil {
+		return fmt.Errorf("%s: %w", method, err)
+	}
+	return parseSlackAPIAck(method, raw)
+}
+
+// ReorderChannelSections writes the linked-list order by updating each
+// section's next_channel_section_id (the same field users.channelSections.list
+// and channel_section_upserted already carry). A dedicated
+// users.channelSections.reorder method is not attested in captures.
+func (c *Client) ReorderChannelSections(ctx context.Context, sectionIDs []string) error {
+	if len(sectionIDs) == 0 {
+		return nil
+	}
+	for i, id := range sectionIDs {
+		next := ""
+		if i+1 < len(sectionIDs) {
+			next = sectionIDs[i+1]
+		}
+		n := next
+		if err := c.updateChannelSection(ctx, id, "", "", &n); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -192,6 +192,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 	if m.Domain != "" {
 		a.workspaceDomains[m.TeamID] = m.Domain
 	}
+	a.setWorkspaceIcon(m.TeamID, m.IconURL)
 	var batch []tea.Cmd
 	// Only the workspace flagged InitialActive auto-claims active
 	// state. main.go computes this deterministically
@@ -201,17 +202,18 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 	// is a defensive one-shot guard against any future bug that
 	// delivers InitialActive=true twice.
 	if m.InitialActive && a.bootstrap.ClaimInitialActive() {
-		a.view = ViewChannels
-		a.sidebar.SetThreadsActive(false)
-		a.sidebar.SetActivityActive(false)
-		a.sidebar.SetLaterActive(false)
+		a.setInboxView(ViewChannels)
 		a.threadsView.SetSummaries(nil)
 		a.activityView.SetItems(nil)
 		a.laterView.SetItems(nil)
 		a.laterSaved = map[string]bool{}
+		a.draftsView.SetItems(nil)
+		a.unreadsView.Clear()
+		a.pendingDraftOpen = nil
 		a.sidebar.SetThreadsUnreadCount(0)
 		a.sidebar.SetActivityUnreadCount(m.ActivityUnread)
 		a.sidebar.SetLaterUnreadCount(m.LaterCount)
+		a.sidebar.SetDraftsUnreadCount(0)
 		a.lastOpenedChannelID = ""
 		a.lastOpenedThreadTS = ""
 		// Apply the resolved theme for the initial active
@@ -244,6 +246,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		// otherwise, which would leave live self-reactions unstyled.
 		a.SetCurrentUserID(m.UserID)
 		a.activeTeamID = m.TeamID
+		a.loadComposeDrafts(m.TeamID)
 		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		a.workspaceRail.SelectByID(m.TeamID)
@@ -276,6 +279,14 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 	threads := a.threads
 	team := ids.TeamID(m.TeamID)
 	batch = append(batch, func() tea.Msg { return threads.ListFetch(team) })
+	if cmd := a.fetchStarredMessagesCmd(); cmd != nil {
+		batch = append(batch, cmd)
+	}
+	if a.activeTeamID == m.TeamID {
+		if cmd := a.fetchDraftsCountCmd(); cmd != nil {
+			batch = append(batch, cmd)
+		}
+	}
 	// Boot is also the subscription sync's primary trigger: the socket
 	// replays nothing, so after any offline gap (app closed, laptop
 	// asleep) the cached thread_subscriptions table is stale and only
@@ -315,17 +326,18 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// moved to the restored channel below (after SetChannels);
 	// only fall back to the Threads row when the new workspace
 	// has no channels at all.
-	a.view = ViewChannels
-	a.sidebar.SetThreadsActive(false)
-	a.sidebar.SetActivityActive(false)
-	a.sidebar.SetLaterActive(false)
+	a.setInboxView(ViewChannels)
 	a.threadsView.SetSummaries(nil)
 	a.activityView.SetItems(nil)
 	a.laterView.SetItems(nil)
 	a.laterSaved = map[string]bool{}
+	a.draftsView.SetItems(nil)
+	a.unreadsView.Clear()
+	a.pendingDraftOpen = nil
 	a.sidebar.SetThreadsUnreadCount(0)
 	a.sidebar.SetActivityUnreadCount(m.ActivityUnread)
 	a.sidebar.SetLaterUnreadCount(m.LaterCount)
+	a.sidebar.SetDraftsUnreadCount(0)
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
 	a.CloseThread()
@@ -365,7 +377,9 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// Route through the setter so messagepane/threadPanel also learn the
 	// current user (see WorkspaceReadyMsg above).
 	a.SetCurrentUserID(m.UserID)
+	a.flushComposeDraftsFor(a.activeTeamID)
 	a.activeTeamID = m.TeamID
+	a.loadComposeDrafts(m.TeamID)
 	pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 	a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 	// Apply per-workspace theme. Must run on Update goroutine so
@@ -414,5 +428,11 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	threads := a.threads
 	team := ids.TeamID(m.TeamID)
 	batch = append(batch, func() tea.Msg { return threads.ListFetch(team) })
+	if cmd := a.fetchStarredMessagesCmd(); cmd != nil {
+		batch = append(batch, cmd)
+	}
+	if cmd := a.fetchDraftsCountCmd(); cmd != nil {
+		batch = append(batch, cmd)
+	}
 	return tea.Batch(batch...)
 }

@@ -284,7 +284,7 @@ func TestHelp_ListsScheduleBinding(t *testing.T) {
 	entries := help.FromKeyMap(DefaultKeyMap())
 	found := false
 	for _, e := range entries {
-		if e.Key == "ctrl+g / :schedule" && e.Desc == "schedule message" {
+		if strings.Contains(e.Key, "ctrl+g") && strings.Contains(e.Key, ":schedule") {
 			found = true
 			break
 		}

@@ -29,11 +29,18 @@ const ActivityViewID = "__slk_view_activity"
 // LaterViewID is the sentinel ID used for the synthetic "Later" entry.
 const LaterViewID = "__slk_view_later"
 
+// DMsViewID is the sentinel ID used for the synthetic "Direct Messages" entry.
+const DMsViewID = "__slk_view_dms"
+
+const DraftsViewID = "__slk_view_drafts"
+
+const UnreadsViewID = "__slk_view_unreads"
+
 // ChannelResult is returned when the user selects a channel.
 type ChannelResult struct {
 	ID     string
 	Name   string
-	Type   string // channel, dm, group_dm, private, threads, activity, later
+	Type   string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads
 	Joined bool   // false => caller should join the channel before opening it
 }
 
@@ -41,7 +48,7 @@ type ChannelResult struct {
 type Item struct {
 	ID       string
 	Name     string
-	Type     string // channel, dm, group_dm, private, threads, activity, later
+	Type     string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads
 	Presence string // for DMs: active, away
 	Joined   bool   // true if the user is already a member; false for browseable public channels
 	// LastVisited is the unix timestamp (seconds) of the user's most
@@ -58,13 +65,18 @@ type Item struct {
 	Synthetic bool
 }
 
+const defaultTitle = "Switch Channel"
+const shareTitle = "Share to..."
+
 // Model is the fuzzy channel finder overlay.
 type Model struct {
-	items    []Item
-	filtered []int // indices into items matching query
-	query    string
-	selected int // index into filtered
-	visible  bool
+	items     []Item
+	filtered  []int // indices into items matching query
+	query     string
+	selected  int // index into filtered
+	visible   bool
+	title     string
+	shareMode bool // hide synthetic + unjoined rows; title "Share to..."
 }
 
 // New creates a new channel finder.
@@ -265,6 +277,35 @@ func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
 	return true
 }
 
+// SetShareMode toggles destination-only filtering used by Share/forward.
+// When on, synthetic views and channels the user has not joined are
+// hidden, and the title becomes "Share to...".
+func (m *Model) SetShareMode(on bool) {
+	m.shareMode = on
+	if on {
+		m.title = shareTitle
+	} else {
+		m.title = ""
+	}
+	if m.visible {
+		m.selected = 0
+		m.filter()
+	}
+}
+
+// ShareMode reports whether the finder is picking a share destination.
+func (m Model) ShareMode() bool {
+	return m.shareMode
+}
+
+// Title is the overlay heading. Empty falls back to "Switch Channel".
+func (m Model) Title() string {
+	if m.title == "" {
+		return defaultTitle
+	}
+	return m.title
+}
+
 // Open shows the overlay and resets state.
 func (m *Model) Open() {
 	m.visible = true
@@ -353,14 +394,35 @@ func (m *Model) HandleKey(keyStr string) *ChannelResult {
 //  3. Subsequence matches (e.g. "csp" matches "cs-product-triage" because
 //     c, s, p appear in order). Tighter matches with more word-boundary
 //     hits score higher.
+//
+// shareHidden reports rows the share-destination picker should omit:
+// synthetic views (Threads, Activity, …) and conversations the user
+// has not joined (chat.postMessage would fail with not_in_channel).
+func (m Model) shareHidden(it Item) bool {
+	if !m.shareMode {
+		return false
+	}
+	if it.Synthetic || !it.Joined {
+		return true
+	}
+	switch it.Type {
+	case "threads", "activity", "later", "dms", "drafts", "unreads":
+		return true
+	}
+	return false
+}
+
 func (m *Model) filter() {
 	m.filtered = nil
 	q := text.Fold(m.query)
 
 	if q == "" {
-		idxs := make([]int, len(m.items))
-		for i := range m.items {
-			idxs[i] = i
+		idxs := make([]int, 0, len(m.items))
+		for i, it := range m.items {
+			if m.shareHidden(it) {
+				continue
+			}
+			idxs = append(idxs, i)
 		}
 		sort.SliceStable(idxs, func(i, j int) bool {
 			return m.lessNoQuery(idxs[i], idxs[j])
@@ -377,6 +439,9 @@ func (m *Model) filter() {
 
 	var matches []match
 	for i, item := range m.items {
+		if m.shareHidden(item) {
+			continue
+		}
 		name := text.Fold(item.Name)
 		switch {
 		case strings.HasPrefix(name, q):
@@ -547,7 +612,7 @@ func (m Model) renderBox(termWidth int) string {
 		Bold(true).
 		Background(bg).
 		Foreground(styles.Primary).
-		Render("Switch Channel")
+		Render(m.Title())
 
 	// Query input with blue left border
 	var inputText string
@@ -705,6 +770,12 @@ func channelPrefix(item Item) string {
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("◷")
 	case "activity":
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("◎")
+	case "drafts":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("✎")
+	case "unreads":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("◉")
+	case "dms":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("✉")
 	case "private":
 		return lipgloss.NewStyle().Foreground(styles.Warning).Render("◆")
 	case "dm":

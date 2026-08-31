@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/contextmenu"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -52,7 +54,9 @@ func TestMessageContextMenu_IncludesLaterPinFollow(t *testing.T) {
 	for _, want := range []contextmenu.ActionID{
 		contextmenu.ActionSaveForLater,
 		contextmenu.ActionRemind,
+		contextmenu.ActionShare,
 		contextmenu.ActionPin,
+		contextmenu.ActionStar,
 		contextmenu.ActionFollowThread,
 	} {
 		if _, ok := got[want]; !ok {
@@ -126,6 +130,36 @@ func TestMessageContextMenu_XKeyFromThreadPane(t *testing.T) {
 	}
 	if !followEnabled {
 		t.Error("Follow thread should be enabled in the thread pane")
+	}
+}
+
+func TestMessageContextMenu_ShareOpensFinder(t *testing.T) {
+	a := openContextMenuOnMessage(t)
+	a.SetChannelFinderItems([]channelfinder.Item{
+		{ID: "C2", Name: "random", Type: "channel", Joined: true, LastVisited: 100},
+	})
+	found := false
+	for _, it := range a.contextMenu.Items() {
+		if it.Action == contextmenu.ActionShare && it.Enabled {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("Share missing from message actions menu")
+	}
+	cmd := a.dispatchContextMenuAction(contextmenu.ActionShare)
+	if cmd != nil {
+		t.Fatalf("openSharePicker should be sync, got cmd %T", cmd)
+	}
+	if a.mode != ModeShare {
+		t.Errorf("mode = %v, want ModeShare", a.mode)
+	}
+	if !a.channelFinder.IsVisible() || !a.channelFinder.ShareMode() {
+		t.Fatal("share picker should be visible in share mode")
+	}
+	if !strings.Contains(a.channelFinder.View(80), "Share to...") {
+		t.Errorf("finder title missing Share to...:\n%s", a.channelFinder.View(80))
 	}
 }
 

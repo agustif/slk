@@ -25,32 +25,12 @@ import "strings"
 // body, etc.), the original string is returned unchanged so callers
 // can use this unconditionally.
 func FormatMPDMName(name string, lookup func(handle string) string) string {
-	const prefix = "mpdm-"
-	if !strings.HasPrefix(name, prefix) {
-		return name
-	}
-	body := name[len(prefix):]
-	if body == "" {
-		return name
-	}
-
-	// Strip the trailing "-<digits>" index, if present.
-	if i := strings.LastIndexByte(body, '-'); i >= 0 && i < len(body)-1 {
-		if isAllDigits(body[i+1:]) {
-			body = body[:i]
-		}
-	}
-
-	handles := strings.Split(body, "--")
+	handles := ParseMPDMHandles(name)
 	if len(handles) == 0 {
 		return name
 	}
-
 	displays := make([]string, 0, len(handles))
 	for _, h := range handles {
-		if h == "" {
-			continue
-		}
 		var d string
 		if lookup != nil {
 			d = lookup(h)
@@ -60,10 +40,36 @@ func FormatMPDMName(name string, lookup func(handle string) string) string {
 		}
 		displays = append(displays, d)
 	}
-	if len(displays) == 0 {
-		return name
-	}
 	return strings.Join(displays, ", ")
+}
+
+// ParseMPDMHandles extracts @handles from an mpdm-* channel name.
+// Returns nil when name is not in Slack's mpdm format.
+func ParseMPDMHandles(name string) []string {
+	const prefix = "mpdm-"
+	if !strings.HasPrefix(name, prefix) {
+		return nil
+	}
+	body := name[len(prefix):]
+	if body == "" {
+		return nil
+	}
+	if i := strings.LastIndexByte(body, '-'); i >= 0 && i < len(body)-1 {
+		if isAllDigits(body[i+1:]) {
+			body = body[:i]
+		}
+	}
+	raw := strings.Split(body, "--")
+	out := make([]string, 0, len(raw))
+	for _, h := range raw {
+		if h != "" {
+			out = append(out, h)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func isAllDigits(s string) bool {

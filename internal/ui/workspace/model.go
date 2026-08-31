@@ -12,18 +12,33 @@ type WorkspaceItem struct {
 	ID        string
 	Name      string
 	Initials  string
+	IconURL   string
 	HasUnread bool
 }
+
+// LogoFunc returns a rendered 4×2 team logo for teamID, triggering a
+// lazy fetch via iconURL on cache miss. Empty string means "not ready
+// yet; show initials".
+type LogoFunc func(teamID, iconURL string) string
 
 type Model struct {
 	items    []WorkspaceItem
 	selected int
 	version  int64
+	logoFn   LogoFunc
 	// unreadReader returns the set of workspace IDs that currently
 	// have at least one channel with has_unread=true. Set by App via
 	// SetUnreadReader; called by RefreshUnreads.
 	unreadReader func() []string
 }
+
+const (
+	railWidth   = 6
+	tileRows    = 2
+	tileGapRows = 1
+	tilePadRows = 1
+	tileStride  = tileRows + tileGapRows
+)
 
 // Version returns a counter that increments any time the View() output could
 // change.
@@ -90,6 +105,29 @@ func (m *Model) SetItems(items []WorkspaceItem) {
 	m.dirty()
 }
 
+// SetLogoFunc wires the lazy team-logo renderer. Initials remain the
+// fallback until the fetch lands.
+func (m *Model) SetLogoFunc(fn LogoFunc) {
+	m.logoFn = fn
+	m.dirty()
+}
+
+// LogoFunc returns the current team-logo renderer (may be nil).
+func (m *Model) LogoFunc() LogoFunc { return m.logoFn }
+
+// HandleLogoReady invalidates the rail when that team's logo lands.
+func (m *Model) HandleLogoReady(teamID string) {
+	if teamID == "" {
+		return
+	}
+	for _, it := range m.items {
+		if it.ID == teamID {
+			m.dirty()
+			return
+		}
+	}
+}
+
 func (m *Model) SelectByID(teamID string) {
 	for i, item := range m.items {
 		if item.ID == teamID {
@@ -148,7 +186,7 @@ func (m Model) View(height int) string {
 		return ""
 	}
 
-	var rows []string
+	var tiles []string
 	for i, item := range m.items {
 		var style lipgloss.Style
 		if i == m.selected {
@@ -157,50 +195,73 @@ func (m Model) View(height int) string {
 			style = styles.WorkspaceInactive
 		}
 
-		initials := item.Initials
+		gutter := " "
 		if item.HasUnread && i != m.selected {
-			initials = initials + styles.PresenceOnline.Render("●")
+			gutter = styles.PresenceOnline.Render("●")
 		}
-		label := style.Render(initials)
-		rows = append(rows, label)
+		l0, l1 := item.tileLines(m.logoFn)
+		tiles = append(tiles, style.Render(gutter+l0)+"\n"+style.Render(gutter+l1))
 	}
 
-	content := strings.Join(rows, "\n\n")
+	content := strings.Join(tiles, "\n\n")
 
 	// Height/MaxHeight in lipgloss include padding in the total,
 	// so use the full height directly. Padding(1,0) adds 1 row
 	// top + 1 row bottom inside that total, matching the visual
 	// offset of RoundedBorder() on adjacent panels.
 	rail := lipgloss.NewStyle().
-		Width(6).
+		Width(railWidth).
 		Height(height).
 		MaxHeight(height).
 		Background(styles.RailBackground).
-		Padding(1, 0).
+		Padding(tilePadRows, 0).
 		Align(lipgloss.Center).
 		Render(content)
 
 	return rail
 }
 
+func (item WorkspaceItem) tileLines(logoFn LogoFunc) (line0, line1 string) {
+	if logoFn != nil && item.IconURL != "" {
+		if s := logoFn(item.ID, item.IconURL); s != "" {
+			parts := strings.SplitN(s, "\n", 3)
+			line0 = parts[0]
+			if len(parts) > 1 {
+				line1 = parts[1]
+			}
+			if line1 == "" {
+				line1 = strings.Repeat(" ", lipgloss.Width(line0))
+			}
+			return line0, line1
+		}
+	}
+	ini := item.Initials
+	if ini == "" {
+		ini = "?"
+	}
+	return ini, strings.Repeat(" ", lipgloss.Width(ini))
+}
+
 // ClickAt returns the workspace item rendered at rail-local row y,
 // or ok=false when the click landed on a padding row, a gap between
 // items, or past the last item.
 //
-// Row layout mirrors View(): Padding(1,0) puts blank padding at row 0,
-// and items are "\n\n"-joined so they occupy rows 1, 3, 5, ... with
-// blank gap rows at 2, 4, 6, .... There is no horizontal column check
-// because the rail has no border and uses its full 6-col width as the
-// click target.
+// Row layout mirrors View(): Padding(1,0) puts blank padding at row 0.
+// Each tile is two content rows (logo or initials + spacer) joined by
+// one gap row, so item 0 occupies y=1,2, item 1 occupies y=4,5, etc.
 func (m Model) ClickAt(y int) (WorkspaceItem, bool) {
-	if y < 1 || len(m.items) == 0 {
+	if y < tilePadRows || len(m.items) == 0 {
 		return WorkspaceItem{}, false
 	}
-	rel := y - 1
-	if rel%2 != 0 {
-		return WorkspaceItem{}, false // gap between items
+	rel := y - tilePadRows
+	if rel < 0 {
+		return WorkspaceItem{}, false
 	}
-	idx := rel / 2
+	idx := rel / tileStride
+	off := rel % tileStride
+	if off >= tileRows {
+		return WorkspaceItem{}, false // gap between tiles
+	}
 	if idx < 0 || idx >= len(m.items) {
 		return WorkspaceItem{}, false
 	}
@@ -208,7 +269,7 @@ func (m Model) ClickAt(y int) (WorkspaceItem, bool) {
 }
 
 func (m Model) Width() int {
-	return 6 // 6 content, no border
+	return railWidth // 6 content, no border
 }
 
 func WorkspaceInitials(name string) string {

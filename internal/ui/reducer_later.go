@@ -21,10 +21,7 @@ var reduceLater reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case LaterViewActivatedMsg:
 		_ = m
-		a.view = ViewLater
-		a.sidebar.SetLaterActive(true)
-		a.sidebar.SetActivityActive(false)
-		a.sidebar.SetThreadsActive(false)
+		a.setInboxView(ViewLater)
 		a.focusedPanel = PanelMessages
 		a.laterView.SetBadge(a.sidebar.LaterUnreadCount())
 		if cmd := a.fetchLaterCmd(); cmd != nil {
@@ -41,9 +38,14 @@ var reduceLater reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			a.laterView.SetError("saved.list failed — " + m.Err.Error())
 			return nil, true
 		}
-		a.laterView.SetItems(a.decorateLaterItems(m.Items))
+		a.laterView.SetPage(a.decorateLaterItems(m.Items), m.Cursor, m.Append)
+		a.laterView.SetCounts(m.Counts)
 		a.applyLaterCounts(m.Counts.Badge())
-		a.replaceLaterSaved(m.Items)
+		if !m.Append {
+			a.replaceLaterSaved(m.Items)
+		} else {
+			a.mergeLaterSaved(m.Items)
+		}
 		return nil, true
 
 	case LaterCountsMsg:
@@ -58,6 +60,9 @@ var reduceLater reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case laterRemindedMsg:
 		return a.applyLaterReminded(m), true
+
+	case laterStateMsg:
+		return a.applyLaterState(m), true
 	}
 	return nil, false
 }
@@ -77,8 +82,24 @@ func (a *App) fetchLaterCmd() tea.Cmd {
 	a.laterView.SetError("")
 	later := a.later
 	team := ids.TeamID(a.activeTeamID)
+	filter := a.laterView.Filter()
 	return func() tea.Msg {
-		return later.List(team, gen)
+		return later.List(team, gen, filter, "")
+	}
+}
+
+func (a *App) fetchLaterMoreCmd() tea.Cmd {
+	if a.activeTeamID == "" || !a.laterView.HasMore() {
+		return nil
+	}
+	a.laterGen++
+	gen := a.laterGen
+	later := a.later
+	team := ids.TeamID(a.activeTeamID)
+	filter := a.laterView.Filter()
+	cursor := a.laterView.NextCursor()
+	return func() tea.Msg {
+		return later.List(team, gen, filter, cursor)
 	}
 }
 
@@ -88,12 +109,31 @@ func (a *App) decorateLaterItems(in []slackclient.SavedItem) []laterview.Item {
 		if it.ItemType != "" && it.ItemType != "message" {
 			continue
 		}
-		item := laterview.Item{SavedItem: it}
+		item := laterview.Item{SavedItem: it, Preview: it.Text}
 		if name, ok := a.channelNames[it.ItemID]; ok {
 			item.ChannelName = name
 		}
 		if _, t, ok := a.channels.Lookup(ids.ChannelID(it.ItemID)); ok {
 			item.ChannelType = t
+		}
+		if it.UserID != "" {
+			if it.UserID == a.currentUserID {
+				item.AuthorName = "me"
+			} else if name, ok := a.userNames[it.UserID]; ok && name != "" {
+				item.AuthorName = name
+			}
+		}
+		if item.Preview == "" && a.activityCache != nil {
+			if msg, err := a.activityCache.GetMessage(it.ItemID, it.TS); err == nil && !msg.IsDeleted {
+				item.Preview = msg.Text
+				if item.AuthorName == "" && msg.UserID != "" {
+					if msg.UserID == a.currentUserID {
+						item.AuthorName = "me"
+					} else if name, ok := a.userNames[msg.UserID]; ok && name != "" {
+						item.AuthorName = name
+					}
+				}
+			}
 		}
 		out = append(out, item)
 	}
@@ -101,6 +141,10 @@ func (a *App) decorateLaterItems(in []slackclient.SavedItem) []laterview.Item {
 }
 
 func (a *App) replaceLaterSaved(items []slackclient.SavedItem) {
+	// Only the In progress tab is the live saved set used by `w`.
+	if a.laterView.Filter() != laterview.FilterInProgress {
+		return
+	}
 	a.laterSaved = map[string]bool{}
 	for _, it := range items {
 		if it.ItemType == "" || it.ItemType == "message" {
@@ -111,6 +155,54 @@ func (a *App) replaceLaterSaved(items []slackclient.SavedItem) {
 
 func laterKey(channelID, ts string) string {
 	return channelID + "\t" + ts
+}
+
+func (a *App) mergeLaterSaved(items []slackclient.SavedItem) {
+	if a.laterView.Filter() != laterview.FilterInProgress {
+		return
+	}
+	if a.laterSaved == nil {
+		a.laterSaved = map[string]bool{}
+	}
+	for _, it := range items {
+		if it.ItemType == "" || it.ItemType == "message" {
+			a.laterSaved[laterKey(it.ItemID, it.TS)] = true
+		}
+	}
+}
+
+func (a *App) setLaterState(state string) tea.Cmd {
+	it, ok := a.laterView.SelectedItem()
+	if !ok || it.ItemID == "" || it.TS == "" {
+		return toastWithClear(a, "No saved item selected", 2*time.Second)
+	}
+	later := a.later
+	ch, mts := ids.ChannelID(it.ItemID), ids.MessageTS(it.TS)
+	return func() tea.Msg {
+		err := later.SetState(ch, mts, state)
+		return laterStateMsg{ChannelID: it.ItemID, TS: it.TS, State: state, Err: err}
+	}
+}
+
+type laterStateMsg struct {
+	ChannelID string
+	TS        string
+	State     string
+	Err       error
+}
+
+func (a *App) applyLaterState(m laterStateMsg) tea.Cmd {
+	if m.Err != nil {
+		return toastWithClear(a, "Later update failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second)
+	}
+	label := "Moved to In progress"
+	switch m.State {
+	case "completed":
+		label = "Marked complete"
+	case "archived":
+		label = "Archived"
+	}
+	return tea.Batch(toastWithClear(a, label, 2*time.Second), a.fetchLaterCmd())
 }
 
 func (a *App) openSelectedLaterCmd() tea.Cmd {
@@ -146,7 +238,7 @@ func (a *App) selectedMessageRef() (channelID, ts, preview string, ok bool) {
 	}
 	switch a.focusedPanel {
 	case PanelMessages:
-		if a.view != ViewChannels {
+		if !a.inChannelView() {
 			return "", "", "", false
 		}
 		msg, hit := a.messagepane.SelectedMessage()
@@ -173,7 +265,11 @@ func (a *App) toggleSaveForLater() tea.Cmd {
 	later := a.later
 	key := laterKey(channelID, ts)
 	ch, mts := ids.ChannelID(channelID), ids.MessageTS(ts)
-	if a.laterSaved[key] {
+	saved := a.laterSaved[key]
+	if a.view == ViewLater && a.focusedPanel == PanelMessages {
+		saved = true
+	}
+	if saved {
 		return func() tea.Msg {
 			if err := later.Remove(ch, mts); err != nil {
 				return ToastMsg{Text: "Could not remove from Later: " + truncateReason(err.Error(), 40)}

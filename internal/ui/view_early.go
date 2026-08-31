@@ -32,7 +32,7 @@ func (a *App) renderEarlyFallback() (tea.View, bool) {
 		// lands roughly where the user's eye expects it. The real
 		// WindowSizeMsg arrives within a frame and the overlay
 		// re-renders correctly.
-		screen = a.bootstrap.Render(80, 24, a.spinnerGlyph())
+		screen = a.bootstrap.Render(80, 24, a.spinnerGlyph(), a.workspaceRail.LogoFunc())
 	} else {
 		screen = "Initializing..."
 	}

@@ -29,6 +29,31 @@ func TestGetMessage_ReturnsRowOrErrNoRows(t *testing.T) {
 	}
 }
 
+func TestLatestByChannels(t *testing.T) {
+	db := setupDBWithWorkspace(t)
+	defer db.Close()
+	db.UpsertChannel(Channel{ID: "D1", WorkspaceID: "T1", Name: "alice", Type: "dm"})
+	db.UpsertChannel(Channel{ID: "D2", WorkspaceID: "T1", Name: "bob", Type: "dm"})
+	db.UpsertMessage(Message{TS: "1700000001.000000", ChannelID: "D1", WorkspaceID: "T1", UserID: "U1", Text: "old"})
+	db.UpsertMessage(Message{TS: "1700000003.000000", ChannelID: "D1", WorkspaceID: "T1", UserID: "U2", Text: "newest"})
+	db.UpsertMessage(Message{TS: "1700000002.000000", ChannelID: "D1", WorkspaceID: "T1", UserID: "U3", Text: "reply", ThreadTS: "1700000001.000000"})
+	db.UpsertMessage(Message{TS: "1700000004.000000", ChannelID: "D2", WorkspaceID: "T1", UserID: "U4", Text: "bob hi"})
+
+	got := db.LatestByChannels([]string{"D1", "D2", "D3"})
+	if len(got) != 2 {
+		t.Fatalf("len = %d; want 2 (D3 missing)", len(got))
+	}
+	if got["D1"].Text != "newest" {
+		t.Errorf("D1 = %q; want newest (not the thread reply)", got["D1"].Text)
+	}
+	if got["D2"].Text != "bob hi" {
+		t.Errorf("D2 = %q", got["D2"].Text)
+	}
+	if _, ok := got["D3"]; ok {
+		t.Error("D3 should be omitted")
+	}
+}
+
 func TestUpsertAndGetMessages(t *testing.T) {
 	db := setupDBWithWorkspace(t)
 	defer db.Close()
@@ -275,7 +300,7 @@ func TestGetThreadReplies(t *testing.T) {
 // TestGetMessages_IncludesThreadParents guards against the regression
 // where thread parents (top-level messages whose thread_ts equals
 // their own ts because they have replies) were excluded from
-// GetMessages by the original `thread_ts = ''` filter. Slack's
+// GetMessages by the original `thread_ts = ”` filter. Slack's
 // conversations.history returns parents with thread_ts == ts, so an
 // active channel quickly accumulates parents that the cache view
 // silently dropped until the next network refresh masked the bug.

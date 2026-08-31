@@ -9,6 +9,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/gammons/slk/internal/ui/workspace"
 )
 
 func TestSetLoadingWorkspacesSeedsConnectingEntries(t *testing.T) {
@@ -151,7 +153,7 @@ func TestRenderLoadingOverlayMentionsAllWorkspaces(t *testing.T) {
 	a := NewApp()
 	a.SetLoadingWorkspaces([]string{"acme", "globex"})
 
-	out := a.bootstrap.Render(80, 24, "·")
+	out := a.bootstrap.Render(80, 24, "·", nil)
 	for _, name := range []string{"acme", "globex"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("overlay missing workspace name %q\noutput:\n%s", name, out)
@@ -165,12 +167,31 @@ func TestRenderLoadingOverlayMentionsAllWorkspaces(t *testing.T) {
 	}
 }
 
+func TestRenderLoadingOverlayShowsCachedLogo(t *testing.T) {
+	a := NewApp()
+	a.bootstrap.SetWorkspaceItems([]workspace.WorkspaceItem{
+		{ID: "T1", Name: "acme", IconURL: "https://example.com/acme.png"},
+	})
+	out := a.bootstrap.Render(80, 24, "·", func(teamID, iconURL string) string {
+		if teamID != "T1" {
+			t.Errorf("logoFn teamID = %q", teamID)
+		}
+		return "LOGO0\nLOGO1"
+	})
+	if !strings.Contains(out, "LOGO0") || !strings.Contains(out, "LOGO1") {
+		t.Errorf("overlay missing cached logo; got:\n%s", out)
+	}
+	if !strings.Contains(out, "acme") {
+		t.Errorf("overlay missing workspace name; got:\n%s", out)
+	}
+}
+
 func TestRenderLoadingOverlayShowsFailedMarker(t *testing.T) {
 	a := NewApp()
 	a.SetLoadingWorkspaces([]string{"acme"})
 	a.bootstrap.MarkFailed("acme")
 
-	out := a.bootstrap.Render(80, 24, "·")
+	out := a.bootstrap.Render(80, 24, "·", nil)
 	if !strings.Contains(out, "acme") {
 		t.Errorf("overlay missing workspace name; got:\n%s", out)
 	}

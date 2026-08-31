@@ -84,7 +84,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// only way to type is into the right-side thread panel's
 		// compose. Force focus there even when the threads list
 		// itself was the focused panel.
-		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater) && a.threadVisible) {
+		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater || a.view == ViewDrafts || a.view == ViewUnreads) && a.threadVisible) {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}
@@ -111,6 +111,12 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.compose.Blur()
 		if a.threadVisible {
 			a.CloseThread()
+			return nil
+		}
+		if a.view == ViewDMs {
+			a.setInboxView(ViewChannels)
+			a.sidebar.SelectDMsRow()
+			return nil
 		}
 
 	case key.Matches(msg, a.keys.WindowPrefix):
@@ -118,10 +124,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.statusbar.SetHelpHint("ctrl+w …")
 		return nil
 
+	case key.Matches(msg, a.keys.JumpToDate):
+		return a.openDateMenu()
+
 	case key.Matches(msg, a.keys.SearchMode):
 		// Spec scopes `/` to the channel message pane in v1: no-op
 		// while the thread panel has focus.
-		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater {
+		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater || a.view == ViewDrafts || a.view == ViewUnreads {
 			return nil
 		}
 		a.searchInput = ""
@@ -203,6 +212,36 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if a.activityView.CycleFilter(-1) {
 			return a.fetchActivityCmd()
 		}
+	case a.focusedPanel == PanelMessages && a.view == ViewLater && key.Matches(msg, a.keys.ActivityFilter):
+		if a.laterView.CycleFilter(1) {
+			return a.fetchLaterCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewLater && key.Matches(msg, a.keys.ActivityFilterPrev):
+		if a.laterView.CycleFilter(-1) {
+			return a.fetchLaterCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewLater && key.Matches(msg, a.keys.LaterComplete):
+		return a.setLaterState("completed")
+	case a.focusedPanel == PanelMessages && a.view == ViewLater && key.Matches(msg, a.keys.LaterArchive):
+		return a.setLaterState("archived")
+	case a.focusedPanel == PanelMessages && a.view == ViewLater && key.Matches(msg, a.keys.ActivityUnreadOnly):
+		return a.setLaterState("in_progress")
+	case a.focusedPanel == PanelMessages && a.view == ViewDrafts && key.Matches(msg, a.keys.ActivityFilter):
+		if a.draftsView.CycleFilter(1) {
+			return a.fetchDraftsCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewDrafts && key.Matches(msg, a.keys.ActivityFilterPrev):
+		if a.draftsView.CycleFilter(-1) {
+			return a.fetchDraftsCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewDrafts && key.Matches(msg, a.keys.Delete):
+		return a.deleteSelectedDraftCmd()
+	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivityFilter):
+		a.unreadsView.CycleSort(1)
+		return nil
+	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivityFilterPrev):
+		a.unreadsView.CycleSort(-1)
+		return nil
 	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivitySort):
 		if a.activityView.CycleSort() {
 			return a.fetchActivityCmd()
@@ -278,6 +317,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.SetMode(ModePresenceMenu)
 
 	case key.Matches(msg, a.keys.FuzzyFinder) || key.Matches(msg, a.keys.FuzzyFinderAlt):
+		a.channelFinder.SetShareMode(false)
+		a.shareFromChannel = ""
+		a.shareFromTS = ""
 		a.channelFinder.Open()
 		a.SetMode(ModeChannelFinder)
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -46,10 +47,30 @@ func TestHelp_StillListsWorkspaceFinderViaWS(t *testing.T) {
 	}
 }
 
+func TestHelp_ListsPinsCommand(t *testing.T) {
+	entries := help.FromKeyMap(DefaultKeyMap())
+	for _, e := range entries {
+		if e.Key == ":pins" && strings.Contains(e.Desc, "pinned") {
+			return
+		}
+	}
+	t.Fatal("help entries missing {Key: \":pins\"}")
+}
+
+func TestHelp_ListsJumpToDate(t *testing.T) {
+	entries := help.FromKeyMap(DefaultKeyMap())
+	for _, e := range entries {
+		if strings.Contains(e.Key, ":date") && strings.Contains(e.Desc, "jump to date") {
+			return
+		}
+	}
+	t.Fatal("help entries missing jump to date")
+}
+
 func TestHelp_ListsLeaveChannel(t *testing.T) {
 	entries := help.FromKeyMap(DefaultKeyMap())
 	for _, e := range entries {
-		if e.Key == ":leave" && e.Desc == "leave channel" {
+		if e.Key == ":leave" && strings.Contains(e.Desc, "leave channel") {
 			return
 		}
 	}

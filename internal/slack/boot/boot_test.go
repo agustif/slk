@@ -260,6 +260,7 @@ const fullBootBody = `{
   "non_threadable_channels": [],
   "prefs": {
     "muted_channels": "CLEGACY01,CLEGACY02",
+    "vip_users": "U04VIPAA,U04VIPBB",
     "all_notifications_prefs": "{\"channels\":{\"C94H848UB\":{\"muted\":true,\"suppress_at_channel\":false},\"C04T4TH9N\":{\"muted\":false},\"C2QPK1V44\":{\"muted\":true}}}",
     "arrow_history": false,
     "emoji_mode": "default",
@@ -801,9 +802,13 @@ func TestUserBoot_DecodesTeam(t *testing.T) {
 		Domain:        "truelist-hq",
 		URL:           "https://truelist-hq.slack.com/",
 		AvatarBaseURL: "https://ca.slack-edge.com/",
+		Icon:          TeamIcon{Image68: "https://ca.slack-edge.com/T04-68.png"},
 	}
 	if res.Team != want {
 		t.Errorf("Team = %#v; want %#v", res.Team, want)
+	}
+	if got := res.Team.Icon.URL(); got != "https://ca.slack-edge.com/T04-68.png" {
+		t.Errorf("Team.Icon.URL() = %q; want image_68", got)
 	}
 }
 
@@ -829,6 +834,9 @@ func TestUserBoot_ExposesRawMutePrefs(t *testing.T) {
 	const wantAll = `{"channels":{"C94H848UB":{"muted":true,"suppress_at_channel":false},"C04T4TH9N":{"muted":false},"C2QPK1V44":{"muted":true}}}`
 	if got := res.Prefs.AllNotificationsPrefs; got != wantAll {
 		t.Errorf("Prefs.AllNotificationsPrefs =\n  %s\nwant\n  %s", got, wantAll)
+	}
+	if got, want := res.Prefs.VipUsers, "U04VIPAA,U04VIPBB"; got != want {
+		t.Errorf("Prefs.VipUsers = %q; want %q", got, want)
 	}
 	if got, want := res.Prefs.MutedChannels, "CLEGACY01,CLEGACY02"; got != want {
 		t.Errorf("Prefs.MutedChannels = %q; want %q", got, want)

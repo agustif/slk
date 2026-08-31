@@ -364,6 +364,10 @@ func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
 		wctx.UserNames[u.ID] = name
 		if u.Name != "" {
 			wctx.UserNamesByHandle[u.Name] = name
+			if wctx.UserIDsByHandle == nil {
+				wctx.UserIDsByHandle = map[string]string{}
+			}
+			wctx.UserIDsByHandle[u.Name] = u.ID
 		}
 		// The union of is_bot and is_app_user, as cache.User.IsBot
 		// documents: classic bots set the first, Slack apps the
@@ -408,11 +412,10 @@ func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
 //
 // IsMember is true for every channels[] entry because userBoot returns
 // the user's OWN conversation list -- there is no is_member on the
-// entries and none is needed. IMs are filtered to the open ones, since
-// a closed DM does not belong in the sidebar; both the per-IM is_open
-// flag and userBoot's top-level is_open list are consulted, because
-// either alone would silently empty the DM list if that response shape
-// varies.
+// entries and none is needed. Closed IMs (is_open=false) are kept:
+// Slack's Home sidebar hides them, but the Direct Messages view lists
+// every conversation the official DMs tab shows. Home still drops
+// them via IsStale / the compact section; do not drop them here.
 func bootConversations(res *bootstrap.Result) []slack.Channel {
 	if res == nil {
 		return nil
@@ -451,22 +454,76 @@ func bootConversations(res *bootstrap.Result) []slack.Channel {
 		if im.IsArchived {
 			continue
 		}
-		if !im.IsOpen && !open[im.ID] {
-			continue
-		}
+		isOpen := im.IsOpen || open[im.ID]
 		out = append(out, slack.Channel{
 			GroupConversation: slack.GroupConversation{
 				Conversation: slack.Conversation{
 					ID:          im.ID,
 					IsIM:        true,
+					IsOpen:      isOpen,
 					User:        im.UserID,
 					IsOrgShared: im.IsOrgShared,
+					Latest:      latestStub(im.Version),
 				},
 			},
 			IsMember: true,
 		})
 	}
 	return out
+}
+
+// latestStub turns userBoot's millisecond `updated` stamp into a
+// Latest message so buildChannelItem can sort DMs by recency without
+// a second field on slack.Channel.
+func latestStub(updated int64) *slack.Message {
+	if updated <= 0 {
+		return nil
+	}
+	sec := updated
+	if sec > 1e12 {
+		sec /= 1000
+	}
+	return &slack.Message{Msg: slack.Msg{Timestamp: fmt.Sprintf("%d.000000", sec)}}
+}
+
+// mergeMissingGroupDMs appends MPIMs from boot that users.conversations
+// did not return, and marks mpdm-* rows as IsMpIM when Slack omitted
+// the flag. Existing IDs are left in place.
+func mergeMissingGroupDMs(have []slack.Channel, boot []slack.Channel) []slack.Channel {
+	seen := make(map[string]bool, len(have))
+	for i := range have {
+		seen[have[i].ID] = true
+		if !have[i].IsMpIM && strings.HasPrefix(have[i].Name, "mpdm-") {
+			have[i].IsMpIM = true
+		}
+	}
+	for _, ch := range boot {
+		if !isGroupDM(ch) || seen[ch.ID] {
+			continue
+		}
+		ch.IsMpIM = true
+		have = append(have, ch)
+		seen[ch.ID] = true
+	}
+	return have
+}
+
+// mergeMissingIMs appends 1:1 DMs from boot that users.conversations
+// did not return. Closed IMs are the usual miss: the Home sidebar
+// uses is_open, but Slack's DMs tab lists the full set.
+func mergeMissingIMs(have []slack.Channel, boot []slack.Channel) []slack.Channel {
+	seen := make(map[string]bool, len(have))
+	for i := range have {
+		seen[have[i].ID] = true
+	}
+	for _, ch := range boot {
+		if !ch.IsIM || seen[ch.ID] {
+			continue
+		}
+		have = append(have, ch)
+		seen[ch.ID] = true
+	}
+	return have
 }
 
 // fillIMUsers copies counterparty user IDs from userBoot's ims[] onto
@@ -484,20 +541,46 @@ func fillIMUsers(channels []slack.Channel, ims []boot.IM) {
 	if len(channels) == 0 || len(ims) == 0 {
 		return
 	}
-	byID := make(map[string]string, len(ims))
+	type meta struct {
+		user    string
+		open    bool
+		updated int64
+	}
+	byID := make(map[string]meta, len(ims))
 	for _, im := range ims {
-		if im.UserID != "" {
-			byID[im.ID] = im.UserID
-		}
+		byID[im.ID] = meta{user: im.UserID, open: im.IsOpen, updated: im.Version}
 	}
 	for i := range channels {
-		uid, ok := byID[channels[i].ID]
+		m, ok := byID[channels[i].ID]
 		if !ok {
 			continue
 		}
 		channels[i].IsIM = true
-		if channels[i].User == "" {
-			channels[i].User = uid
+		if channels[i].User == "" && m.user != "" {
+			channels[i].User = m.user
+		}
+		channels[i].IsOpen = channels[i].IsOpen || m.open
+		if channels[i].Latest == nil {
+			channels[i].Latest = latestStub(m.updated)
+		}
+	}
+}
+
+// markOpenConversations sets IsOpen on any conversation Slack's
+// userBoot is_open list named. users.conversations leaves IsOpen
+// false (zero value) for IMs, so Home would hide every DM without
+// this overlay.
+func markOpenConversations(channels []slack.Channel, isOpen []string) {
+	if len(channels) == 0 || len(isOpen) == 0 {
+		return
+	}
+	open := make(map[string]bool, len(isOpen))
+	for _, id := range isOpen {
+		open[id] = true
+	}
+	for i := range channels {
+		if open[channels[i].ID] {
+			channels[i].IsOpen = true
 		}
 	}
 }
@@ -537,12 +620,22 @@ func hydrateFirstSight(db *cache.DB, workspaceID string, res *bootstrap.Result) 
 	// all (upsertChannelInDB discards its error). userBoot has just
 	// returned the team record, so the parent row can be written here,
 	// before anything needs it.
-	if _, err := db.GetWorkspace(workspaceID); err != nil {
+	iconURL := res.Team.Icon.URL()
+	if existing, err := db.GetWorkspace(workspaceID); err != nil {
 		if err := db.UpsertWorkspace(cache.Workspace{
-			ID:   workspaceID,
-			Name: res.Team.Name,
+			ID:      workspaceID,
+			Name:    res.Team.Name,
+			IconURL: iconURL,
 		}); err != nil {
 			debuglog.General("bootstrap: hydrating workspace %s: %v", workspaceID, err)
+		}
+	} else if iconURL != "" && existing.IconURL != iconURL {
+		existing.IconURL = iconURL
+		if res.Team.Name != "" {
+			existing.Name = res.Team.Name
+		}
+		if err := db.UpsertWorkspace(existing); err != nil {
+			debuglog.General("bootstrap: updating workspace icon %s: %v", workspaceID, err)
 		}
 	}
 	for _, ch := range res.Channels {

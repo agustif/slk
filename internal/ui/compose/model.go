@@ -391,6 +391,69 @@ func (m *Model) saveCurrentDraft() {
 	m.drafts[m.draftKey] = draft{text: text, pending: copyPending(m.pending)}
 }
 
+// SnapshotTextDrafts parks the live box and returns a copy of every
+// non-empty parked text draft. Attachments stay process-local.
+func (m *Model) SnapshotTextDrafts() map[string]string {
+	m.saveCurrentDraft()
+	if len(m.drafts) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m.drafts))
+	for k, d := range m.drafts {
+		if d.text != "" {
+			out[k] = d.text
+		}
+	}
+	return out
+}
+
+// ReplaceTextDraft overwrites the parked text for key and, if that
+// key is live, the textarea. Used when the Drafts view opens a card
+// so in-memory compose does not win over the row the user picked.
+func (m *Model) ReplaceTextDraft(key, text string) {
+	if key == "" {
+		return
+	}
+	if m.drafts == nil {
+		m.drafts = make(map[string]draft)
+	}
+	if text == "" {
+		delete(m.drafts, key)
+	} else {
+		d := m.drafts[key]
+		d.text = text
+		m.drafts[key] = d
+	}
+	if m.draftKey == key {
+		m.restoreDraft(key)
+	}
+}
+
+// MergeTextDrafts fills empty parked slots from in. Existing in-memory
+// text wins so a just-typed draft is not overwritten by disk.
+func (m *Model) MergeTextDrafts(in map[string]string) {
+	if len(in) == 0 {
+		return
+	}
+	if m.drafts == nil {
+		m.drafts = make(map[string]draft)
+	}
+	for k, text := range in {
+		if text == "" {
+			continue
+		}
+		if existing, ok := m.drafts[k]; ok && existing.text != "" {
+			continue
+		}
+		m.drafts[k] = draft{text: text}
+	}
+	if m.draftKey != "" {
+		if m.input.Value() == "" {
+			m.restoreDraft(m.draftKey)
+		}
+	}
+}
+
 func (m *Model) restoreDraft(key string) {
 	if key != "" && m.drafts != nil {
 		if d, ok := m.drafts[key]; ok {

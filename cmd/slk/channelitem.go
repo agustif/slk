@@ -1,6 +1,9 @@
 package main
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/slackfmt"
@@ -8,6 +11,12 @@ import (
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
 )
+
+// isGroupDM reports a multi-person DM. Slack sometimes omits is_mpim
+// on users.conversations rows while still using the mpdm-* name.
+func isGroupDM(ch slack.Channel) bool {
+	return ch.IsMpIM || strings.HasPrefix(ch.Name, "mpdm-")
+}
 
 // buildChannelItem converts a Slack conversation into the sidebar
 // ChannelItem + finder Item shape used everywhere in slk. Pure function:
@@ -36,7 +45,7 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 		} else {
 			chType = "dm"
 		}
-	} else if ch.IsMpIM {
+	} else if isGroupDM(ch) {
 		chType = "group_dm"
 	} else if ch.IsPrivate {
 		chType = "private"
@@ -49,7 +58,7 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 		} else {
 			displayName = ch.User
 		}
-	} else if ch.IsMpIM {
+	} else if isGroupDM(ch) {
 		displayName = slackfmt.FormatMPDMName(ch.Name, func(h string) string {
 			return wctx.UserNamesByHandle[h]
 		})
@@ -86,9 +95,22 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 		SectionOrder: sectionOrder,
 		ChannelOrder: channelOrder,
 		IsMuted:      muted,
+		LastVisited:  wctx.LastVisitedByChannel[ch.ID],
+		LastActivity: lastActivityUnix(ch),
+	}
+	if wctx.SectionStore != nil {
+		item.IsStarred = wctx.SectionStore.IsStarred(ch.ID)
 	}
 	if ch.IsIM {
 		item.DMUserID = ch.User
+		item.Closed = !ch.IsOpen
+	} else if isGroupDM(ch) {
+		item.DMUserID = groupDMPeerID(ch, wctx)
+	}
+	if wctx.VIPStore != nil {
+		// Prefer the sidebar peer id (DMUserID) so MPIMs match
+		// refreshVIPForActive; ch.User is empty on group DMs.
+		item.IsVIP = wctx.VIPStore.IsVIP(item.DMUserID) || wctx.VIPStore.IsVIP(ch.ID)
 	}
 
 	finderItem := channelfinder.Item{
@@ -99,6 +121,69 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 		Joined:   true,
 	}
 	return item, finderItem
+}
+
+// lastActivityUnix is Slack's last-message stamp for recency sort
+// (the official DMs tab). users.conversations puts it on Latest;
+// userBoot IMs use a Latest stub from `updated`.
+func groupDMPeerID(ch slack.Channel, wctx *WorkspaceContext) string {
+	self := ""
+	if wctx != nil {
+		self = wctx.UserID
+	}
+	for _, uid := range ch.Members {
+		if uid != "" && uid != self {
+			return uid
+		}
+	}
+	if wctx == nil || wctx.UserIDsByHandle == nil {
+		return ""
+	}
+	for _, h := range slackfmt.ParseMPDMHandles(ch.Name) {
+		if id := wctx.UserIDsByHandle[h]; id != "" && id != self {
+			return id
+		}
+	}
+	return ""
+}
+
+func fillGroupDMAvatars(items []sidebar.ChannelItem, db *cache.DB, teamID, selfID string) {
+	if db == nil {
+		return
+	}
+	for i := range items {
+		if items[i].Type != "group_dm" || items[i].DMUserID != "" {
+			continue
+		}
+		members, err := db.ListChannelMembers(teamID, items[i].ID)
+		if err != nil {
+			continue
+		}
+		for _, uid := range members {
+			if uid != "" && uid != selfID {
+				items[i].DMUserID = uid
+				break
+			}
+		}
+	}
+}
+
+func lastActivityUnix(ch slack.Channel) int64 {
+	if ch.Latest == nil {
+		return 0
+	}
+	ts := ch.Latest.Timestamp
+	if ts == "" {
+		return 0
+	}
+	if i := strings.IndexByte(ts, '.'); i >= 0 {
+		ts = ts[:i]
+	}
+	n, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // upsertChannelInDB writes the channel to the SQLite cache. Separated from

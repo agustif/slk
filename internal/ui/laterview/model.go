@@ -14,10 +14,40 @@ import (
 )
 
 const (
-	toolbarLines     = 2 // title + blank
+	toolbarLines     = 3 // tabs + hint + blank
 	cardContentLines = 3
 	cardStride       = cardContentLines + 1
 )
+
+// Slack saved.list filter values (In progress / Completed / Archived).
+const (
+	FilterInProgress = "saved"
+	FilterCompleted  = "completed"
+	FilterArchived   = "archived"
+)
+
+var laterFilters = []string{FilterInProgress, FilterCompleted, FilterArchived}
+
+var laterFilterLabels = map[string]string{
+	FilterInProgress: "In progress",
+	FilterCompleted:  "Completed",
+	FilterArchived:   "Archived",
+}
+
+// ClickKind is what a mouse click hit in the Later panel.
+type ClickKind int
+
+const (
+	ClickNone ClickKind = iota
+	ClickItem
+	ClickTab
+	ClickLoadMore
+)
+
+type tabHit struct {
+	x0, x1 int
+	filter string
+}
 
 func mutedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.TextMuted)
@@ -29,6 +59,10 @@ func channelNameStyle() lipgloss.Style {
 
 func overdueStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.Warning).Bold(true)
+}
+
+func tabActiveStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
 }
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}
@@ -57,6 +91,8 @@ type Item struct {
 	slackclient.SavedItem
 	ChannelName string
 	ChannelType string
+	AuthorName  string
+	Preview     string
 }
 
 // Model holds Later-list state.
@@ -64,6 +100,10 @@ type Model struct {
 	items        []Item
 	channelNames map[string]string
 	badge        int
+	counts       slackclient.SavedCounts
+	filter       string
+	tabHits      []tabHit
+	nextCursor   string
 
 	selected int
 	yOffset  int
@@ -77,7 +117,7 @@ type Model struct {
 }
 
 func New() Model {
-	return Model{channelNames: map[string]string{}}
+	return Model{channelNames: map[string]string{}, filter: FilterInProgress}
 }
 
 func (m *Model) Version() int64 { return m.version }
@@ -128,6 +168,62 @@ func (m *Model) SetBadge(n int) {
 
 func (m *Model) Badge() int { return m.badge }
 
+func ClampFilter(filter string) string {
+	switch strings.ToLower(strings.TrimSpace(filter)) {
+	case FilterCompleted, FilterArchived:
+		return strings.ToLower(strings.TrimSpace(filter))
+	default:
+		return FilterInProgress
+	}
+}
+
+// Filter is the current saved.list tab (saved / completed / archived).
+func (m *Model) Filter() string {
+	return ClampFilter(m.filter)
+}
+
+// SetFilter switches the In progress / Completed / Archived tab.
+func (m *Model) SetFilter(filter string) bool {
+	filter = ClampFilter(filter)
+	if m.Filter() == filter {
+		return false
+	}
+	m.filter = filter
+	m.items = nil
+	m.nextCursor = ""
+	m.selected = 0
+	m.hasSnapped = false
+	m.err = ""
+	m.dirty()
+	return true
+}
+
+// CycleFilter walks Later tabs (f / F). dir > 0 advances.
+func (m *Model) CycleFilter(dir int) bool {
+	if dir == 0 {
+		return false
+	}
+	cur := m.Filter()
+	idx := 0
+	for i, f := range laterFilters {
+		if f == cur {
+			idx = i
+			break
+		}
+	}
+	n := len(laterFilters)
+	next := (idx + dir) % n
+	if next < 0 {
+		next += n
+	}
+	return m.SetFilter(laterFilters[next])
+}
+
+func (m *Model) SetCounts(c slackclient.SavedCounts) {
+	m.counts = c
+	m.SetBadge(c.Badge())
+}
+
 // SetItems replaces the list. Selection follows Key when still present.
 func (m *Model) SetItems(items []Item) {
 	prevKey, hadSel := m.selectedKey()
@@ -144,9 +240,44 @@ func (m *Model) SetItems(items []Item) {
 		}
 	}
 	m.selected = newSel
+	m.nextCursor = ""
 	m.clampSelection()
 	m.hasSnapped = false
 	m.dirty()
+}
+
+// SetPage replaces or appends a saved.list page and records the
+// next-cursor for "load more".
+func (m *Model) SetPage(items []Item, cursor string, appendPage bool) {
+	if appendPage {
+		seen := make(map[string]bool, len(m.items))
+		for _, it := range m.items {
+			seen[it.Key] = true
+		}
+		for _, it := range items {
+			if it.Key != "" && seen[it.Key] {
+				continue
+			}
+			m.items = append(m.items, it)
+		}
+		m.loading = false
+		m.err = ""
+		m.nextCursor = cursor
+		m.clampSelection()
+		m.dirty()
+		return
+	}
+	m.SetItems(items)
+	m.nextCursor = cursor
+	m.dirty()
+}
+
+func (m *Model) NextCursor() string { return m.nextCursor }
+
+func (m *Model) HasMore() bool { return m.nextCursor != "" }
+
+func (m *Model) LoadMoreSelected() bool {
+	return m.HasMore() && m.selected == len(m.items)
 }
 
 func (m *Model) Items() []Item { return m.items }
@@ -166,8 +297,19 @@ func (m *Model) selectedKey() (string, bool) {
 	return it.Key, true
 }
 
+func (m *Model) maxSelect() int {
+	n := len(m.items) - 1
+	if m.HasMore() {
+		n = len(m.items)
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
 func (m *Model) MoveDown() {
-	if m.selected < len(m.items)-1 {
+	if m.selected < m.maxSelect() {
 		m.selected++
 		m.dirty()
 	}
@@ -188,8 +330,12 @@ func (m *Model) GoToTop() {
 }
 
 func (m *Model) GoToBottom() {
-	if n := len(m.items); n > 0 && m.selected != n-1 {
-		m.selected = n - 1
+	n := m.maxSelect()
+	if len(m.items) == 0 && !m.HasMore() {
+		return
+	}
+	if m.selected != n {
+		m.selected = n
 		m.dirty()
 	}
 }
@@ -217,25 +363,49 @@ func (m *Model) ScrollDown(n int) {
 	m.dirty()
 }
 
-// ClickAt selects a card. rowY is pane-local content coordinates.
-func (m *Model) ClickAt(rowY int) bool {
+// ClickAt selects a card or hits a tab. rowY/colX are pane-local.
+func (m *Model) ClickAt(rowY, colX int) ClickKind {
+	if rowY < 0 {
+		return ClickNone
+	}
+	if rowY == 0 {
+		for _, h := range m.tabHits {
+			if colX >= h.x0 && colX < h.x1 {
+				if m.SetFilter(h.filter) {
+					return ClickTab
+				}
+				return ClickNone
+			}
+		}
+		return ClickNone
+	}
 	if rowY < toolbarLines {
-		return false
+		return ClickNone
 	}
 	bodyY := rowY - toolbarLines
 	absLine := m.yOffset + bodyY
 	if absLine < 0 {
-		return false
+		return ClickNone
 	}
 	idx := m.indexAtLine(absLine)
-	if idx < 0 || idx >= len(m.items) {
-		return false
+	if idx < 0 {
+		return ClickNone
+	}
+	if m.HasMore() && idx == len(m.items) {
+		if m.selected != idx {
+			m.selected = idx
+			m.dirty()
+		}
+		return ClickLoadMore
+	}
+	if idx >= len(m.items) {
+		return ClickNone
 	}
 	if m.selected != idx {
 		m.selected = idx
 		m.dirty()
 	}
-	return true
+	return ClickItem
 }
 
 func (m *Model) indexAtLine(absLine int) int {
@@ -249,10 +419,13 @@ func (m *Model) clampSelection() {
 	if m.selected < 0 {
 		m.selected = 0
 	}
-	if n := len(m.items); n == 0 {
+	max := m.maxSelect()
+	if len(m.items) == 0 && !m.HasMore() {
 		m.selected = 0
-	} else if m.selected >= n {
-		m.selected = n - 1
+		return
+	}
+	if m.selected > max {
+		m.selected = max
 	}
 }
 
@@ -276,7 +449,7 @@ func (m *Model) View(height, width int) string {
 	case m.err != "" && len(m.items) == 0:
 		body = placeCenter(width, bodyHeight, mutedStyle().Render(m.err))
 	case len(m.items) == 0:
-		body = placeCenter(width, bodyHeight, mutedStyle().Render("nothing saved for later"))
+		body = placeCenter(width, bodyHeight, mutedStyle().Render(m.emptyCopy()))
 	default:
 		lines := m.renderRows(width)
 		if !m.hasSnapped || m.snappedSelection != m.selected {
@@ -323,18 +496,72 @@ func placeCenter(width, height int, s string) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, s)
 }
 
+func (m *Model) emptyCopy() string {
+	switch m.Filter() {
+	case FilterCompleted:
+		return "nothing completed"
+	case FilterArchived:
+		return "nothing archived"
+	default:
+		return "nothing saved for later"
+	}
+}
+
 func (m *Model) renderToolbar(width int) string {
-	title := "Later"
-	if m.badge > 0 {
-		title += "  •" + strconv.Itoa(m.badge)
+	tabs, hits := m.renderTabs()
+	m.tabHits = hits
+	tabs = clipToWidth(tabs, width)
+	if pad := width - lipgloss.Width(tabs); pad > 0 {
+		tabs += strings.Repeat(" ", pad)
 	}
-	hint := mutedStyle().Render("  enter open  w unsave  W remind")
-	line := channelNameStyle().Render(title) + hint
-	line = clipToWidth(line, width)
-	if pad := width - lipgloss.Width(line); pad > 0 {
-		line += strings.Repeat(" ", pad)
+	hint := mutedStyle().Render("enter open  c done  z archive  u restore  w unsave  f/F")
+	hint = clipToWidth(hint, width)
+	if pad := width - lipgloss.Width(hint); pad > 0 {
+		hint += strings.Repeat(" ", pad)
 	}
-	return line + "\n" + blankLine(width)
+	return tabs + "\n" + hint + "\n" + blankLine(width)
+}
+
+func (m *Model) renderTabs() (string, []tabHit) {
+	var b strings.Builder
+	hits := make([]tabHit, 0, len(laterFilters))
+	x := 0
+	cur := m.Filter()
+	for i, f := range laterFilters {
+		if i > 0 {
+			b.WriteString("  ")
+			x += 2
+		}
+		label := laterFilterLabels[f]
+		if label == "" {
+			label = f
+		}
+		switch f {
+		case FilterInProgress:
+			if m.counts.Uncompleted > 0 {
+				label += " •" + strconv.Itoa(m.counts.Uncompleted)
+			} else if m.badge > 0 && m.counts.Uncompleted == 0 {
+				label += " •" + strconv.Itoa(m.badge)
+			}
+		case FilterCompleted:
+			if m.counts.Completed > 0 {
+				label += " •" + strconv.Itoa(m.counts.Completed)
+			}
+		case FilterArchived:
+			if m.counts.Archived > 0 {
+				label += " •" + strconv.Itoa(m.counts.Archived)
+			}
+		}
+		styled := mutedStyle().Render(label)
+		if f == cur {
+			styled = tabActiveStyle().Render(label)
+		}
+		w := lipgloss.Width(label)
+		hits = append(hits, tabHit{x0: x, x1: x + w, filter: f})
+		b.WriteString(styled)
+		x += w
+	}
+	return b.String(), hits
 }
 
 func (m *Model) snapToSelected(height, totalLines int) {
@@ -367,7 +594,27 @@ func (m *Model) renderRows(width int) []string {
 		}
 		lines = append(lines, m.renderCard(it, width, i == m.selected)...)
 	}
+	if m.HasMore() {
+		if len(m.items) > 0 {
+			lines = append(lines, separator)
+		}
+		lines = append(lines, m.renderLoadMore(width, m.LoadMoreSelected())...)
+	}
 	return lines
+}
+
+func (m *Model) renderLoadMore(width int, selected bool) []string {
+	contentWidth := width - 1
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	label := clipToWidth("  load more…", contentWidth)
+	blank := clipToWidth("", contentWidth)
+	return []string{
+		m.borderFill(label, contentWidth, selected, false),
+		m.borderFill(blank, contentWidth, selected, true),
+		m.borderFill(blank, contentWidth, selected, true),
+	}
 }
 
 func blankLine(width int) string {
@@ -410,8 +657,14 @@ func (m *Model) headerText(it Item) string {
 	if it.ChannelType != "dm" && it.ChannelType != "group_dm" && ch != "" && !strings.HasPrefix(ch, "#") {
 		in = "#" + ch
 	}
-	header := channelNameStyle().Render(in)
-	if it.ItemType != "message" {
+	where := channelNameStyle().Render(in)
+	header := where
+	if it.AuthorName != "" && in != "" {
+		header = it.AuthorName + "  " + mutedStyle().Render("·") + "  " + where
+	} else if it.AuthorName != "" {
+		header = it.AuthorName
+	}
+	if it.ItemType != "" && it.ItemType != "message" {
 		header = it.ItemType + "  " + header
 	}
 	if due := dueLabel(it.DateDue); due != "" {
@@ -421,6 +674,12 @@ func (m *Model) headerText(it Item) string {
 }
 
 func (m *Model) previewText(it Item) string {
+	if s := oneLine(it.Preview); s != "" {
+		return s
+	}
+	if s := oneLine(it.Text); s != "" {
+		return s
+	}
 	if it.State == "completed" {
 		return "completed"
 	}
@@ -428,6 +687,12 @@ func (m *Model) previewText(it Item) string {
 		return "reminder"
 	}
 	return "saved for later"
+}
+
+func oneLine(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	return s
 }
 
 func (m *Model) channelLabel(it Item) string {

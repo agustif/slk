@@ -36,6 +36,8 @@ import (
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/confirmprompt"
 	"github.com/gammons/slk/internal/ui/contextmenu"
+	"github.com/gammons/slk/internal/ui/datemenu"
+	"github.com/gammons/slk/internal/ui/draftsview"
 	"github.com/gammons/slk/internal/ui/emojipicker"
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/imgrender"
@@ -56,6 +58,7 @@ import (
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/thread"
 	"github.com/gammons/slk/internal/ui/threadsview"
+	"github.com/gammons/slk/internal/ui/unreadsview"
 	"github.com/gammons/slk/internal/ui/userprofile"
 	"github.com/gammons/slk/internal/ui/wintree"
 	"github.com/gammons/slk/internal/ui/workspace"
@@ -83,7 +86,36 @@ const (
 	ViewThreads
 	ViewActivity
 	ViewLater
+	ViewDMs
+	ViewDrafts
+	ViewUnreads
 )
+
+// inChannelView reports that the messages pane is showing a
+// conversation (Home or the Direct Messages view), not Activity /
+// Later / Threads.
+func (a *App) inChannelView() bool {
+	return a.view == ViewChannels || a.view == ViewDMs
+}
+
+func channelTypeIsDirect(t string) bool {
+	return t == "dm" || t == "group_dm" || t == "app"
+}
+
+// setInboxView is the single switch for synthetic-row destinations
+// (Activity / Later / Threads / DMs / Drafts / Unreads) and Home. It
+// keeps the orange "active" indicators and the DMs-list sidebar filter
+// in lockstep.
+func (a *App) setInboxView(v View) {
+	a.view = v
+	a.sidebar.SetThreadsActive(v == ViewThreads)
+	a.sidebar.SetActivityActive(v == ViewActivity)
+	a.sidebar.SetLaterActive(v == ViewLater)
+	a.sidebar.SetDMsActive(v == ViewDMs)
+	a.sidebar.SetDMsView(v == ViewDMs)
+	a.sidebar.SetDraftsActive(v == ViewDrafts)
+	a.sidebar.SetUnreadsActive(v == ViewUnreads)
+}
 
 const (
 	// cacheFreshThreshold: cache rendered as-is, no network fetch, no
@@ -105,6 +137,11 @@ const openThreadDebounceDelay = 200 * time.Millisecond
 // pause, never one per keystroke.
 const channelSearchDebounceDelay = 300 * time.Millisecond
 
+// peopleSearchDebounceDelay is how long the ctrl+f People tab waits
+// for typing to stop before calling edge.UsersSearch. Same 300 ms
+// figure as the channel finder.
+const peopleSearchDebounceDelay = channelSearchDebounceDelay
+
 type App struct {
 	// Sub-models
 	workspaceRail    workspace.Model
@@ -120,6 +157,7 @@ type App struct {
 	themeSwitcher    themeswitcher.Model
 	presenceMenu     presencemenu.Model
 	scheduleMenu     schedulemenu.Model
+	dateMenu         datemenu.Model
 	// scheduleReturnMode is the mode to restore if the user cancels the
 	// schedule overlay (insert or normal).
 	scheduleReturnMode Mode
@@ -133,6 +171,12 @@ type App struct {
 	threadsView        threadsview.Model
 	activityView       activityview.Model
 	laterView          laterview.Model
+	draftsView         draftsview.Model
+	unreadsView        unreadsview.Model
+	// shareFromChannel / shareFromTS identify the message being
+	// forwarded while ModeShare is open (channel finder in share mode).
+	shareFromChannel string
+	shareFromTS      string
 
 	// State
 	mode           Mode
@@ -231,10 +275,16 @@ type App struct {
 	// unread boundary). See internal/ui/services.go. Defaulted to a
 	// no-op adapter in NewApp so call sites can dispatch without
 	// nil-checks.
-	threads  ThreadService
-	activity ActivityService
-	sections SectionService
-	later    LaterService
+	threads            ThreadService
+	activity           ActivityService
+	sections           SectionService
+	later              LaterService
+	drafts             DraftsService
+	draftsGen          uint64
+	unreads            UnreadsService
+	unreadsGen         uint64
+	pendingDraftOpen   *pendingDraftOpen
+	sidebarHeaderClick sidebarHeaderClick
 	// activityCfg is the [activity] config defaults (limit + the
 	// session-start filter/sort/unread_only/density). Live TUI
 	// cycles live on activityView, not here.
@@ -244,6 +294,7 @@ type App struct {
 	laterGen      uint64
 	laterSaved    map[string]bool
 	remindTarget  laterRemindTarget
+	dmsSnippets   func(channelIDs []string) tea.Msg
 
 	threadsDirtyDebounce time.Duration
 	// fetchingOlder tracks in-flight older-history backfills per
@@ -305,6 +356,10 @@ type App struct {
 	// cancels the request that was about to go out.
 	pendingChannelSearchGen uint64
 
+	// pendingPeopleSearchGen is bumped by every People-tab keystroke
+	// that changes the query, including the one that empties it.
+	pendingPeopleSearchGen uint64
+
 	// channelSearchDebounce is the finder's debounce window. A field
 	// rather than the constant so tests can collapse it.
 	channelSearchDebounce time.Duration
@@ -320,7 +375,9 @@ type App struct {
 	// linkPicker is the open-link choice modal (issue #62).
 	linkPicker *linkpicker.Model
 	// sectionPicker is the :move chooser of Slack sidebar sections.
-	sectionPicker *sectionpicker.Model
+	// sectionPickerKind is "move" or "scheduled".
+	sectionPicker     *sectionpicker.Model
+	sectionPickerKind string
 
 	// fileDownloader downloads file attachments for the `d`
 	// keybinding. Nil in tests; downloadFileCmd toasts when unset.
@@ -413,6 +470,18 @@ type App struct {
 
 	// Sidebar width persistence
 	widthSaveFn func(width int)
+
+	// draftSaveFn persists a compose draft for the active workspace.
+	// Empty text deletes. Called off the Update goroutine.
+	draftSaveFn func(workspaceID, key, text string)
+	// draftLoadFn returns parked compose text for a workspace, keyed
+	// like compose.SwapDraft (channel ID, or channel+"\x00"+threadTS).
+	draftLoadFn func(workspaceID string) map[string]string
+	starFetchFn func() tea.Msg
+
+	// starredMessages is Slack message stars (stars.list type=message),
+	// keyed by channel+"\x00"+ts.
+	starredMessages map[string]bool
 
 	// presence owns per-workspace presence/DND cache, the DND-tick
 	// guard, and the custom-snooze numeric input buffer. See
@@ -563,6 +632,7 @@ func NewApp() *App {
 		themeSwitcher:         themeswitcher.New(),
 		presenceMenu:          presencemenu.New(),
 		scheduleMenu:          schedulemenu.New(),
+		dateMenu:              datemenu.New(),
 		contextMenu:           contextmenu.New(),
 		statusInput:           presencemenu.NewSetStatus(),
 		userProfile:           userprofile.New(),
@@ -572,6 +642,9 @@ func NewApp() *App {
 		threadsView:           threadsview.New(nil, ""),
 		activityView:          activityview.New(),
 		laterView:             laterview.New(),
+		draftsView:            draftsview.New(),
+		unreadsView:           unreadsview.New(),
+		drafts:                noopDraftsService,
 		linkPicker:            linkpicker.New(),
 		sectionPicker:         sectionpicker.New(),
 		reactionPicker:        reactionpicker.New(),
@@ -604,6 +677,7 @@ func NewApp() *App {
 		activity:              noopActivityService,
 		sections:              noopSectionService,
 		later:                 noopLaterService,
+		unreads:               noopUnreadsService,
 		laterSaved:            map[string]bool{},
 		messageSvc:            noopMessageService,
 		channels:              noopChannelService,
@@ -640,6 +714,9 @@ func NewApp() *App {
 		{ID: channelfinder.ThreadsViewID, Name: "Threads", Type: "threads", Joined: true},
 		{ID: channelfinder.ActivityViewID, Name: "Activity", Type: "activity", Joined: true},
 		{ID: channelfinder.LaterViewID, Name: "Later", Type: "later", Joined: true},
+		{ID: channelfinder.DMsViewID, Name: "Direct Messages", Type: "dms", Joined: true},
+		{ID: channelfinder.DraftsViewID, Name: "Drafts", Type: "drafts", Joined: true},
+		{ID: channelfinder.UnreadsViewID, Name: "Unreads", Type: "unreads", Joined: true},
 	})
 	// Seed the statusbar hint with the configured help key label so it
 	// stays accurate if the binding is ever changed.
@@ -694,6 +771,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceActivity,
 		reduceSections,
 		reduceLater,
+		reduceDrafts,
+		reduceUnreads,
+		reduceDMs,
 		reduceSend,
 		reduceChannels,
 		reduceLinks,
@@ -1438,6 +1518,14 @@ func (a *App) handleDown() tea.Cmd {
 			a.laterView.MoveDown()
 			return nil
 		}
+		if a.view == ViewDrafts {
+			a.draftsView.MoveDown()
+			return nil
+		}
+		if a.view == ViewUnreads {
+			a.unreadsView.MoveDown()
+			return nil
+		}
 		return a.coalesceContentScroll(+1)
 	case PanelThread:
 		return a.coalesceContentScroll(+1)
@@ -1461,6 +1549,14 @@ func (a *App) handleUp() tea.Cmd {
 		}
 		if a.view == ViewLater {
 			a.laterView.MoveUp()
+			return nil
+		}
+		if a.view == ViewDrafts {
+			a.draftsView.MoveUp()
+			return nil
+		}
+		if a.view == ViewUnreads {
+			a.unreadsView.MoveUp()
 			return nil
 		}
 		return a.coalesceContentScroll(-1)
@@ -1581,6 +1677,14 @@ func (a *App) handleGoToBottom() tea.Cmd {
 			a.laterView.GoToBottom()
 			return nil
 		}
+		if a.view == ViewDrafts {
+			a.draftsView.GoToBottom()
+			return nil
+		}
+		if a.view == ViewUnreads {
+			a.unreadsView.GoToBottom()
+			return nil
+		}
 		a.messagepane.GoToBottom()
 	case PanelThread:
 		a.threadPanel.GoToBottom()
@@ -1599,6 +1703,18 @@ func (a *App) handleGoToTop() tea.Cmd {
 		}
 		if a.view == ViewActivity {
 			a.activityView.GoToTop()
+			return nil
+		}
+		if a.view == ViewLater {
+			a.laterView.GoToTop()
+			return nil
+		}
+		if a.view == ViewDrafts {
+			a.draftsView.GoToTop()
+			return nil
+		}
+		if a.view == ViewUnreads {
+			a.unreadsView.GoToTop()
 			return nil
 		}
 		a.messagepane.GoToTop()
@@ -1679,6 +1795,18 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 			} else {
 				a.laterView.ScrollDown(n)
 			}
+		} else if a.view == ViewDrafts {
+			if delta < 0 {
+				a.draftsView.ScrollUp(n)
+			} else {
+				a.draftsView.ScrollDown(n)
+			}
+		} else if a.view == ViewUnreads {
+			if delta < 0 {
+				a.unreadsView.ScrollUp(n)
+			} else {
+				a.unreadsView.ScrollDown(n)
+			}
 		} else {
 			if delta < 0 {
 				a.messagepane.ScrollUp(n)
@@ -1731,7 +1859,10 @@ func (a *App) openQuitConfirm() {
 	a.confirmPrompt.Open(
 		"Quit slk?",
 		"All workspace connections will close.",
-		func() tea.Msg { return tea.Quit() },
+		func() tea.Msg {
+			a.flushComposeDraftsSync()
+			return tea.Quit()
+		},
 	)
 	a.SetMode(ModeConfirm)
 }
@@ -1746,6 +1877,20 @@ func (a *App) handleEnter() tea.Cmd {
 		}
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsDMsSelected() {
+			return func() tea.Msg { return DMsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsDraftsSelected() {
+			return func() tea.Msg { return DraftsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsUnreadsSelected() {
+			return func() tea.Msg { return UnreadsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsHomeSelected() {
+			a.setInboxView(ViewChannels)
+			a.sidebar.SelectDMsRow()
+			return nil
 		}
 		// A section header? Toggle its collapse state and stay in
 		// place. Section headers are also navigable via j/k so the
@@ -1778,7 +1923,21 @@ func (a *App) handleEnter() tea.Cmd {
 	}
 
 	if a.focusedPanel == PanelMessages && a.view == ViewLater {
+		if a.laterView.LoadMoreSelected() {
+			return a.fetchLaterMoreCmd()
+		}
 		return a.openSelectedLaterCmd()
+	}
+
+	if a.focusedPanel == PanelMessages && a.view == ViewDrafts {
+		if a.draftsView.LoadMoreSelected() {
+			return a.fetchDraftsMoreCmd()
+		}
+		return a.openSelectedDraftCmd()
+	}
+
+	if a.focusedPanel == PanelMessages && a.view == ViewUnreads {
+		return a.handleUnreadsEnter()
 	}
 
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {
@@ -2134,6 +2293,12 @@ func (a *App) SetLoadingWorkspaces(names []string) {
 	a.bootstrap.SetWorkspaces(names)
 }
 
+// SetLoadingWorkspacesFromItems seeds the overlay with team IDs and
+// cached icon URLs so a previous session's logo can paint immediately.
+func (a *App) SetLoadingWorkspacesFromItems(items []workspace.WorkspaceItem) {
+	a.bootstrap.SetWorkspaceItems(items)
+}
+
 // spinnerGlyph returns the current spinner character for both the
 // bootstrap overlay and the messages-pane in-channel spinner. Sourced
 // from styles.SpinnerChars indexed by the shared spinnerFrame counter.
@@ -2197,6 +2362,7 @@ func (a *App) SetChannels(items []sidebar.ChannelItem) {
 	a.threadsView.SetChannelNames(names)
 	a.activityView.SetChannelNames(names)
 	a.laterView.SetChannelNames(names)
+	a.draftsView.SetChannelNames(names)
 }
 
 // SetChannelService wires the App's ChannelService collaborator
@@ -2317,6 +2483,22 @@ func (a *App) SetLaterService(s LaterService) {
 	a.later = s
 }
 
+// SetDraftsService wires the App's Drafts & sent list (composer drafts
+// plus scheduled messages).
+func (a *App) SetDraftsService(s DraftsService) {
+	if s == nil {
+		s = noopDraftsService
+	}
+	a.drafts = s
+}
+
+func (a *App) SetUnreadsService(s UnreadsService) {
+	if s == nil {
+		s = noopUnreadsService
+	}
+	a.unreads = s
+}
+
 // SetActivityConfig seeds the Activity view from [activity] in
 // config.toml. Live f/F/s/u cycles do not write back here.
 func (a *App) SetActivityConfig(cfg config.Activity) {
@@ -2324,6 +2506,22 @@ func (a *App) SetActivityConfig(cfg config.Activity) {
 	a.activityCfg = cfg
 	a.activityView.SetQuery(cfg.Filter, cfg.Sort, cfg.UnreadOnly)
 	a.activityView.SetDensity(cfg.Density)
+}
+
+// SetSidebarSort installs [sidebar.sort] atom pipelines and the
+// [sidebar.vip] membership list used by vip_first.
+func (a *App) SetSidebarSort(sortCfg config.SidebarSort, vip []string) {
+	a.sidebar.SetSort(sortCfg, vip)
+}
+
+// SetSidebarGroupDMs installs [sidebar].group_dms (split vs together).
+func (a *App) SetSidebarGroupDMs(mode string) {
+	a.sidebar.SetGroupDMs(mode)
+}
+
+// SetDMsSnippetFetch wires last-message hydration for the DMs tab.
+func (a *App) SetDMsSnippetFetch(fn func(channelIDs []string) tea.Msg) {
+	a.dmsSnippets = fn
 }
 
 // SetReadStateReader installs a callback the sidebar (and any future
@@ -2361,6 +2559,34 @@ func (a *App) SetAvatarFunc(fn messages.AvatarFunc) {
 	a.activityView.SetAvatarFunc(fn)
 	a.threadsView.SetAvatarFunc(fn)
 	a.sidebar.SetAvatarFunc(fn)
+}
+
+// SetSidebarAvatarFunc overrides the sidebar's DM portrait renderer
+// (compact 2×1). SetAvatarFunc also wires the sidebar; call this after
+// when the sidebar should use a different footprint than the messages pane.
+func (a *App) SetSidebarAvatarFunc(fn messages.AvatarFunc) {
+	a.sidebar.SetAvatarFunc(fn)
+}
+
+// SetWorkspaceLogoFunc wires the lazy team-logo renderer on the rail.
+func (a *App) SetWorkspaceLogoFunc(fn workspace.LogoFunc) {
+	a.workspaceRail.SetLogoFunc(fn)
+}
+
+func (a *App) setWorkspaceIcon(teamID, url string) {
+	if teamID == "" || url == "" {
+		return
+	}
+	changed := false
+	for i := range a.workspaceItems {
+		if a.workspaceItems[i].ID == teamID && a.workspaceItems[i].IconURL != url {
+			a.workspaceItems[i].IconURL = url
+			changed = true
+		}
+	}
+	if changed {
+		a.workspaceRail.SetItems(a.workspaceItems)
+	}
 }
 
 // SetColoredUsernames enables or disables deterministic per-user coloring
@@ -2796,6 +3022,38 @@ func (a *App) SetChannelMembership(channelID string, memberIDs []string) {
 			a.seedChannelMembersOverlay(memberIDs)
 		}
 	}
+	a.applyGroupDMPeer(channelID, memberIDs)
+}
+
+func (a *App) applyGroupDMPeer(channelID string, memberIDs []string) {
+	peer := ""
+	for _, id := range memberIDs {
+		if id != "" && id != a.currentUserID {
+			peer = id
+			break
+		}
+	}
+	if peer == "" {
+		return
+	}
+	items := a.sidebar.Items()
+	out := make([]sidebar.ChannelItem, len(items))
+	copy(out, items)
+	changed := false
+	for i := range out {
+		if out[i].ID != channelID || out[i].Type != "group_dm" {
+			continue
+		}
+		if out[i].DMUserID == peer {
+			return
+		}
+		out[i].DMUserID = peer
+		changed = true
+		break
+	}
+	if changed {
+		a.SetChannels(out)
+	}
 }
 
 // SetGuestUsers replaces the set of user IDs known to be workspace
@@ -2814,7 +3072,7 @@ func (a *App) SetGuestUsers(guestIDs map[string]bool) {
 // (conversations.members) and shows a loading row until the result
 // lands. No-op on the Threads/Activity views or with no channel.
 func (a *App) openChannelMembers() tea.Cmd {
-	if a.view != ViewChannels || a.activeChannelID == "" {
+	if !a.inChannelView() || a.activeChannelID == "" {
 		return nil
 	}
 	a.channelMembers.SetChannel(a.compose.ChannelName())
@@ -2997,6 +3255,30 @@ func (a *App) SetThemeSaver(fn func(name string, scope themeswitcher.ThemeScope)
 // The callback receives the current width after a resize.
 func (a *App) SetWidthSaver(fn func(width int)) {
 	a.widthSaveFn = fn
+}
+
+// SetDraftStore wires disk (and optional Slack) compose-draft
+// persistence. Save is invoked from a goroutine; Load is sync.
+func (a *App) SetDraftStore(save func(workspaceID, key, text string), load func(workspaceID string) map[string]string) {
+	a.draftSaveFn = save
+	a.draftLoadFn = load
+}
+
+// SetStarredMessages replaces the in-memory message-star set.
+func (a *App) SetStarredMessages(stars map[string]bool) {
+	a.starredMessages = stars
+}
+
+func (a *App) SetStarredFetcher(fn func() tea.Msg) {
+	a.starFetchFn = fn
+}
+
+func (a *App) fetchStarredMessagesCmd() tea.Cmd {
+	if a.starFetchFn == nil {
+		return nil
+	}
+	fn := a.starFetchFn
+	return func() tea.Msg { return fn() }
 }
 
 // SetStatusSetter registers a callback the App invokes when the user picks
@@ -3210,11 +3492,26 @@ func (a *App) collectSixelPlacements(frame panelLayoutFrame) []imgpkg.SixelPlace
 		}
 		return want
 	}
-	if a.view != ViewChannels {
+	if !a.inChannelView() {
 		return nil
 	}
-	// The same bounds renderWindowsRegion uses, so leaf rectangles
-	// match the panes actually drawn.
+	out := make([]imgpkg.SixelPlacement, 0, 4)
+	if a.threadVisible && frame.ThreadWidth > 0 {
+		th := a.layout.threadHeight
+		if th < 1 {
+			th = frame.ContentHeight
+		}
+		threadRect := wintree.Rect{
+			X: 0,
+			Y: 0,
+			W: frame.ThreadWidth + frame.ThreadBorder,
+			H: th + 1,
+		}
+		out = append(out, absoluteWindowSixelPlacements(
+			a.threadPanel.SixelPlacements(), a.threadPanel.ChromeHeight(),
+			threadRect, a.layout.MsgEnd(),
+		)...)
+	}
 	bounds := wintree.Rect{
 		X: 0,
 		Y: 0,
@@ -3222,7 +3519,6 @@ func (a *App) collectSixelPlacements(frame panelLayoutFrame) []imgpkg.SixelPlace
 		H: frame.ContentHeight,
 	}
 	rects := a.wins.ComputeRects(bounds)
-	out := make([]imgpkg.SixelPlacement, 0, 2)
 	for _, id := range a.wins.Leaves() {
 		rect, ok := rects[id]
 		model := a.winModels[id]
@@ -3710,7 +4006,7 @@ func (a *App) applyThreadFollowing(channelID, threadTS string) {
 // togglePinOfSelected pins or unpins the selected message in the
 // focused pane. Silent no-op when nothing is selected.
 func (a *App) togglePinOfSelected() tea.Cmd {
-	if a.focusedPanel == PanelMessages && a.view != ViewChannels {
+	if a.focusedPanel == PanelMessages && !a.inChannelView() {
 		return nil
 	}
 	channelID, ts, _, _, panel, ok := a.selectedMessageContext()
@@ -3744,6 +4040,66 @@ func (a *App) togglePinOfSelected() tea.Cmd {
 		}
 		return PinToggledMsg{ChannelID: channelID, TS: ts, Pinned: wantPinned, Err: err}
 	}
+}
+
+func starMessageKey(channelID, ts string) string {
+	return channelID + "\x00" + ts
+}
+
+func (a *App) isMessageStarred(channelID, ts string) bool {
+	if a.starredMessages[starMessageKey(channelID, ts)] {
+		return true
+	}
+	switch a.focusedPanel {
+	case PanelMessages:
+		if msg, ok := a.messagepane.SelectedMessage(); ok {
+			return msg.Starred
+		}
+	case PanelThread:
+		if reply := a.threadPanel.SelectedReply(); reply != nil {
+			return reply.Starred
+		}
+	}
+	return false
+}
+
+func (a *App) toggleStarOfSelected() tea.Cmd {
+	if a.focusedPanel == PanelMessages && !a.inChannelView() {
+		return nil
+	}
+	channelID, ts, _, _, _, ok := a.selectedMessageContext()
+	if !ok || channelID == "" || ts == "" {
+		return nil
+	}
+	starred := a.isMessageStarred(channelID, ts)
+	messageSvc := a.messageSvc
+	chID := ids.ChannelID(channelID)
+	mTS := ids.MessageTS(ts)
+	want := !starred
+	return func() tea.Msg {
+		var err error
+		if want {
+			err = messageSvc.Star(chID, mTS)
+		} else {
+			err = messageSvc.Unstar(chID, mTS)
+		}
+		if errors.Is(err, errServiceNoop) {
+			return nil
+		}
+		return StarToggledMsg{ChannelID: channelID, TS: ts, Starred: want, Err: err}
+	}
+}
+
+func (a *App) applyStarredFlags(channelID string, items []messages.MessageItem) []messages.MessageItem {
+	if len(a.starredMessages) == 0 || channelID == "" {
+		return items
+	}
+	for i := range items {
+		if a.starredMessages[starMessageKey(channelID, items[i].TS)] {
+			items[i].Starred = true
+		}
+	}
+	return items
 }
 
 // toggleFollowOfOpenThread follows or unfollows the thread shown in
@@ -3909,5 +4265,17 @@ func (a *App) scheduleChannelSearch(query string) tea.Cmd {
 	}
 	return tea.Tick(delay, func(time.Time) tea.Msg {
 		return channelSearchDebounceMsg{query: query, gen: gen}
+	})
+}
+
+func (a *App) schedulePeopleSearch(query string) tea.Cmd {
+	a.pendingPeopleSearchGen++
+	if query == "" {
+		return nil
+	}
+	gen := a.pendingPeopleSearchGen
+	delay := peopleSearchDebounceDelay
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return peopleSearchDebounceMsg{query: query, gen: gen}
 	})
 }

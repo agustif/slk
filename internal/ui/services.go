@@ -33,6 +33,7 @@ import (
 
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/channelfinder"
+	"github.com/gammons/slk/internal/ui/draftsview"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/reactionpicker"
 )
@@ -349,20 +350,22 @@ func (a activityAdapter) FetchFeed(teamID ids.TeamID, q ActivityFeedQuery) tea.M
 
 // LaterServiceFuncs is the closure bundle for NewLaterService.
 type LaterServiceFuncs struct {
-	List   func(teamID ids.TeamID, gen uint64) tea.Msg
-	Add    func(channelID ids.ChannelID, ts ids.MessageTS) error
-	Remove func(channelID ids.ChannelID, ts ids.MessageTS) error
-	Remind func(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error
+	List     func(teamID ids.TeamID, gen uint64, filter, cursor string) tea.Msg
+	Add      func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Remove   func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Remind   func(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error
+	SetState func(channelID ids.ChannelID, ts ids.MessageTS, state string) error
 }
 
 // LaterService is Slack's Later / Save-for-later surface (saved.list /
 // saved.add / saved.delete / saved.update + reminders.add). Wired by
 // cmd/slk/main.go.
 type LaterService interface {
-	List(teamID ids.TeamID, gen uint64) tea.Msg
+	List(teamID ids.TeamID, gen uint64, filter, cursor string) tea.Msg
 	Add(channelID ids.ChannelID, ts ids.MessageTS) error
 	Remove(channelID ids.ChannelID, ts ids.MessageTS) error
 	Remind(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error
+	SetState(channelID ids.ChannelID, ts ids.MessageTS, state string) error
 }
 
 func NewLaterService(fns LaterServiceFuncs) LaterService {
@@ -375,11 +378,11 @@ type laterAdapter struct {
 	fns LaterServiceFuncs
 }
 
-func (l laterAdapter) List(teamID ids.TeamID, gen uint64) tea.Msg {
+func (l laterAdapter) List(teamID ids.TeamID, gen uint64, filter, cursor string) tea.Msg {
 	if l.fns.List == nil {
 		return LaterListLoadedMsg{TeamID: string(teamID), Gen: gen}
 	}
-	return l.fns.List(teamID, gen)
+	return l.fns.List(teamID, gen, filter, cursor)
 }
 
 func (l laterAdapter) Add(channelID ids.ChannelID, ts ids.MessageTS) error {
@@ -401,6 +404,117 @@ func (l laterAdapter) Remind(channelID ids.ChannelID, ts ids.MessageTS, text str
 		return nil
 	}
 	return l.fns.Remind(channelID, ts, text, dueUnix)
+}
+
+func (l laterAdapter) SetState(channelID ids.ChannelID, ts ids.MessageTS, state string) error {
+	if l.fns.SetState == nil {
+		return nil
+	}
+	return l.fns.SetState(channelID, ts, state)
+}
+
+type DraftsServiceFuncs struct {
+	List            func(teamID ids.TeamID, gen uint64, cursor string) tea.Msg
+	Count           func(teamID ids.TeamID) tea.Msg
+	Delete          func(id, lastUpdatedTS string) error
+	ListScheduled   func(teamID ids.TeamID, gen uint64) tea.Msg
+	DeleteScheduled func(channelID ids.ChannelID, scheduledID string) error
+}
+
+type DraftsService interface {
+	List(teamID ids.TeamID, gen uint64, cursor string) tea.Msg
+	Count(teamID ids.TeamID) tea.Msg
+	Delete(id, lastUpdatedTS string) error
+	ListScheduled(teamID ids.TeamID, gen uint64) tea.Msg
+	DeleteScheduled(channelID ids.ChannelID, scheduledID string) error
+}
+
+func NewDraftsService(fns DraftsServiceFuncs) DraftsService {
+	return draftsAdapter{fns: fns}
+}
+
+var noopDraftsService DraftsService = draftsAdapter{}
+
+type draftsAdapter struct {
+	fns DraftsServiceFuncs
+}
+
+func (d draftsAdapter) List(teamID ids.TeamID, gen uint64, cursor string) tea.Msg {
+	if d.fns.List == nil {
+		return DraftsListLoadedMsg{TeamID: string(teamID), Gen: gen}
+	}
+	return d.fns.List(teamID, gen, cursor)
+}
+
+func (d draftsAdapter) Count(teamID ids.TeamID) tea.Msg {
+	if d.fns.Count == nil {
+		return nil
+	}
+	return d.fns.Count(teamID)
+}
+
+func (d draftsAdapter) Delete(id, lastUpdatedTS string) error {
+	if d.fns.Delete == nil {
+		return nil
+	}
+	return d.fns.Delete(id, lastUpdatedTS)
+}
+
+func (d draftsAdapter) ListScheduled(teamID ids.TeamID, gen uint64) tea.Msg {
+	if d.fns.ListScheduled == nil {
+		return DraftsListLoadedMsg{TeamID: string(teamID), Gen: gen, Filter: draftsview.FilterScheduled}
+	}
+	return d.fns.ListScheduled(teamID, gen)
+}
+
+func (d draftsAdapter) DeleteScheduled(channelID ids.ChannelID, scheduledID string) error {
+	if d.fns.DeleteScheduled == nil {
+		return nil
+	}
+	return d.fns.DeleteScheduled(channelID, scheduledID)
+}
+
+type UnreadsServiceFuncs struct {
+	List       func(teamID ids.TeamID, gen uint64) tea.Msg
+	MarkRead   func(channelID ids.ChannelID, ts ids.MessageTS) error
+	MarkUnread func(channelID ids.ChannelID, ts ids.MessageTS) error
+}
+
+type UnreadsService interface {
+	List(teamID ids.TeamID, gen uint64) tea.Msg
+	MarkRead(channelID ids.ChannelID, ts ids.MessageTS) error
+	MarkUnread(channelID ids.ChannelID, ts ids.MessageTS) error
+}
+
+func NewUnreadsService(fns UnreadsServiceFuncs) UnreadsService {
+	return unreadsAdapter{fns: fns}
+}
+
+var noopUnreadsService UnreadsService = unreadsAdapter{}
+
+type unreadsAdapter struct {
+	fns UnreadsServiceFuncs
+}
+
+func (u unreadsAdapter) List(teamID ids.TeamID, gen uint64) tea.Msg {
+	if u.fns.List == nil {
+		return UnreadsListLoadedMsg{TeamID: string(teamID), Gen: gen}
+	}
+	return u.fns.List(teamID, gen)
+}
+
+func (u unreadsAdapter) MarkRead(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if u.fns.MarkRead == nil {
+		return nil
+	}
+	return u.fns.MarkRead(channelID, ts)
+}
+
+func (u unreadsAdapter) MarkUnread(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if u.fns.MarkUnread == nil {
+		return nil
+	}
+	return u.fns.MarkUnread(channelID, ts)
 }
 
 // MessageService is the App's interface to Slack's per-message
@@ -440,29 +554,43 @@ type MessageService interface {
 
 	// Permalink resolves the Slack permalink URL for the message
 	// identified by (channelID, ts). Used by the copy-permalink
-	// keybind. Synchronous (HTTP); callers wrap in a goroutine to
-	// avoid blocking the Update loop.
+	// keybind and by share/forward. Synchronous (HTTP); callers wrap
+	// in a goroutine to avoid blocking the Update loop.
 	Permalink(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS) (string, error)
+
+	ListScheduled() tea.Msg
+	DeleteScheduled(channelID ids.ChannelID, scheduledID string) tea.Msg
+	ListReminders() tea.Msg
+	CompleteReminder(id string) tea.Msg
 
 	// Pin pins the message identified by (channelID, ts).
 	Pin(channelID ids.ChannelID, ts ids.MessageTS) error
 
 	// Unpin unpins the message identified by (channelID, ts).
 	Unpin(channelID ids.ChannelID, ts ids.MessageTS) error
+
+	Star(channelID ids.ChannelID, ts ids.MessageTS) error
+	Unstar(channelID ids.ChannelID, ts ids.MessageTS) error
 }
 
 // MessageServiceFuncs is the closure bundle accepted by
 // NewMessageService. Any field may be nil; the resulting service
 // no-ops that operation.
 type MessageServiceFuncs struct {
-	Send       MessageSendFunc
-	Schedule   MessageScheduleFunc
-	Edit       MessageEditFunc
-	Delete     MessageDeleteFunc
-	MarkUnread MarkUnreadFunc
-	Permalink  PermalinkFetchFunc
-	Pin        func(channelID ids.ChannelID, ts ids.MessageTS) error
-	Unpin      func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Send             MessageSendFunc
+	Schedule         MessageScheduleFunc
+	Edit             MessageEditFunc
+	Delete           MessageDeleteFunc
+	MarkUnread       MarkUnreadFunc
+	Permalink        PermalinkFetchFunc
+	Pin              func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Unpin            func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Star             func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Unstar           func(channelID ids.ChannelID, ts ids.MessageTS) error
+	ListScheduled    func() tea.Msg
+	DeleteScheduled  func(channelID ids.ChannelID, scheduledID string) tea.Msg
+	ListReminders    func() tea.Msg
+	CompleteReminder func(id string) tea.Msg
 }
 
 // NewMessageService builds a MessageService from a MessageServiceFuncs
@@ -536,6 +664,48 @@ func (m messageAdapter) Unpin(channelID ids.ChannelID, ts ids.MessageTS) error {
 	return m.fns.Unpin(channelID, ts)
 }
 
+func (m messageAdapter) Star(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if m.fns.Star == nil {
+		return errServiceNoop
+	}
+	return m.fns.Star(channelID, ts)
+}
+
+func (m messageAdapter) Unstar(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if m.fns.Unstar == nil {
+		return errServiceNoop
+	}
+	return m.fns.Unstar(channelID, ts)
+}
+
+func (m messageAdapter) ListScheduled() tea.Msg {
+	if m.fns.ListScheduled == nil {
+		return nil
+	}
+	return m.fns.ListScheduled()
+}
+
+func (m messageAdapter) DeleteScheduled(channelID ids.ChannelID, scheduledID string) tea.Msg {
+	if m.fns.DeleteScheduled == nil {
+		return nil
+	}
+	return m.fns.DeleteScheduled(channelID, scheduledID)
+}
+
+func (m messageAdapter) ListReminders() tea.Msg {
+	if m.fns.ListReminders == nil {
+		return nil
+	}
+	return m.fns.ListReminders()
+}
+
+func (m messageAdapter) CompleteReminder(id string) tea.Msg {
+	if m.fns.CompleteReminder == nil {
+		return nil
+	}
+	return m.fns.CompleteReminder(id)
+}
+
 // ChannelService is the App's interface to the Slack channels API,
 // the local SQLite channel cache, and per-channel session bookkeeping
 // (visit timestamps, navigation-history lookups, membership fetches).
@@ -597,6 +767,15 @@ type ChannelService interface {
 	// or ChannelLeaveFailedMsg). Not valid for DMs.
 	Leave(channelID ids.ChannelID, channelName string) tea.Msg
 
+	// Close sends conversations.close for a 1:1 or group DM.
+	// Returns a tea.Msg (typically ChannelClosedMsg or
+	// ChannelCloseFailedMsg).
+	Close(channelID ids.ChannelID, channelName string) tea.Msg
+
+	// Reopen sends conversations.open for a closed IM/MPIM so it
+	// returns to Slack's Home is_open set.
+	Reopen(channelID ids.ChannelID) tea.Msg
+
 	// RecordVisit persists a visit to channelID (SQLite write +
 	// WorkspaceContext last-visited map update). Fired once per
 	// ChannelSelectedMsg regardless of FromHistory.
@@ -651,6 +830,8 @@ type ChannelServiceFuncs struct {
 	Lookup           ChannelLookupFunc
 	Join             JoinChannelFunc
 	Leave            LeaveChannelFunc
+	Close            func(channelID ids.ChannelID, channelName string) tea.Msg
+	Reopen           func(channelID ids.ChannelID) tea.Msg
 	RecordVisit      ChannelVisitRecorder
 	MembershipFetch  func(channelID ids.ChannelID)
 	OpenConversation func(userIDs []string, requestID uint64) tea.Cmd
@@ -736,6 +917,20 @@ func (c channelAdapter) Leave(channelID ids.ChannelID, channelName string) tea.M
 	return c.fns.Leave(channelID, channelName)
 }
 
+func (c channelAdapter) Close(channelID ids.ChannelID, channelName string) tea.Msg {
+	if c.fns.Close == nil {
+		return nil
+	}
+	return c.fns.Close(channelID, channelName)
+}
+
+func (c channelAdapter) Reopen(channelID ids.ChannelID) tea.Msg {
+	if c.fns.Reopen == nil {
+		return nil
+	}
+	return c.fns.Reopen(channelID)
+}
+
 func (c channelAdapter) RecordVisit(channelID ids.ChannelID) {
 	if c.fns.RecordVisit == nil {
 		return
@@ -778,17 +973,17 @@ func (c channelAdapter) FetchChrome(channelID ids.ChannelID) tea.Msg {
 	return c.fns.FetchChrome(channelID)
 }
 
-
 // SearchService runs message searches. SearchChannel queries the local
 // FTS cache for one channel; SearchWorkspace queries Slack's
-// search.messages / search.files for the active workspace.
+// search.messages / search.files / edge.UsersSearch for the active
+// workspace.
 type SearchService interface {
 	// SearchChannel returns a ChannelSearchResultsMsg for query in
 	// channelID's cached history.
 	SearchChannel(channelID ids.ChannelID, query string) tea.Msg
 	// SearchWorkspace returns a WorkspaceSearchResultsMsg for req
 	// across the active workspace (server-side). Kind selects
-	// messages vs files; Page is 1-indexed; Gen is echoed so a
+	// messages vs files vs people; Page is 1-indexed; Gen is echoed so a
 	// superseded in-flight page is dropped.
 	SearchWorkspace(req WorkspaceSearchRequest) tea.Msg
 }
@@ -836,12 +1031,18 @@ type SectionService interface {
 	// users.channelSections.create. Returns a tea.Msg (typically
 	// SectionCreatedMsg or SectionCreateFailedMsg).
 	Create(name string) tea.Msg
+	Rename(sectionID, name string) tea.Msg
+	Delete(sectionID string) tea.Msg
+	Move(sectionID string, delta int) tea.Msg
 }
 
 // SectionServiceFuncs is the closure bundle for NewSectionService.
 type SectionServiceFuncs struct {
 	Assign func(channelID ids.ChannelID, sectionID string) tea.Msg
 	Create func(name string) tea.Msg
+	Rename func(sectionID, name string) tea.Msg
+	Delete func(sectionID string) tea.Msg
+	Move   func(sectionID string, delta int) tea.Msg
 }
 
 // NewSectionService builds a SectionService from named closures.
@@ -867,4 +1068,25 @@ func (s sectionAdapter) Create(name string) tea.Msg {
 		return SectionCreateFailedMsg{Name: name, Err: "section writes unavailable"}
 	}
 	return s.fns.Create(name)
+}
+
+func (s sectionAdapter) Rename(sectionID, name string) tea.Msg {
+	if s.fns.Rename == nil {
+		return SectionRenameFailedMsg{ID: sectionID, Name: name, Err: "section writes unavailable"}
+	}
+	return s.fns.Rename(sectionID, name)
+}
+
+func (s sectionAdapter) Delete(sectionID string) tea.Msg {
+	if s.fns.Delete == nil {
+		return SectionDeleteFailedMsg{ID: sectionID, Err: "section writes unavailable"}
+	}
+	return s.fns.Delete(sectionID)
+}
+
+func (s sectionAdapter) Move(sectionID string, delta int) tea.Msg {
+	if s.fns.Move == nil {
+		return SectionReorderFailedMsg{Err: "section writes unavailable"}
+	}
+	return s.fns.Move(sectionID, delta)
 }

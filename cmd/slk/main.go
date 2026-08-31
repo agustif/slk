@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,6 +33,7 @@ import (
 	"github.com/gammons/slk/internal/notify"
 	"github.com/gammons/slk/internal/service"
 	slackclient "github.com/gammons/slk/internal/slack"
+	"github.com/gammons/slk/internal/slack/boot"
 	"github.com/gammons/slk/internal/slack/edge"
 	"github.com/gammons/slk/internal/slack/membership"
 	"github.com/gammons/slk/internal/slackdesktop"
@@ -51,6 +53,7 @@ import (
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
+	"github.com/gammons/slk/internal/ui/unreadsview"
 	"github.com/gammons/slk/internal/ui/userprofile"
 	"github.com/gammons/slk/internal/ui/workspace"
 	versionpkg "github.com/gammons/slk/internal/version"
@@ -136,6 +139,10 @@ type WorkspaceContext struct {
 	// without an `@`) to a display name. Used to resolve participant
 	// handles in mpdm channel names like `mpdm-grant--myles--ray-1`.
 	UserNamesByHandle map[string]string
+	// UserIDsByHandle maps the same handle to the user ID, used to
+	// pick a group-DM avatar from an mpdm-* name when Slack omitted
+	// members[] on the conversation.
+	UserIDsByHandle map[string]string
 	// BotUserIDs is the set of user IDs known to be Slack apps or bots.
 	// Populated from the local cache on startup, from
 	// conversations.view's users array via applyBootUsers, and by any
@@ -154,6 +161,10 @@ type WorkspaceContext struct {
 	// foreground for muted channels. Nil when the bootstrap fetch
 	// failed or hasn't run yet — callers must nil-check before use.
 	MuteStore *service.MuteStore
+	// VIPStore is Slack's VIP people/apps list (prefs.vip_users).
+	// Nil-check before use; sidebar vip_first unions this with
+	// [sidebar.vip] config extras.
+	VIPStore *service.VIPStore
 	// ThreadsHasUnreads is the workspace-wide threads-have-any-unread
 	// signal returned by client.counts on startup. The local SQLite
 	// heuristic for per-thread unread state can produce false positives
@@ -187,9 +198,12 @@ type WorkspaceContext struct {
 	// the user has joined. Channels they have not joined are not held
 	// here at all — they arrive per query from the finder's debounced
 	// channels/search and live only in the finder component.
-	FinderItems   []channelfinder.Item
-	TeamID        string
-	TeamName      string
+	FinderItems []channelfinder.Item
+	TeamID      string
+	TeamName    string
+	// IconURL is team.icon from client.userBoot, used to paint the
+	// workspace-rail logo. Empty until bootstrap finishes.
+	IconURL       string
 	UserID        string
 	UnresolvedDMs []UnresolvedDM
 	CustomEmoji   map[string]string // emoji name -> URL or "alias:target"
@@ -351,6 +365,8 @@ type userResolver struct {
 	avatars  *avatar.Cache
 	send     func(tea.Msg)
 	inflight sync.Map // userID -> struct{}
+	resolved sync.Map // userID -> struct{} ; looked up, even if no photo
+	onAvatar func(userID, url string)
 	// sem bounds concurrent round trips on the per-user users.info
 	// path (resolveOne). Buffered, so acquiring it happens inside the
 	// request goroutine and Request itself never blocks -- it is
@@ -396,29 +412,37 @@ func newUserResolver(
 // Request enqueues a users.info fetch for userID. Returns immediately.
 // On success, emits a ui.UserResolvedMsg via the resolver's send
 // callback so the App can patch in-history display names live.
+func (r *userResolver) rememberAvatar(userID, url string) {
+	if userID == "" || url == "" || r.avatars == nil {
+		return
+	}
+	r.avatars.Preload(userID, url)
+	if r.onAvatar != nil {
+		r.onAvatar(userID, url)
+	}
+}
+
 func (r *userResolver) Request(userID string) {
 	if r == nil || userID == "" {
+		return
+	}
+	if r.avatars != nil && r.avatars.Get(userID) != "" {
 		return
 	}
 	if _, exists := r.inflight.LoadOrStore(userID, struct{}{}); exists {
 		return
 	}
-	// Skip if already resolved (in cache.User). This is the hot path
-	// for membership.Manager which calls Request for every channel
-	// member returned by conversations.members; without this, every
-	// channel-switch refetches users.info for each member, which is
-	// O(channel-size) API calls per switch (a 1000-member shared
-	// channel = 1000 calls). Stale-data refresh is the responsibility
-	// of an explicit re-resolution path (not implemented here); this
-	// gate is for "first time we see this user".
-	//
-	// Order matters: inflight.LoadOrStore first (claim the slot),
-	// THEN the cache check (bail if cached), with inflight.Delete on
-	// the bail path. This avoids a race where two concurrent Requests
-	// both miss the cache, both then LoadOrStore (one wins, the loser
-	// silently returns). Store-first + check-second means at most one
-	// goroutine ever passes the cache check.
-	if _, err := r.db.GetUser(userID); err == nil {
+	// Cached user with a photo: kick a lazy Preload (retries live
+	// in avatar.Cache) and skip the network. Cached user with no
+	// photo still falls through once so we can pick up a later
+	// profile image. resolved blocks looping on people who truly
+	// have none.
+	if u, err := r.db.GetUser(userID); err == nil && u.AvatarURL != "" {
+		r.rememberAvatar(userID, u.AvatarURL)
+		r.inflight.Delete(userID)
+		return
+	}
+	if _, done := r.resolved.Load(userID); done {
 		r.inflight.Delete(userID)
 		return
 	}
@@ -440,6 +464,7 @@ func (r *userResolver) Request(userID string) {
 // is degraded. Callers run it on its own goroutine.
 func (r *userResolver) resolveOne(userID string) {
 	defer r.inflight.Delete(userID)
+	defer r.resolved.Store(userID, struct{}{})
 	if r.sem != nil {
 		r.sem <- struct{}{}
 		defer func() { <-r.sem }()
@@ -477,13 +502,15 @@ func (r *userResolver) resolveOne(userID string) {
 	// Subsequent resolveUserCached misses fall back to the DB
 	// row we just upserted, so we don't re-fetch on every miss
 	// in the small window before UserResolvedMsg lands.
-	r.avatars.Preload(userID, u.Profile.Image32)
+	avatarURL := bestUserAvatar(u.Profile)
+	r.rememberAvatar(userID, avatarURL)
+	r.resolved.Store(userID, struct{}{})
 	_ = r.db.UpsertUser(cache.User{
 		ID:          userID,
 		WorkspaceID: r.teamID,
 		Name:        u.Name,
 		DisplayName: name,
-		AvatarURL:   u.Profile.Image32,
+		AvatarURL:   avatarURL,
 		Presence:    "away",
 		IsBot:       isBot,
 		IsExternal:  isExternal,
@@ -629,12 +656,14 @@ func (r *userResolver) applyEdgeUser(u edge.User) {
 		name = u.Name
 	}
 	isExternal := u.TeamID != "" && u.TeamID != r.teamID
-	r.avatars.Preload(u.ID, u.Profile.ImageOriginal)
+	avatarURL := u.Profile.ImageOriginal
+	r.rememberAvatar(u.ID, avatarURL)
+	r.resolved.Store(u.ID, struct{}{})
 	_ = r.db.UpsertUserFromEdge(r.teamID, cache.EdgeUserUpdate{
 		ID:          u.ID,
 		Name:        u.Name,
 		DisplayName: name,
-		AvatarURL:   u.Profile.ImageOriginal,
+		AvatarURL:   avatarURL,
 		IsBot:       u.IsBot,
 		IsExternal:  isExternal,
 		Version:     u.Version,
@@ -711,6 +740,15 @@ func (r *userResolver) RequestBot(botID, username string) {
 // 72px icon — large enough to render sharp yet almost always present —
 // then fall back through the other sizes by availability rather than
 // strictly by pixel size.
+func bestUserAvatar(p slack.UserProfile) string {
+	for _, u := range []string{p.Image72, p.Image48, p.Image192, p.Image32, p.Image24, p.ImageOriginal} {
+		if u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
 func bestBotIcon(ic slack.Icons) string {
 	for _, u := range []string{ic.Image72, ic.Image48, ic.Image132, ic.Image36, ic.Image230} {
 		if u != "" {
@@ -777,6 +815,18 @@ func main() {
 				os.Exit(1)
 			}
 			os.Exit(0)
+		case "--dump-dms":
+			if err := dumpDMs(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case "--dump-saved":
+			if err := dumpSaved(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		}
 	}
 
@@ -831,6 +881,7 @@ Usage:
   slk --remove-workspace  Remove a configured workspace (interactive)
   slk --list-workspaces   List configured workspaces (TeamID, Slug, Name)
   slk --dump-sections     Dump raw users.channelSections.list JSON (diagnostic)
+  slk --dump-dms          Count IMs/MPIMs from userBoot vs users.conversations (no names)
   slk --version          Print version and exit
   slk --help             Show this help
 
@@ -1178,6 +1229,17 @@ func run() error {
 	// `orderedTokens` is only for user-facing iteration order.
 	orderedTokens := config.OrderTokens(tokens, cfg)
 
+	// Cached team logos (icon_url) so the rail can show the real
+	// workspace mark on first paint after a previous session.
+	iconByTeam := map[string]string{}
+	if cachedWS, err := db.ListWorkspaces(); err == nil {
+		for _, ws := range cachedWS {
+			if ws.IconURL != "" {
+				iconByTeam[ws.ID] = ws.IconURL
+			}
+		}
+	}
+
 	// Build workspace rail items for all tokens, in configured order.
 	var wsItems []workspace.WorkspaceItem
 	for _, ot := range orderedTokens {
@@ -1185,22 +1247,22 @@ func run() error {
 			ID:       ot.Token.TeamID,
 			Name:     ot.Token.TeamName,
 			Initials: workspace.WorkspaceInitials(ot.Token.TeamName),
+			IconURL:  iconByTeam[ot.Token.TeamID],
 		})
 	}
 
-	// Set up loading overlay with workspace names, in the same order
-	// so the loading list visually matches the rail.
-	var wsNames []string
-	for _, ot := range orderedTokens {
-		wsNames = append(wsNames, ot.Token.TeamName)
-	}
-	app.SetLoadingWorkspaces(wsNames)
+	// Set up loading overlay in the same order as the rail, with
+	// cached team icon URLs so a previous session's logo can paint
+	// as soon as the image cache hits.
+	app.SetLoadingWorkspacesFromItems(wsItems)
 	app.SetWorkspaces(wsItems)
 	app.SetTypingEnabled(cfg.Animations.TypingIndicators)
 	app.SetSidebarStaleThreshold(time.Duration(cfg.Sidebar.HideInactiveAfterDays) * 24 * time.Hour)
 	app.SetMouseWheelLines(cfg.Appearance.MouseWheelLines)
 	app.SetColoredUsernames(cfg.Appearance.ColoredUsernames)
 	app.SetActivityConfig(cfg.Activity)
+	app.SetSidebarSort(cfg.Sidebar.Sort, cfg.Sidebar.VIP)
+	app.SetSidebarGroupDMs(cfg.Sidebar.GroupDMs)
 
 	// Wire theme switcher
 	app.SetThemeItems(styles.ThemeNames())
@@ -1253,9 +1315,45 @@ func run() error {
 			if url, ok := v.(string); ok && url != "" {
 				avatarCache.Preload(userID, url)
 			}
+		} else if wctx.UserResolver != nil {
+			wctx.UserResolver.Request(userID)
 		}
 		return ""
 	})
+	sidebarSize := avatar.SidebarSize()
+	app.SetSidebarAvatarFunc(func(userID string) string {
+		if rendered := avatarCache.GetSized(userID, sidebarSize); rendered != "" {
+			return rendered
+		}
+		wctx := router.Active()
+		if wctx == nil || wctx.AvatarURLs == nil {
+			return ""
+		}
+		if v, ok := wctx.AvatarURLs.Load(userID); ok {
+			if url, ok := v.(string); ok && url != "" {
+				avatarCache.PreloadSized(userID, url, sidebarSize)
+			}
+		} else if wctx.UserResolver != nil {
+			wctx.UserResolver.Request(userID)
+		}
+		return ""
+	})
+	app.SetWorkspaceLogoFunc(func(teamID, iconURL string) string {
+		if rendered := avatarCache.Get(teamID); rendered != "" {
+			return rendered
+		}
+		if iconURL != "" {
+			avatarCache.Preload(teamID, iconURL)
+		}
+		return ""
+	})
+	// Disk-cached team logos must be rendered before the first
+	// bubbletea frame so the connecting overlay can paint them.
+	for _, it := range wsItems {
+		if it.IconURL != "" {
+			avatarCache.PreloadSync(it.ID, it.IconURL)
+		}
+	}
 
 	// Wire theme switcher: dispatch to the appropriate saver based on scope.
 	app.SetThemeSaver(func(name string, scope themeswitcher.ThemeScope) {
@@ -1300,6 +1398,88 @@ func run() error {
 	})
 
 	// Wire sidebar width saver: always persist to the active workspace.
+	var draftWriteMu sync.Mutex
+	app.SetDraftStore(func(workspaceID, key, text string) {
+		if workspaceID == "" || key == "" {
+			return
+		}
+		draftWriteMu.Lock()
+		defer draftWriteMu.Unlock()
+		if text == "" {
+			row, err := db.GetDraft(workspaceID, key)
+			_ = db.DeleteDraft(workspaceID, key)
+			if err == nil && row.SlackID != "" {
+				wctx := workspaces[workspaceID]
+				if wctx != nil && wctx.Client != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+					defer cancel()
+					if err := wctx.Client.DeleteComposerDraft(ctx, row.SlackID, row.LastUpdatedTS); err != nil {
+						debuglog.Cache("drafts.delete: %v", err)
+					}
+				}
+			}
+			return
+		}
+		existing, _ := db.GetDraft(workspaceID, key)
+		if existing.Text == text && existing.SlackID != "" {
+			return
+		}
+		_ = db.UpsertDraft(cache.Draft{WorkspaceID: workspaceID, Key: key, Text: text, SlackID: existing.SlackID, LastUpdatedTS: existing.LastUpdatedTS})
+		wctx := workspaces[workspaceID]
+		if wctx == nil || wctx.Client == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		ch, th := slackclient.SplitDraftKey(key)
+		if existing.SlackID == "" {
+			created, err := wctx.Client.CreateComposerDraft(ctx, ch, th, text)
+			if err != nil {
+				debuglog.Cache("drafts.create: %v", err)
+				return
+			}
+			_ = db.UpsertDraft(cache.Draft{WorkspaceID: workspaceID, Key: key, Text: text, SlackID: created.ID, LastUpdatedTS: created.LastUpdatedTS})
+			return
+		}
+		updated, err := wctx.Client.UpdateComposerDraft(ctx, existing.SlackID, existing.LastUpdatedTS, ch, th, text)
+		if err != nil {
+			debuglog.Cache("drafts.update: %v", err)
+			return
+		}
+		ts := updated.LastUpdatedTS
+		if ts == "" {
+			ts = existing.LastUpdatedTS
+		}
+		_ = db.UpsertDraft(cache.Draft{WorkspaceID: workspaceID, Key: key, Text: text, SlackID: existing.SlackID, LastUpdatedTS: ts})
+	}, func(workspaceID string) map[string]string {
+		rows, err := db.ListDrafts(workspaceID)
+		if err != nil {
+			return nil
+		}
+		out := make(map[string]string, len(rows))
+		for _, r := range rows {
+			if r.Text != "" {
+				out[r.Key] = r.Text
+			}
+		}
+		return out
+	})
+
+	app.SetStarredFetcher(func() tea.Msg {
+		wctx := workspaces[activeTeamID]
+		if wctx == nil || wctx.Client == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		items, err := wctx.Client.GetStarredMessages(ctx)
+		if err != nil {
+			debuglog.Cache("stars.list messages: %v", err)
+			return nil
+		}
+		return ui.StarredLoadedMsg{Items: items}
+	})
+
 	app.SetWidthSaver(func(width int) {
 		if activeTeamID == "" {
 			return
@@ -1650,6 +1830,44 @@ func run() error {
 				}
 				return ui.ChannelLeftMsg{ID: chIDStr, Name: channelName}
 			},
+			Close: func(channelID ids.ChannelID, channelName string) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelCloseFailedMsg{ID: chIDStr, Name: channelName, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := wctx.Client.CloseConversation(ctx, chIDStr); err != nil {
+					return ui.ChannelCloseFailedMsg{ID: chIDStr, Name: channelName, Err: err}
+				}
+				for i := range wctx.Channels {
+					if wctx.Channels[i].ID == chIDStr {
+						wctx.Channels[i].Closed = true
+						break
+					}
+				}
+				return ui.ChannelClosedMsg{ID: chIDStr, Name: channelName}
+			},
+			Reopen: func(channelID ids.ChannelID) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelReopenFailedMsg{ID: chIDStr, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := wctx.Client.ReopenConversation(ctx, chIDStr); err != nil {
+					return ui.ChannelReopenFailedMsg{ID: chIDStr, Err: err}
+				}
+				for i := range wctx.Channels {
+					if wctx.Channels[i].ID == chIDStr {
+						wctx.Channels[i].Closed = false
+						break
+					}
+				}
+				return ui.ChannelReopenedMsg{ID: chIDStr}
+			},
 			SetMuted: func(channelID ids.ChannelID, muted bool) tea.Msg {
 				chIDStr := string(channelID)
 				wctx := router.Active()
@@ -1787,6 +2005,46 @@ func run() error {
 				}
 				return ui.MessageScheduledMsg{ChannelID: chIDStr, PostAt: postAt}
 			},
+			ListScheduled: func() tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ScheduledListMsg{Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				items, err := wctx.Client.ListScheduledMessages(ctx, "")
+				return ui.ScheduledListMsg{Items: items, Err: err}
+			},
+			DeleteScheduled: func(channelID ids.ChannelID, scheduledID string) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ScheduledDeletedMsg{ID: scheduledID, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				err := wctx.Client.DeleteScheduledMessage(ctx, string(channelID), scheduledID)
+				return ui.ScheduledDeletedMsg{ID: scheduledID, Err: err}
+			},
+			ListReminders: func() tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.RemindersListMsg{Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				items, err := wctx.Client.ListReminders(ctx)
+				return ui.RemindersListMsg{Items: items, Err: err}
+			},
+			CompleteReminder: func(id string) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ReminderCompletedMsg{ID: id, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				err := wctx.Client.CompleteReminder(ctx, id)
+				return ui.ReminderCompletedMsg{ID: id, Err: err}
+			},
 			Edit: func(channelID ids.ChannelID, ts ids.MessageTS, text string) tea.Msg {
 				chIDStr, tsStr := string(channelID), string(ts)
 				wctx := router.Active()
@@ -1887,6 +2145,24 @@ func run() error {
 				defer cancel()
 				return wctx.Client.RemovePin(ctx, string(channelID), string(ts))
 			},
+			Star: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.StarMessage(ctx, string(channelID), string(ts))
+			},
+			Unstar: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.UnstarMessage(ctx, string(channelID), string(ts))
+			},
 		}))
 
 		app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
@@ -1928,8 +2204,21 @@ func run() error {
 			}
 		})
 
+		app.SetDMsSnippetFetch(func(channelIDs []string) tea.Msg {
+			wctx := router.Active()
+			team := ""
+			var client *slackclient.Client
+			if wctx != nil {
+				team = wctx.TeamID
+				client = wctx.Client
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			return fetchDMsSnippets(ctx, db, client, team, channelIDs)
+		})
+
 		app.SetLaterService(ui.NewLaterService(ui.LaterServiceFuncs{
-			List: func(teamID ids.TeamID, gen uint64) tea.Msg {
+			List: func(teamID ids.TeamID, gen uint64, filter, cursor string) tea.Msg {
 				team := string(teamID)
 				wctx := router.ByID(team)
 				if wctx == nil {
@@ -1937,11 +2226,16 @@ func run() error {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
-				res, err := wctx.Client.GetSavedList(ctx, slackclient.SavedListOpts{Filter: "saved", Limit: 50})
+				res, err := wctx.Client.GetSavedList(ctx, slackclient.SavedListOpts{Filter: filter, Limit: 50, Cursor: cursor})
+				if err == nil {
+					hydrateSavedItems(ctx, db, wctx.Client, res.Items)
+				}
 				return ui.LaterListLoadedMsg{
 					TeamID: team,
 					Items:  res.Items,
 					Counts: res.Counts,
+					Cursor: res.Cursor,
+					Append: cursor != "",
 					Err:    err,
 					Gen:    gen,
 				}
@@ -1964,6 +2258,15 @@ func run() error {
 				defer cancel()
 				return wctx.Client.SavedDelete(ctx, string(channelID), string(ts))
 			},
+			SetState: func(channelID ids.ChannelID, ts ids.MessageTS, state string) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.SavedUpdateState(ctx, string(channelID), string(ts), state)
+			},
 			Remind: func(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error {
 				wctx := router.Active()
 				if wctx == nil {
@@ -1978,6 +2281,135 @@ func run() error {
 					return remErr
 				}
 				return nil
+			},
+		}))
+
+		app.SetDraftsService(ui.NewDraftsService(ui.DraftsServiceFuncs{
+			List: func(teamID ids.TeamID, gen uint64, cursor string) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.DraftsListLoadedMsg{TeamID: team, Gen: gen, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				page, err := wctx.Client.ListComposerDraftsPage(ctx, cursor, 50)
+				return ui.DraftsListLoadedMsg{
+					TeamID: team,
+					Gen:    gen,
+					Drafts: page.Drafts,
+					NextTS: page.NextTS,
+					Append: cursor != "",
+					Err:    err,
+				}
+			},
+			Count: func(teamID ids.TeamID) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.DraftsCountsMsg{TeamID: team}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				n, err := wctx.Client.CountActiveDrafts(ctx)
+				if err != nil {
+					return ui.DraftsCountsMsg{TeamID: team}
+				}
+				return ui.DraftsCountsMsg{TeamID: team, Count: n}
+			},
+			Delete: func(id, lastUpdatedTS string) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.DeleteComposerDraft(ctx, id, lastUpdatedTS)
+			},
+			ListScheduled: func(teamID ids.TeamID, gen uint64) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.DraftsListLoadedMsg{TeamID: team, Gen: gen, Filter: "scheduled", Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				items, err := wctx.Client.ListScheduledMessages(ctx, "")
+				return ui.DraftsListLoadedMsg{
+					TeamID: team,
+					Gen:    gen,
+					Filter: "scheduled",
+					Sched:  items,
+					Err:    err,
+				}
+			},
+			DeleteScheduled: func(channelID ids.ChannelID, scheduledID string) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.DeleteScheduledMessage(ctx, string(channelID), scheduledID)
+			},
+		}))
+
+		app.SetUnreadsService(ui.NewUnreadsService(ui.UnreadsServiceFuncs{
+			List: func(teamID ids.TeamID, gen uint64) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.UnreadsListLoadedMsg{TeamID: team, Gen: gen, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				snap, err := wctx.Client.GetCounts()
+				if err != nil {
+					return ui.UnreadsListLoadedMsg{TeamID: team, Gen: gen, Err: err}
+				}
+				var pending []slackclient.UnreadInfo
+				for _, u := range snap.Unreads {
+					if u.HasUnread {
+						pending = append(pending, u)
+					}
+				}
+				blocks := make([]unreadsview.Block, len(pending))
+				var wg sync.WaitGroup
+				sem := make(chan struct{}, 8)
+				for i, u := range pending {
+					wg.Add(1)
+					go func(i int, u slackclient.UnreadInfo) {
+						defer wg.Done()
+						sem <- struct{}{}
+						defer func() { <-sem }()
+						hist, herr := wctx.Client.UnreadHistory(ctx, u.ChannelID, u.LastRead)
+						if herr != nil {
+							blocks[i] = unreadsview.Block{ChannelID: u.ChannelID, LastRead: u.LastRead}
+							return
+						}
+						blocks[i] = unreadsview.BlockFromHistory(u.ChannelID, u.LastRead, hist)
+					}(i, u)
+				}
+				wg.Wait()
+				return ui.UnreadsListLoadedMsg{TeamID: team, Gen: gen, Blocks: blocks}
+			},
+			MarkRead: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.MarkChannel(ctx, string(channelID), string(ts))
+			},
+			MarkUnread: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.MarkChannelUnread(ctx, string(channelID), string(ts))
 			},
 		}))
 
@@ -2009,6 +2441,9 @@ func run() error {
 					PriorityOnly: q.PriorityOnly,
 					Limit:        q.Limit,
 				})
+				if err == nil {
+					hydrateActivityItems(ctx, db, wctx.Client, items)
+				}
 				return ui.ActivityFeedLoadedMsg{
 					TeamID:     team,
 					Items:      items,
@@ -2072,6 +2507,56 @@ func run() error {
 					})
 				}
 				return ui.SectionCreatedMsg{ID: id, Name: name}
+			},
+			Rename: func(sectionID, name string) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.SectionRenameFailedMsg{ID: sectionID, Name: name, Err: "no active workspace"}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.UpdateChannelSection(ctx, sectionID, name, ""); err != nil {
+					return ui.SectionRenameFailedMsg{ID: sectionID, Name: name, Err: err.Error()}
+				}
+				if store := wctx.SectionStore; store != nil && store.Ready() {
+					store.ApplyUpsert(slackclient.ChannelSectionUpserted{ID: sectionID, Name: name})
+					syncWorkspaceChannelSections(wctx)
+				}
+				return ui.SectionRenamedMsg{ID: sectionID, Name: name}
+			},
+			Delete: func(sectionID string) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.SectionDeleteFailedMsg{ID: sectionID, Err: "no active workspace"}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.DeleteChannelSection(ctx, sectionID); err != nil {
+					return ui.SectionDeleteFailedMsg{ID: sectionID, Err: err.Error()}
+				}
+				name := slackSectionDisplayName(wctx.SectionStore, sectionID)
+				if store := wctx.SectionStore; store != nil && store.Ready() {
+					store.ApplyDelete(sectionID)
+					syncWorkspaceChannelSections(wctx)
+				}
+				return ui.SectionDeletedMsg{ID: sectionID, Name: name}
+			},
+			Move: func(sectionID string, delta int) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil || wctx.SectionStore == nil || !wctx.SectionStore.Ready() {
+					return ui.SectionReorderFailedMsg{Err: "Slack sections not available"}
+				}
+				ids, err := wctx.SectionStore.MoveSection(sectionID, delta)
+				if err != nil {
+					return ui.SectionReorderFailedMsg{Err: err.Error()}
+				}
+				syncWorkspaceChannelSections(wctx)
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.ReorderChannelSections(ctx, ids); err != nil {
+					return ui.SectionReorderFailedMsg{Err: err.Error()}
+				}
+				return ui.SectionReorderedMsg{}
 			},
 		}))
 
@@ -2444,6 +2929,12 @@ func run() error {
 	avatarCache.SetOnReady(func(userID string) {
 		p.Send(messages.AvatarReadyMsg{UserID: userID})
 	})
+	// Kick team-logo fetches now that onReady can invalidate the rail.
+	for _, it := range wsItems {
+		if it.IconURL != "" {
+			avatarCache.Preload(it.ID, it.IconURL)
+		}
+	}
 
 	// Launch workspace connections in background goroutines
 	// Results are sent to the TUI via p.Send()
@@ -2564,6 +3055,7 @@ func run() error {
 			p.Send(ui.WorkspaceReadyMsg{
 				TeamID:           wctx.TeamID,
 				TeamName:         wctx.TeamName,
+				IconURL:          wctx.IconURL,
 				Domain:           wctx.Client.TeamSubdomain(),
 				Theme:            cfg.ResolveTheme(wctx.TeamID),
 				SidebarWidth:     cfg.ResolveWidth(wctx.TeamID),
@@ -2780,6 +3272,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		UserNames:            make(map[string]string),
 		AvatarURLs:           &sync.Map{},
 		UserNamesByHandle:    make(map[string]string),
+		UserIDsByHandle:      make(map[string]string),
 		BotUserIDs:           make(map[string]bool),
 		CustomEmoji:          make(map[string]string),
 		LastVisitedByChannel: make(map[string]int64),
@@ -2799,6 +3292,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		wctx.UserNames[u.ID] = name
 		if u.Name != "" {
 			wctx.UserNamesByHandle[u.Name] = name
+			wctx.UserIDsByHandle[u.Name] = u.ID
 		}
 		if u.IsBot {
 			wctx.BotUserIDs[u.ID] = true
@@ -2842,6 +3336,11 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		wctx.Edge, wctx.EdgeHealth.Degraded,
 	)
 	wctx.UserResolver.storeStatus = wctx.StoreUserStatus
+	wctx.UserResolver.onAvatar = func(id, url string) {
+		if id != "" && url != "" {
+			wctx.AvatarURLs.Store(id, url)
+		}
+	}
 
 	// Per-workspace channel-membership manager. *slackclient.Client
 	// structurally satisfies membership.ConversationMemberAPI; the
@@ -2899,6 +3398,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// and hydrateFirstSight writes the cache rows the sidebar's
 	// channel list is later reconciled against.
 	applyBootUsers(wctx, res)
+	wctx.IconURL = res.Team.Icon.URL()
 	// conversations.view returns the workspace's custom emoji next to
 	// the history it was asked for, which is what emoji.list would
 	// have gone and fetched separately. Empty on the
@@ -2908,6 +3408,24 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		wctx.CustomEmoji = res.Emojis
 	}
 	hydrateFirstSight(db, client.TeamID(), res)
+
+	if slackDrafts, err := client.ListComposerDrafts(ctx); err != nil {
+		debuglog.Cache("drafts.list %s: %v", token.TeamName, err)
+	} else {
+		for _, d := range slackDrafts {
+			key := slackclient.DraftKeyFor(d.ChannelID, d.ThreadTS)
+			if key == "" || d.Text == "" {
+				continue
+			}
+			if existing, err := db.GetDraft(client.TeamID(), key); err == nil && existing.Text != "" {
+				if existing.SlackID == "" {
+					_ = db.UpsertDraft(cache.Draft{WorkspaceID: client.TeamID(), Key: key, Text: existing.Text, SlackID: d.ID, LastUpdatedTS: d.LastUpdatedTS})
+				}
+				continue
+			}
+			_ = db.UpsertDraft(cache.Draft{WorkspaceID: client.TeamID(), Key: key, Text: d.Text, SlackID: d.ID, LastUpdatedTS: d.LastUpdatedTS})
+		}
+	}
 
 	// Initialize Slack-native section store if enabled. Bootstrap is
 	// best-effort: failure is logged, the field stays nil, and the
@@ -2961,6 +3479,12 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		// Assign even if not Ready — the pref_change handler can fill
 		// it in later, and IsMuted is a safe no-op while not ready.
 		wctx.MuteStore = store
+	}
+
+	{
+		store := service.NewVIPStore()
+		store.Replace(slackclient.ParseVIPUsers(res.VIPUsersRaw))
+		wctx.VIPStore = store
 	}
 
 	// Thread subscriptions are deliberately NOT fetched here. The
@@ -3023,6 +3547,13 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// `user`, and without that id the sidebar row is the raw (empty)
 	// Channel.User and the unresolved-DM sweep has nothing to fetch.
 	fillIMUsers(channels, res.IMs)
+	markOpenConversations(channels, res.IsOpen)
+	// users.conversations sometimes omits MPIMs and closed IMs that
+	// userBoot still listed. Merge those in so the Direct Messages
+	// view can show the same set as the official DMs tab.
+	bootChans := bootConversations(res)
+	channels = mergeMissingGroupDMs(channels, bootChans)
+	channels = mergeMissingIMs(channels, bootChans)
 	if len(channels) == 0 {
 		log.Printf("workspace %s: no conversations from either users.conversations or client.userBoot; the sidebar will be empty", token.TeamName)
 	}
@@ -3055,6 +3586,15 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		wctx.Channels = append(wctx.Channels, item)
 		finderItem.LastVisited = wctx.LastVisitedByChannel[ch.ID]
 		wctx.FinderItems = append(wctx.FinderItems, finderItem)
+	}
+	fillGroupDMAvatars(wctx.Channels, db, client.TeamID(), wctx.UserID)
+	if wctx.Membership != nil {
+		for _, it := range wctx.Channels {
+			if it.Type == "group_dm" && it.DMUserID == "" {
+				id := it.ID
+				go wctx.Membership.EnsureFresh(context.Background(), id)
+			}
+		}
 	}
 
 	// Unread counts come from the boot response rather than a second
@@ -3288,13 +3828,13 @@ func resolveUser(client *slackclient.Client, userID string, userNames map[string
 			if u, err := client.GetUserProfile(userID); err == nil {
 				isBot := u.IsBot || u.IsAppUser
 				isExternal := u.TeamID != "" && u.TeamID != client.TeamID()
-				avatarCache.Preload(userID, u.Profile.Image32)
+				avatarCache.Preload(userID, bestUserAvatar(u.Profile))
 				db.UpsertUser(cache.User{
 					ID:          userID,
 					WorkspaceID: client.TeamID(),
 					Name:        u.Name,
 					DisplayName: name,
-					AvatarURL:   u.Profile.Image32,
+					AvatarURL:   bestUserAvatar(u.Profile),
 					Presence:    "away",
 					IsBot:       isBot,
 					IsExternal:  isExternal,
@@ -3316,13 +3856,13 @@ func resolveUser(client *slackclient.Client, userID string, userNames map[string
 		isBot := u.IsBot || u.IsAppUser
 		isExternal := u.TeamID != "" && u.TeamID != client.TeamID()
 		userNames[userID] = name
-		avatarCache.Preload(userID, u.Profile.Image32)
+		avatarCache.Preload(userID, bestUserAvatar(u.Profile))
 		db.UpsertUser(cache.User{
 			ID:          userID,
 			WorkspaceID: client.TeamID(),
 			Name:        u.Name,
 			DisplayName: name,
-			AvatarURL:   u.Profile.Image32,
+			AvatarURL:   bestUserAvatar(u.Profile),
 			Presence:    "away",
 			IsBot:       isBot,
 			IsExternal:  isExternal,
@@ -3390,6 +3930,10 @@ func seedDMDisplayNames(wctx *WorkspaceContext, channels []slack.Channel) {
 		wctx.UserNames[u.ID] = name
 		if u.Name != "" {
 			wctx.UserNamesByHandle[u.Name] = name
+			if wctx.UserIDsByHandle == nil {
+				wctx.UserIDsByHandle = map[string]string{}
+			}
+			wctx.UserIDsByHandle[u.Name] = u.ID
 		}
 		if u.IsBot {
 			wctx.BotUserIDs[u.ID] = true
@@ -4176,11 +4720,11 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 }
 
 // searchWorkspaceFunc builds the SearchService.SearchWorkspace
-// closure: a server-side search.messages or search.files query against
-// the active workspace. Always returns a WorkspaceSearchResultsMsg —
-// a nil msg would leave the ctrl+f modal spinner stuck (the reducer
-// only exits the loading state on a results msg). Kind/Page/Gen are
-// echoed so a superseded page cannot land.
+// closure: a server-side search.messages, search.files, or
+// edge.UsersSearch query against the active workspace. Always returns
+// a WorkspaceSearchResultsMsg — a nil msg would leave the ctrl+f modal
+// spinner stuck (the reducer only exits the loading state on a results
+// msg). Kind/Page/Gen are echoed so a superseded page cannot land.
 func searchWorkspaceFunc(router *workspaceRouter, db *cache.DB, tsFormat string) func(req ui.WorkspaceSearchRequest) tea.Msg {
 	return func(req ui.WorkspaceSearchRequest) tea.Msg {
 		page := req.Page
@@ -4209,6 +4753,16 @@ func searchWorkspaceFunc(router *workspaceRouter, db *cache.DB, tsFormat string)
 				return ch.Name, true
 			}
 			return "", false
+		}
+		if req.Kind == searchresults.KindPeople {
+			items, err := searchPeopleRemote(ctx, wctx.Edge, req.Query, req.CurrentChannel)
+			if err != nil {
+				out.Err = err
+				return out
+			}
+			out.Items = items
+			out.Total = len(items)
+			return out
 		}
 		if req.Kind == searchresults.KindFiles {
 			res, err := wctx.Client.SearchFiles(ctx, req.Query, 50, page)
@@ -5218,12 +5772,20 @@ func syncWorkspaceChannelSections(wctx *WorkspaceContext) {
 			item.Section = ""
 		}
 		item.SectionOrder = 0
+		item.IsStarred = store.IsStarred(item.ID)
 	}
 }
 
 func copyWorkspaceChannels(wctx *WorkspaceContext) []sidebar.ChannelItem {
 	out := make([]sidebar.ChannelItem, len(wctx.Channels))
 	copy(out, wctx.Channels)
+	if wctx.LastVisitedByChannel != nil {
+		for i := range out {
+			if ts := wctx.LastVisitedByChannel[out[i].ID]; ts > out[i].LastVisited {
+				out[i].LastVisited = ts
+			}
+		}
+	}
 	return out
 }
 
@@ -5333,6 +5895,15 @@ func (h *rtmEventHandler) OnChannelSectionChannelsRemoved(sectionID string, chan
 // support for them.
 func (h *rtmEventHandler) OnPrefChange(name, value string) {
 	debuglog.WS("pref_change received: name=%q value-len=%d", name, len(value))
+	if name == "vip_users" {
+		if h.wsCtx == nil || h.wsCtx.VIPStore == nil {
+			return
+		}
+		if h.wsCtx.VIPStore.ApplyPrefChange(name, value) {
+			h.refreshVIPForActive()
+		}
+		return
+	}
 	// Both names are routes to mute state. all_notifications_prefs is
 	// the live per-channel notification blob (current Slack); the flat
 	// muted_channels pref is legacy back-compat.
@@ -5371,6 +5942,27 @@ func (h *rtmEventHandler) OnMemberLeft(channelID, userID string) {
 // dimension; reuses the same message because the App treats it as a
 // "channel-list-attributes-changed" signal regardless of what
 // changed.
+func (h *rtmEventHandler) refreshVIPForActive() {
+	if h.wsCtx == nil || h.wsCtx.VIPStore == nil {
+		return
+	}
+	store := h.wsCtx.VIPStore
+	for i := range h.wsCtx.Channels {
+		ch := &h.wsCtx.Channels[i]
+		ch.IsVIP = store.IsVIP(ch.DMUserID) || store.IsVIP(ch.ID)
+	}
+	if h.program == nil {
+		return
+	}
+	if h.isActive != nil && !h.isActive() {
+		return
+	}
+	h.program.Send(ui.SectionsRefreshedMsg{
+		TeamID:   h.wsCtx.TeamID,
+		Channels: copyWorkspaceChannels(h.wsCtx),
+	})
+}
+
 func (h *rtmEventHandler) refreshMutedForActive() {
 	if h.wsCtx == nil || h.wsCtx.MuteStore == nil {
 		return
@@ -5482,6 +6074,161 @@ func dumpPrefs() error {
 		fmt.Println()
 	}
 	return nil
+}
+
+// dumpDMs prints IM/MPIM counts from client.userBoot vs
+// users.conversations. No names, ids, or message text — this is the
+// reverse-engineering check for "why doesn't the DMs tab match Slack".
+func dumpDMs() error {
+	tokenDir := filepath.Join(xdgData(), "tokens")
+	store := slackclient.NewTokenStore(tokenDir)
+	tokens, err := store.List()
+	if err != nil {
+		return fmt.Errorf("list tokens: %w", err)
+	}
+	if len(tokens) == 0 {
+		fmt.Println("No workspaces configured. Run 'slk --add-workspace' first.")
+		return nil
+	}
+	ctx := context.Background()
+	for _, tok := range tokens {
+		fmt.Printf("=== %s (%s) ===\n", tok.TeamName, tok.TeamID)
+		client := slackclient.NewClient(tok.AccessToken, tok.Cookie)
+		if err := client.Connect(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "  connect failed: %v\n\n", err)
+			continue
+		}
+		bootRes, err := boot.UserBoot(ctx, client.PostForm)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  userBoot failed: %v\n", err)
+		} else {
+			var ims, imOpen, imClosed, imArchived, mpim int
+			openSet := map[string]bool{}
+			for _, id := range bootRes.IsOpen {
+				openSet[id] = true
+			}
+			for _, im := range bootRes.IMs {
+				ims++
+				if im.IsArchived {
+					imArchived++
+					continue
+				}
+				if im.IsOpen || openSet[im.ID] {
+					imOpen++
+				} else {
+					imClosed++
+				}
+			}
+			for _, ch := range bootRes.Channels {
+				if ch.IsMPIM && !ch.IsArchived {
+					mpim++
+				}
+			}
+			fmt.Printf("  userBoot ims: %d (open=%d closed=%d archived=%d)\n", ims, imOpen, imClosed, imArchived)
+			fmt.Printf("  userBoot is_open list: %d\n", len(bootRes.IsOpen))
+			fmt.Printf("  userBoot mpims in channels[]: %d\n", mpim)
+		}
+		channels, err := client.GetChannels(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  users.conversations failed: %v\n\n", err)
+			continue
+		}
+		var ims, imOpen, imClosed, mpim, withLatest int
+		for _, ch := range channels {
+			switch {
+			case ch.IsIM:
+				ims++
+				if ch.IsOpen {
+					imOpen++
+				} else {
+					imClosed++
+				}
+				if ch.Latest != nil {
+					withLatest++
+				}
+			case ch.IsMpIM || strings.HasPrefix(ch.Name, "mpdm-"):
+				mpim++
+			}
+		}
+		fmt.Printf("  users.conversations: total=%d im=%d (open=%d closed-or-unset=%d) mpim=%d latest-on-im=%d\n\n",
+			len(channels), ims, imOpen, imClosed, mpim, withLatest)
+	}
+	return nil
+}
+
+// dumpSaved prints saved.list shape with string values replaced by
+// length so we can reverse-engineer Later rows without leaking text.
+func dumpSaved() error {
+	tokenDir := filepath.Join(xdgData(), "tokens")
+	store := slackclient.NewTokenStore(tokenDir)
+	tokens, err := store.List()
+	if err != nil {
+		return fmt.Errorf("list tokens: %w", err)
+	}
+	if len(tokens) == 0 {
+		fmt.Println("No workspaces configured. Run 'slk --add-workspace' first.")
+		return nil
+	}
+	ctx := context.Background()
+	for _, tok := range tokens {
+		fmt.Printf("=== %s (%s) ===\n", tok.TeamName, tok.TeamID)
+		client := slackclient.NewClient(tok.AccessToken, tok.Cookie)
+		if err := client.Connect(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "  connect failed: %v\n\n", err)
+			continue
+		}
+		raw, err := client.PostForm(ctx, "saved.list", url.Values{
+			"limit":              {"5"},
+			"filter":             {"saved"},
+			"include_tombstones": {"true"},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  saved.list failed: %v\n\n", err)
+			continue
+		}
+		var parsed any
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			fmt.Fprintf(os.Stderr, "  decode failed: %v\n\n", err)
+			continue
+		}
+		redacted := redactJSON(parsed, 0)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(redacted)
+		fmt.Println()
+	}
+	return nil
+}
+
+func redactJSON(v any, depth int) any {
+	if depth > 8 {
+		return "…"
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			out[k] = redactJSON(val, depth+1)
+		}
+		return out
+	case []any:
+		n := len(t)
+		if n > 2 {
+			n = 2
+		}
+		out := make([]any, 0, n+1)
+		for i := 0; i < n; i++ {
+			out = append(out, redactJSON(t[i], depth+1))
+		}
+		if len(t) > 2 {
+			out = append(out, fmt.Sprintf("…len=%d", len(t)))
+		}
+		return out
+	case string:
+		return fmt.Sprintf("<str len=%d>", len(t))
+	default:
+		return t
+	}
 }
 
 // dumpSections is a diagnostic command that calls users.channelSections.list

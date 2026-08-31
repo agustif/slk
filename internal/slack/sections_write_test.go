@@ -200,6 +200,47 @@ func TestCreateChannelSection_EmptyName(t *testing.T) {
 	}
 }
 
+func TestUpdateDeleteReorderChannelSection(t *testing.T) {
+	var paths []string
+	var names, ids, nexts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		body, _ := io.ReadAll(r.Body)
+		form, _ := parseFormBody(string(body))
+		names = append(names, form["name"])
+		ids = append(ids, form["channel_section_id"])
+		nexts = append(nexts, form["next_channel_section_id"])
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := testWriteClient(t, srv)
+	if err := c.UpdateChannelSection(context.Background(), "L1", "New", ""); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := c.DeleteChannelSection(context.Background(), "L1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := c.ReorderChannelSections(context.Background(), []string{"L2", "L1"}); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	if len(paths) != 4 {
+		t.Fatalf("paths = %v", paths)
+	}
+	if paths[0] != "/api/users.channelSections.update" || names[0] != "New" {
+		t.Errorf("update path/name = %s %s", paths[0], names[0])
+	}
+	if paths[1] != "/api/users.channelSections.delete" || ids[1] != "L1" {
+		t.Errorf("delete path/id = %s %s", paths[1], ids[1])
+	}
+	if paths[2] != "/api/users.channelSections.update" || ids[2] != "L2" || nexts[2] != "L1" {
+		t.Errorf("reorder[0] path/id/next = %s %s %s", paths[2], ids[2], nexts[2])
+	}
+	if paths[3] != "/api/users.channelSections.update" || ids[3] != "L1" || nexts[3] != "" {
+		t.Errorf("reorder[1] path/id/next = %s %s %q", paths[3], ids[3], nexts[3])
+	}
+}
+
 func parseFormBody(body string) (map[string]string, error) {
 	values, err := url.ParseQuery(body)
 	if err != nil {

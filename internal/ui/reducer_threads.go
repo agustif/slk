@@ -106,7 +106,8 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				parentMsg = cached[0]
 			}
 		}
-		a.threadPanel.SetThread(parentMsg, m.Replies, channelID, m.ThreadTS)
+		parentMsg = a.applyStarredFlags(channelID, []messages.MessageItem{parentMsg})[0]
+		a.threadPanel.SetThread(parentMsg, a.applyStarredFlags(channelID, m.Replies), channelID, m.ThreadTS)
 		a.applyThreadFollowing(channelID, m.ThreadTS)
 
 		// Mark the thread as read now that the user has actually
@@ -141,10 +142,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case ThreadsViewActivatedMsg:
 		_ = m
-		a.view = ViewThreads
-		a.sidebar.SetThreadsActive(true)
-		a.sidebar.SetActivityActive(false)
-		a.sidebar.SetLaterActive(false)
+		a.setInboxView(ViewThreads)
 		a.focusedPanel = PanelMessages
 		var batch []tea.Cmd
 		if a.activeTeamID != "" {

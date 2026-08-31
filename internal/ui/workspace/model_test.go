@@ -37,9 +37,9 @@ func TestWorkspaceRailSelect(t *testing.T) {
 }
 
 // TestClickAt asserts ClickAt's mapping from rail-local y to workspace
-// item using the rail's View() layout: row 0 is the top padding, row
-// 1 is item 0, row 2 is the gap between items, row 3 is item 1, and
-// so on (Padding(1,0) above and "\n\n"-joined item rows).
+// item using the rail's View() layout: row 0 is the top padding; each
+// tile is two content rows plus one gap, so item 0 is y=1,2, item 1
+// is y=4,5, item 2 is y=7,8.
 func TestClickAt(t *testing.T) {
 	m := New([]WorkspaceItem{
 		{ID: "T1", Name: "Acme", Initials: "AC"},
@@ -54,12 +54,15 @@ func TestClickAt(t *testing.T) {
 		wantOK bool
 	}{
 		{"top padding", 0, "", false},
-		{"first item", 1, "T1", true},
-		{"gap between items 0 and 1", 2, "", false},
-		{"second item", 3, "T2", true},
-		{"gap between items 1 and 2", 4, "", false},
-		{"third item", 5, "T3", true},
-		{"below last item", 6, "", false},
+		{"first item row 0", 1, "T1", true},
+		{"first item row 1", 2, "T1", true},
+		{"gap between items 0 and 1", 3, "", false},
+		{"second item row 0", 4, "T2", true},
+		{"second item row 1", 5, "T2", true},
+		{"gap between items 1 and 2", 6, "", false},
+		{"third item row 0", 7, "T3", true},
+		{"third item row 1", 8, "T3", true},
+		{"below last item", 9, "", false},
 		{"well below content", 99, "", false},
 		{"negative y", -1, "", false},
 	}
@@ -136,5 +139,24 @@ func TestOtherUnreadCount_EmptyReaderResult(t *testing.T) {
 	m.SetUnreadReader(func() []string { return nil })
 	if got := m.OtherUnreadCount("T1"); got != 0 {
 		t.Errorf("OtherUnreadCount with empty reader = %d want 0", got)
+	}
+}
+
+func TestWorkspaceRailLogoReplacesInitials(t *testing.T) {
+	m := New([]WorkspaceItem{
+		{ID: "T1", Name: "Acme", Initials: "AC", IconURL: "https://example/logo.png"},
+	}, 0)
+	m.SetLogoFunc(func(teamID, url string) string {
+		if teamID == "T1" && url != "" {
+			return "L0XX\nL1XX"
+		}
+		return ""
+	})
+	view := m.View(20)
+	if !strings.Contains(view, "L0XX") || !strings.Contains(view, "L1XX") {
+		t.Fatalf("expected logo tile in view, got:\n%s", view)
+	}
+	if strings.Contains(view, "AC") {
+		t.Fatalf("initials should hide once the logo is ready:\n%s", view)
 	}
 }

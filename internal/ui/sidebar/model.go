@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/avatar"
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/debuglog"
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	slackclient "github.com/gammons/slk/internal/slack"
@@ -23,6 +24,10 @@ import (
 const (
 	defaultChannelsSection = "Channels"
 	defaultDMSection       = "Direct Messages"
+	// defaultGroupDMSection is the Home-sidebar bucket for MPIMs when
+	// [sidebar].group_dms = "split" (the default). "together" folds
+	// these into Direct Messages like OG Slack.
+	defaultGroupDMSection = "Group DMs"
 	// defaultAppsSection groups DMs whose peer is a Slack app or bot,
 	// matching the behavior of the official Slack desktop client. Falls
 	// after custom sections and before "Channels" (the firehose).
@@ -43,8 +48,24 @@ type ChannelItem struct {
 	// Always 0 in Slack-native sections mode (config-glob feature only).
 	ChannelOrder int
 	IsStarred    bool
-	Presence     string // for DMs: active, away, dnd
-	DMUserID     string // for DMs: the user ID of the other party
+	// IsVIP is Slack prefs.vip_users membership (the DM peer or
+	// channel/app id). Config [sidebar.vip] extras are applied at
+	// sort time, not stored here.
+	IsVIP bool
+	// LastVisited is unix seconds of the user's last open of this
+	// conversation. Used by the "recent" sort atom. Zero means never.
+	LastVisited int64
+	// LastActivity is unix seconds of the conversation's latest
+	// message (Slack `updated` / Latest.ts). Used by the DMs view
+	// and the "recent" sort atom. Zero means unknown.
+	LastActivity int64
+	// Preview is the last-message body for the DMs tab (one line).
+	// Empty on Home. PreviewUserID is the author, used for "You:" /
+	// name prefixes on group DMs.
+	Preview       string
+	PreviewUserID string
+	Presence      string // for DMs: active, away, dnd
+	DMUserID      string // for DMs: the user ID of the other party
 	// IsMuted reports whether the user has muted this channel (via
 	// Slack's muted_channels user pref). Muted channels render with a
 	// dimmer foreground and suppress their unread dot; they also do
@@ -52,6 +73,9 @@ type ChannelItem struct {
 	// section headers. Sourced from service.MuteStore in
 	// buildChannelItem.
 	IsMuted bool
+	// Closed is true for 1:1 / app DMs Slack's Home sidebar hides
+	// (is_open=false). The Direct Messages view still lists them.
+	Closed bool
 }
 
 // IsVisiblyUnread reports whether this channel should render as having
@@ -83,8 +107,11 @@ func sectionForLegacy(item ChannelItem) string {
 	if item.Type == "app" {
 		return defaultAppsSection
 	}
-	if item.Type == "dm" || item.Type == "group_dm" {
+	if item.Type == "dm" {
 		return defaultDMSection
+	}
+	if item.Type == "group_dm" {
+		return defaultGroupDMSection
 	}
 	return defaultChannelsSection
 }
@@ -113,6 +140,7 @@ func orderedSectionsLegacy(items []ChannelItem, filtered []int) []string {
 	customSeen := map[string]int{} // name -> index into customs
 	hasChannels := false
 	hasDMs := false
+	hasGroupDMs := false
 	hasApps := false
 
 	for pos, idx := range filtered {
@@ -135,6 +163,8 @@ func orderedSectionsLegacy(items []ChannelItem, filtered []int) []string {
 			})
 		case name == defaultDMSection:
 			hasDMs = true
+		case name == defaultGroupDMSection:
+			hasGroupDMs = true
 		case name == defaultAppsSection:
 			hasApps = true
 		default:
@@ -152,6 +182,9 @@ func orderedSectionsLegacy(items []ChannelItem, filtered []int) []string {
 	out := make([]string, 0, len(customs)+3)
 	if hasDMs {
 		out = append(out, defaultDMSection)
+	}
+	if hasGroupDMs {
+		out = append(out, defaultGroupDMSection)
 	}
 	for _, c := range customs {
 		out = append(out, c.name)
@@ -174,6 +207,10 @@ const (
 	navThreads navKind = iota
 	navActivity
 	navLater
+	navDMs
+	navDrafts
+	navUnreads
+	navHome
 	navHeader
 	navChannel
 )
@@ -260,8 +297,18 @@ type Model struct {
 	// activityActive is the same indicator for the Activity inbox row.
 	activityActive bool
 	// laterActive is the same indicator for the Later / saved-items row.
-	laterActive    bool
-	nowFn          func() time.Time
+	laterActive bool
+	// dmsActive is the same indicator for the Direct Messages view row.
+	dmsActive bool
+	// draftsActive is the same indicator for the Drafts view row.
+	draftsActive bool
+	// unreadsActive is the same indicator for the Unreads view row.
+	unreadsActive bool
+	// dmsView, when true, turns the sidebar into Slack's DMs tab:
+	// only dm / group_dm / app rows, no IsStale hiding, recency sort,
+	// no section headers. Home keeps the compact DM section.
+	dmsView bool
+	nowFn   func() time.Time
 
 	// snappedSelection lets View() avoid snapping yOffset back to the
 	// selected row on every render. While snappedSelection == cursor,
@@ -285,14 +332,15 @@ type Model struct {
 	cacheWidth  int
 	cacheFiller string // pre-rendered empty row for vertical padding
 
-	// Synthetic Activity, Later, then Threads sit at the top of the
-	// sidebar. They are selectable via j/k like a channel, but they
-	// are NOT channels — when the cursor sits on one, SelectedItem /
-	// SelectedID return zero / empty and the App layer activates the
-	// matching view instead.
+	// Synthetic Activity, Later, Threads, Direct Messages, Drafts,
+	// then Unreads sit at the top of the sidebar. They are selectable
+	// via j/k like a channel, but they are NOT channels — when the
+	// cursor sits on one, SelectedItem / SelectedID return zero /
+	// empty and the App layer activates the matching view instead.
 	threadsUnread  int
 	activityUnread int
 	laterUnread    int
+	draftsUnread   int
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the cursor "▌" glyph dims from Accent to TextMuted (via
@@ -301,10 +349,18 @@ type Model struct {
 	// the App layer.
 	focused bool
 
-	// avatarFn is the same lazy 4×2 renderer the messages pane uses.
-	// 1:1 DMs spend two visual rows when a face is cached so the
-	// portrait fits; group DMs and channels stay one row.
+	// avatarFn is the lazy compact (2×1) renderer for 1:1 DM portraits.
+	// Group DMs and channels stay one row with no face.
 	avatarFn messages.AvatarFunc
+
+	sortCfg config.SidebarSort
+	vip     []string
+	// groupDMsTogether folds MPIMs into Direct Messages (OG Slack).
+	// Default false = split 1:1 and group DMs into two sections.
+	groupDMsTogether bool
+	// snippets survives SetItems so DMs-tab previews stay after a
+	// sidebar rebuild (presence, unread, channel-list refresh).
+	snippets map[string]DMSnippet
 }
 
 // SetSectionsProvider injects a Slack-native sections data source.
@@ -424,6 +480,8 @@ func (m *Model) NextUnread(afterID string, dir int) (id, name, chType string, ok
 // Invalidate forces the next View() call to re-read read state from
 // the installed reader. Called by App.Update on ReadStateChangedMsg.
 func (m *Model) Invalidate() {
+	m.rebuildFilter()
+	m.rebuildNavPreserveCursor()
 	m.cacheValid = false
 	m.dirty()
 }
@@ -441,13 +499,14 @@ func (m *Model) useSlackSections() bool {
 // type (direct_messages / recent_apps / channels). In config mode,
 // the existing string constants apply.
 func (m *Model) sectionFor(item ChannelItem) string {
-	if item.Section != "" {
-		return item.Section
+	if m.dmsView {
+		return defaultDMSection
 	}
 	if m.useSlackSections() {
-		// Find the appropriate default-type section in the provider.
 		var dmID, appsID, channelsID string
+		typeByID := map[string]string{}
 		for _, meta := range m.sectionsProvider.OrderedSlackSections() {
+			typeByID[meta.ID] = meta.Type
 			switch meta.Type {
 			case "direct_messages":
 				if dmID == "" {
@@ -463,17 +522,37 @@ func (m *Model) sectionFor(item ChannelItem) string {
 				}
 			}
 		}
+		// Custom / Starred placements win. Otherwise 1:1 DMs (and
+		// group DMs when group_dms=together) use Slack's Direct
+		// Messages section. Slack often parks MPIMs in the channels
+		// catch-all; split mode puts those in Group DMs instead.
+		if item.Type == "dm" || item.Type == "group_dm" {
+			if item.Section != "" {
+				switch typeByID[item.Section] {
+				case "standard", "stars":
+					return item.Section
+				}
+			}
+			if item.Type == "group_dm" && !m.groupDMsTogether {
+				return defaultGroupDMSection
+			}
+			if dmID != "" {
+				return dmID
+			}
+		}
+		if item.Section != "" {
+			return item.Section
+		}
 		switch item.Type {
 		case "app":
 			if appsID != "" {
 				return appsID
 			}
-		case "dm", "group_dm":
-			if dmID != "" {
-				return dmID
-			}
 		}
-		return channelsID // may be ""; rare edge case
+		return channelsID
+	}
+	if item.Type == "group_dm" && m.groupDMsTogether && item.Section == "" {
+		return defaultDMSection
 	}
 	return sectionForLegacy(item)
 }
@@ -486,6 +565,9 @@ func (m *Model) sectionFor(item ChannelItem) string {
 // legacy algorithm (DMs, then custom sections, then Apps, then
 // Channels).
 func (m *Model) modelOrderedSections(filtered []int) []string {
+	if m.dmsView {
+		return []string{defaultDMSection}
+	}
 	if !m.useSlackSections() {
 		return orderedSectionsLegacy(m.items, filtered)
 	}
@@ -504,6 +586,9 @@ func (m *Model) modelOrderedSections(filtered []int) []string {
 			continue
 		}
 		rest = append(rest, meta.ID)
+	}
+	if hasItem[defaultGroupDMSection] {
+		dms = append(dms, defaultGroupDMSection)
 	}
 	return append(dms, rest...)
 }
@@ -610,6 +695,49 @@ func (m *Model) SetLaterActive(active bool) {
 	m.dirty()
 }
 
+// SetDMsActive marks the synthetic "Direct Messages" row as the
+// active destination. Mirrors SetThreadsActive.
+func (m *Model) SetDMsActive(active bool) {
+	if m.dmsActive == active {
+		return
+	}
+	m.dmsActive = active
+	m.dirty()
+}
+
+func (m *Model) SetDraftsActive(active bool) {
+	if m.draftsActive == active {
+		return
+	}
+	m.draftsActive = active
+	m.dirty()
+}
+
+func (m *Model) SetUnreadsActive(active bool) {
+	if m.unreadsActive == active {
+		return
+	}
+	m.unreadsActive = active
+	m.dirty()
+}
+
+// SetDMsView switches the sidebar into (or out of) the full DMs
+// list: only direct conversations, no staleness filter, recency
+// sort, no section headers.
+func (m *Model) SetDMsView(active bool) {
+	if m.dmsView == active {
+		return
+	}
+	m.dmsView = active
+	m.rebuildFilter()
+	m.rebuildNavPreserveCursor()
+	m.cacheValid = false
+	m.dirty()
+}
+
+// DMsView reports whether the sidebar is showing the full DMs list.
+func (m *Model) DMsView() bool { return m.dmsView }
+
 // Version returns a counter that increments any time the View() output could
 // change. Callers can compare against a previously-seen version to know
 // whether to recompute downstream layout / wrapping.
@@ -632,7 +760,7 @@ func (m *Model) HandleAvatarReady(userID string) {
 		return
 	}
 	for _, item := range m.items {
-		if item.Type == "dm" && item.DMUserID == userID {
+		if (item.Type == "dm" || item.Type == "group_dm") && item.DMUserID == userID {
 			m.cacheValid = false
 			m.dirty()
 			return
@@ -716,6 +844,86 @@ func (m *Model) IsLaterSelected() bool {
 func (m *Model) SelectLaterRow() {
 	for i, n := range m.nav {
 		if n.kind == navLater {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
+// IsDMsSelected reports whether the synthetic "Direct Messages" row
+// is the selected entry.
+func (m *Model) IsDMsSelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navDMs
+}
+
+// SelectDMsRow moves the cursor to the synthetic Direct Messages row.
+// IsHomeSelected reports whether the DMs-tab "← Home" row is selected.
+func (m *Model) IsHomeSelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navHome
+}
+
+func (m *Model) SelectDMsRow() {
+	if m.dmsView {
+		for i, n := range m.nav {
+			if n.kind == navChannel {
+				if m.cursor != i {
+					m.cursor = i
+					m.dirty()
+				}
+				return
+			}
+		}
+		return
+	}
+	for i, n := range m.nav {
+		if n.kind == navDMs {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
+func (m *Model) IsDraftsSelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navDrafts
+}
+
+func (m *Model) SelectDraftsRow() {
+	for i, n := range m.nav {
+		if n.kind == navDrafts {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
+func (m *Model) IsUnreadsSelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navUnreads
+}
+
+func (m *Model) SelectUnreadsRow() {
+	for i, n := range m.nav {
+		if n.kind == navUnreads {
 			if m.cursor != i {
 				m.cursor = i
 				m.dirty()
@@ -841,6 +1049,19 @@ func (m *Model) SetLaterUnreadCount(n int) {
 // LaterUnreadCount returns the current Later-row incomplete badge.
 func (m *Model) LaterUnreadCount() int { return m.laterUnread }
 
+func (m *Model) SetDraftsUnreadCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if m.draftsUnread != n {
+		m.draftsUnread = n
+		m.cacheValid = false
+		m.dirty()
+	}
+}
+
+func (m *Model) DraftsUnreadCount() int { return m.draftsUnread }
+
 // SetItems replaces the sidebar's channel list. It does NOT reset the
 // cursor to the Threads row — SetItems is called on every routine
 // refresh (presence updates, unread changes, channel-list resync, etc.)
@@ -851,6 +1072,7 @@ func (m *Model) LaterUnreadCount() int { return m.laterUnread }
 func (m *Model) SetItems(items []ChannelItem) {
 	m.items = items
 	m.applyPresence()
+	m.applySnippetsToItems()
 	m.rebuildFilter()
 	m.rebuildNavPreserveCursor()
 	m.cacheValid = false
@@ -981,7 +1203,15 @@ func (m *Model) UpsertItem(item ChannelItem) {
 	}
 	for i := range m.items {
 		if m.items[i].ID == item.ID {
+			if item.Preview == "" {
+				item.Preview = m.items[i].Preview
+				item.PreviewUserID = m.items[i].PreviewUserID
+			}
+			if item.LastActivity == 0 {
+				item.LastActivity = m.items[i].LastActivity
+			}
 			m.items[i] = item
+			m.applySnippetsToItems()
 			m.rebuildFilter()
 			m.rebuildNavPreserveCursor()
 			m.cacheValid = false
@@ -990,6 +1220,7 @@ func (m *Model) UpsertItem(item ChannelItem) {
 		}
 	}
 	m.items = append(m.items, item)
+	m.applySnippetsToItems()
 	m.rebuildFilter()
 	m.rebuildNavPreserveCursor()
 	m.cacheValid = false
@@ -1291,9 +1522,22 @@ func (m *Model) rebuildFilter() {
 		if m.filter != "" && !strings.Contains(text.Fold(item.Name), lower) {
 			continue
 		}
+		if m.dmsView {
+			if item.Type != "dm" && item.Type != "group_dm" && item.Type != "app" {
+				continue
+			}
+			m.filtered = append(m.filtered, i)
+			continue
+		}
+		// Slack's Home sidebar hides closed 1:1 DMs; the DMs tab
+		// still lists them. Active conversation is exempt.
+		if item.Closed && item.ID != m.activeID {
+			continue
+		}
 		// Staleness filter: drop items the user hasn't read in a long
 		// time, with the active channel always exempt so it can't
-		// disappear out from under them.
+		// disappear out from under them. The DMs view skips this so
+		// Slack's full Direct Messages list stays reachable.
 		state := readState[item.ID]
 		if item.ID != m.activeID && IsStale(item, state.HasUnread, state.LastReadTS, m.staleThreshold, now) {
 			continue
@@ -1303,12 +1547,10 @@ func (m *Model) rebuildFilter() {
 
 	// Sort filtered indices to match the visual section display order so that
 	// j/k navigation traverses items in the same order they're rendered.
-	// Within a section:
-	//   1. Channels with ChannelOrder > 0 come first, sorted ascending
-	//      (from SectionDef "<pattern>:<N>" suffixes; config-mode only).
-	//   2. Channels with ChannelOrder == 0 follow, in input order
-	//      (preserves Slack-provided order in Slack mode, and
-	//      bootstrap-order in config mode without ":N" suffixes).
+	// Across sections, provider / config section rank still wins.
+	// Within a section, [sidebar.sort] atom pipelines compose
+	// left-to-right (default ["slack"] preserves ChannelOrder then
+	// input order).
 	sectionOrder := m.modelOrderedSections(m.filtered)
 	rank := make(map[string]int, len(sectionOrder))
 	for i, name := range sectionOrder {
@@ -1316,22 +1558,13 @@ func (m *Model) rebuildFilter() {
 	}
 	sort.SliceStable(m.filtered, func(a, b int) bool {
 		ia, ib := m.filtered[a], m.filtered[b]
-		ra := rank[m.sectionFor(m.items[ia])]
-		rb := rank[m.sectionFor(m.items[ib])]
+		itemA, itemB := m.items[ia], m.items[ib]
+		ra := rank[m.sectionFor(itemA)]
+		rb := rank[m.sectionFor(itemB)]
 		if ra != rb {
 			return ra < rb
 		}
-		// Within a section: annotated (ChannelOrder > 0) before
-		// un-annotated; among annotated, lower wins; among
-		// un-annotated, preserve input order via stable sort.
-		oa, ob := m.items[ia].ChannelOrder, m.items[ib].ChannelOrder
-		if (oa > 0) != (ob > 0) {
-			return oa > 0
-		}
-		if oa != ob {
-			return oa < ob
-		}
-		return ia < ib
+		return m.lessInSection(ia, ib, m.sortKeysFor(itemA), readState)
 	})
 }
 
@@ -1357,6 +1590,14 @@ func (m *Model) currentCursorKey() (cursorKey, bool) {
 		return cursorKey{kind: navActivity}, true
 	case navLater:
 		return cursorKey{kind: navLater}, true
+	case navDMs:
+		return cursorKey{kind: navDMs}, true
+	case navDrafts:
+		return cursorKey{kind: navDrafts}, true
+	case navUnreads:
+		return cursorKey{kind: navUnreads}, true
+	case navHome:
+		return cursorKey{kind: navHome}, true
 	case navHeader:
 		return cursorKey{kind: navHeader, header: n.header}, true
 	case navChannel:
@@ -1382,8 +1623,19 @@ func (m *Model) rebuildNav() {
 		bucket[key] = append(bucket[key], fi)
 	}
 
-	nav := make([]navItem, 0, 3+len(sectionOrder))
-	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navLater}, navItem{kind: navThreads})
+	nav := make([]navItem, 0, 6+len(sectionOrder))
+	if m.dmsView {
+		nav = append(nav, navItem{kind: navHome})
+		for fi := range m.filtered {
+			nav = append(nav, navItem{kind: navChannel, fi: fi})
+		}
+		m.nav = nav
+		if m.cursor < 0 || m.cursor >= len(m.nav) {
+			m.cursor = 0
+		}
+		return
+	}
+	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navLater}, navItem{kind: navThreads}, navItem{kind: navDMs}, navItem{kind: navDrafts}, navItem{kind: navUnreads})
 	for _, name := range sectionOrder {
 		nav = append(nav, navItem{kind: navHeader, header: name})
 		if m.IsCollapsed(name) {
@@ -1418,6 +1670,18 @@ func (m *Model) rebuildNavPreserveCursor() {
 			m.cursor = i
 			return
 		case key.kind == navLater && n.kind == navLater:
+			m.cursor = i
+			return
+		case key.kind == navDMs && n.kind == navDMs:
+			m.cursor = i
+			return
+		case key.kind == navDrafts && n.kind == navDrafts:
+			m.cursor = i
+			return
+		case key.kind == navUnreads && n.kind == navUnreads:
+			m.cursor = i
+			return
+		case key.kind == navHome && n.kind == navHome:
 			m.cursor = i
 			return
 		case key.kind == navHeader && n.kind == navHeader && n.header == key.header:
@@ -1476,26 +1740,23 @@ func (m *Model) aggregateUnreadForSection(section string) int {
 // the selected row in O(1) using the cursor. -1 means "not navigable"
 // (blank separators, the optional 'No channels' placeholder).
 
-// dmAvatarLines returns the two rendered lines of a 4×2 portrait for a
-// 1:1 DM, or ok=false when there is no face yet (lazy miss, group DM,
-// or no renderer). Empty second lines are padded to AvatarCols so the
-// name column stays aligned.
-func dmAvatarLines(item ChannelItem, fn messages.AvatarFunc) (line0, line1 string, ok bool) {
-	if fn == nil || item.Type != "dm" || item.DMUserID == "" {
-		return "", "", false
+// dmAvatarLine returns the compact 2×1 portrait for a 1:1 DM, or
+// ok=false when there is no face yet (lazy miss, group DM, or no
+// renderer). Extra rendered rows are ignored so a 4×2 messages-pane
+// string still fits on one sidebar row.
+func dmAvatarLine(item ChannelItem, fn messages.AvatarFunc) (line string, ok bool) {
+	if fn == nil || item.DMUserID == "" {
+		return "", false
+	}
+	if item.Type != "dm" && item.Type != "group_dm" {
+		return "", false
 	}
 	rendered := fn(item.DMUserID)
 	if rendered == "" {
-		return "", "", false
+		return "", false
 	}
-	parts := strings.Split(rendered, "\n")
-	line0 = parts[0]
-	if len(parts) > 1 {
-		line1 = parts[1]
-	} else {
-		line1 = strings.Repeat(" ", avatar.AvatarCols)
-	}
-	return line0, line1, true
+	line = strings.SplitN(rendered, "\n", 2)[0]
+	return line, true
 }
 
 type renderRow struct {
@@ -1516,6 +1777,12 @@ type renderRow struct {
 	isActivityRow bool
 	// isLaterRow is the same flag for the Later / saved-items row.
 	isLaterRow bool
+	// isDMsRow is the same flag for the Direct Messages view row.
+	isDMsRow     bool
+	isDraftsRow  bool
+	isUnreadsRow bool
+	// isHomeRow is the DMs-tab "← Home" row.
+	isHomeRow bool
 }
 
 // buildCache rebuilds m.cacheRows for the given width. Expensive; runs only
@@ -1561,6 +1828,10 @@ func (m *Model) buildCache(width int) {
 	threadsIdx := -1
 	activityIdx := -1
 	laterIdx := -1
+	dmsIdx := -1
+	draftsIdx := -1
+	unreadsIdx := -1
+	homeIdx := -1
 	for i, n := range m.nav {
 		switch n.kind {
 		case navThreads:
@@ -1569,6 +1840,14 @@ func (m *Model) buildCache(width int) {
 			activityIdx = i
 		case navLater:
 			laterIdx = i
+		case navDMs:
+			dmsIdx = i
+		case navDrafts:
+			draftsIdx = i
+		case navUnreads:
+			unreadsIdx = i
+		case navHome:
+			homeIdx = i
 		case navHeader:
 			headerNavIdx[n.header] = i
 		case navChannel:
@@ -1614,13 +1893,19 @@ func (m *Model) buildCache(width int) {
 	appPrefixMuted := "▣ "
 	groupDMPrefix := styles.PresenceAway.Render("● ")
 
-	// OG left-rail order: Activity, Later, Threads, then sections.
-	// Insertion order is load-bearing — do not sort synthetics by name.
-	m.cacheRows = append(m.cacheRows, m.synthRow("◎ Activity", m.activityUnread, activityIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navActivity))
-	m.cacheRows = append(m.cacheRows, m.synthRow("◷ Later", m.laterUnread, laterIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navLater))
-	m.cacheRows = append(m.cacheRows, m.synthRow("⚑ Threads", m.threadsUnread, threadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navThreads))
-	// Blank separator between the synthetic rows and the first section.
-	m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
+	// OG left-rail order: Activity, Later, Threads, Direct Messages,
+	// Drafts, Unreads, then sections. Insertion order is load-bearing
+	// — do not sort synthetics by name. The DMs tab is a dedicated
+	// conversation list (Slack's DMs column) — no inbox-switcher rows.
+	if !m.dmsView {
+		m.cacheRows = append(m.cacheRows, m.synthRow("◎ Activity", m.activityUnread, activityIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navActivity))
+		m.cacheRows = append(m.cacheRows, m.synthRow("◷ Later", m.laterUnread, laterIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navLater))
+		m.cacheRows = append(m.cacheRows, m.synthRow("⚑ Threads", m.threadsUnread, threadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navThreads))
+		m.cacheRows = append(m.cacheRows, m.synthRow("✉ Direct Messages", m.dmsUnreadCount(readState), dmsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navDMs))
+		m.cacheRows = append(m.cacheRows, m.synthRow("✎ Drafts", m.draftsUnread, draftsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navDrafts))
+		m.cacheRows = append(m.cacheRows, m.synthRow("◉ Unreads", m.unreadsCount(readState), unreadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navUnreads))
+		m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
+	}
 
 	// Pre-build the per-section channel rows so we can flatten with
 	// section headers below. Channels in a collapsed section are still
@@ -1696,7 +1981,7 @@ func (m *Model) buildCache(width int) {
 			prefix = "# "
 		}
 
-		av0, av1, hasAvatar := dmAvatarLines(item, m.avatarFn)
+		av, hasAvatar := dmAvatarLine(item, m.avatarFn)
 
 		// Truncate name to fit sidebar width.
 		// Unicode chars like ● (U+25CF), ○, ◆, ▌ have East Asian Width
@@ -1708,7 +1993,7 @@ func (m *Model) buildCache(width int) {
 		name := item.Name
 		maxNameLen := (width - 2) - 8
 		if hasAvatar {
-			maxNameLen -= avatar.AvatarCols + 1
+			maxNameLen -= avatar.SidebarCols + 1
 		}
 		if maxNameLen < 5 {
 			maxNameLen = 5
@@ -1724,8 +2009,21 @@ func (m *Model) buildCache(width int) {
 				}
 			}
 		}
+		date := ""
+		if m.dmsView {
+			date = formatActivityDate(item.LastActivity, m.now())
+			if date != "" {
+				maxNameLen -= lipgloss.Width(date) + 1
+				if maxNameLen < 3 {
+					maxNameLen = 3
+				}
+			}
+		}
 		if lipgloss.Width(name) > maxNameLen {
 			name = truncate.StringWithTail(name, uint(maxNameLen), "…")
+		}
+		if date != "" {
+			name = name + " " + date
 		}
 
 		// Three label variants: selected (cursor, green ▌), active
@@ -1797,43 +2095,35 @@ func (m *Model) buildCache(width int) {
 			ni = -1
 		}
 		if hasAvatar {
-			suffixN := messages.ReapplyBgAfterResets(prefix+name+" "+unreadDot, normalAttrs)
-			suffixS := messages.ReapplyBgAfterResets(prefix+name+" "+unreadDot, selectedAttrs)
+			suffixN := messages.ReapplyBgAfterResets(prefix+name+statusSuffix+" "+unreadDot, normalAttrs)
+			suffixS := messages.ReapplyBgAfterResets(prefix+name+statusSuffix+" "+unreadDot, selectedAttrs)
 			gap := " "
-			line0N := " " + av0 + gap + suffixN
-			line0S := cursorSelected + av0 + gap + suffixS
-			line0A := activeBorder + av0 + gap + suffixS
-			line1N := " " + av1
-			line1S := cursorSelected + av1
-			line1A := activeBorder + av1
-			sectionMap[sectionName].rows = append(sectionMap[sectionName].rows,
-				renderRow{
-					normal:    baseStyle.Width(width - 2).Render(line0N),
-					selected:  styles.ChannelSelected.Width(width - 2).Render(line0S),
-					active:    styles.ChannelSelected.Width(width - 2).Render(line0A),
-					height:    1,
-					navIdx:    ni,
-					channelID: item.ID,
-				},
-				renderRow{
-					normal:    baseStyle.Width(width - 2).Render(line1N),
-					selected:  styles.ChannelSelected.Width(width - 2).Render(line1S),
-					active:    styles.ChannelSelected.Width(width - 2).Render(line1A),
-					height:    1,
-					navIdx:    ni,
-					channelID: item.ID,
-				},
-			)
-			continue
+			lineN := " " + av + gap + suffixN
+			lineS := cursorSelected + av + gap + suffixS
+			lineA := activeBorder + av + gap + suffixS
+			sectionMap[sectionName].rows = append(sectionMap[sectionName].rows, renderRow{
+				normal:    baseStyle.Width(width - 2).Render(lineN),
+				selected:  styles.ChannelSelected.Width(width - 2).Render(lineS),
+				active:    styles.ChannelSelected.Width(width - 2).Render(lineA),
+				height:    1,
+				navIdx:    ni,
+				channelID: item.ID,
+			})
+		} else {
+			sectionMap[sectionName].rows = append(sectionMap[sectionName].rows, renderRow{
+				normal:    rowNormal,
+				selected:  rowSelected,
+				active:    rowActive,
+				height:    1, // every channel row is exactly one line
+				navIdx:    ni,
+				channelID: item.ID,
+			})
 		}
-		sectionMap[sectionName].rows = append(sectionMap[sectionName].rows, renderRow{
-			normal:    rowNormal,
-			selected:  rowSelected,
-			active:    rowActive,
-			height:    1, // every channel row is exactly one line
-			navIdx:    ni,
-			channelID: item.ID,
-		})
+		if m.dmsView {
+			if prev := m.dmPreviewRow(item, width, ni, cursorSelected, activeBorder, hasAvatar); prev.navIdx >= 0 {
+				sectionMap[sectionName].rows = append(sectionMap[sectionName].rows, prev)
+			}
+		}
 	}
 
 	// When there are no channel items at all, render a single muted
@@ -1851,6 +2141,18 @@ func (m *Model) buildCache(width int) {
 
 	// Flatten into a single row list with section headers.
 	// Add a blank line between sections for visual separation.
+	// The DMs view is a flat recency list (Slack's DMs tab) — no
+	// section headers, just the conversations.
+	if m.dmsView {
+		m.cacheRows = append(m.cacheRows, m.synthRow("← Home", 0, homeIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navHome))
+		m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
+		for _, name := range sectionOrder {
+			if group := sectionMap[name]; group != nil {
+				m.cacheRows = append(m.cacheRows, group.rows...)
+			}
+		}
+		return
+	}
 	for i, name := range sectionOrder {
 		if i > 0 {
 			m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
@@ -2014,6 +2316,12 @@ func (m *Model) View(height, width int) string {
 			visible = append(visible, r.active)
 		case r.isLaterRow && m.laterActive && r.active != "":
 			visible = append(visible, r.active)
+		case r.isDMsRow && m.dmsActive && r.active != "":
+			visible = append(visible, r.active)
+		case r.isDraftsRow && m.draftsActive && r.active != "":
+			visible = append(visible, r.active)
+		case r.isUnreadsRow && m.unreadsActive && r.active != "":
+			visible = append(visible, r.active)
 		case r.normal == "":
 			// Inter-section blank row -- emit a width-sized themed blank so
 			// the panel background remains continuous.
@@ -2032,10 +2340,11 @@ func (m *Model) View(height, width int) string {
 // ClickAt handles a mouse click at the given y-coordinate (relative to
 // sidebar content top). Updates the cursor to whatever sits at that
 // position. Returns the channel item and true ONLY when the click
-// landed on a channel row; section-header / threads-row / activity-row
-// / blank clicks return (zero, false). Callers consult
-// IsThreadsSelected / IsActivitySelected / IsSectionHeaderSelected
-// after this call when ok == false.
+// landed on a channel row; section-header / synth-row / blank clicks
+// return (zero, false). Callers consult IsThreadsSelected /
+// IsActivitySelected / IsLaterSelected / IsDMsSelected /
+// IsDraftsSelected / IsUnreadsSelected / IsSectionHeaderSelected after
+// this call when ok == false.
 func (m *Model) ClickAt(y int) (ChannelItem, bool) {
 	absoluteY := y + m.yOffset
 	if absoluteY < 0 || absoluteY >= len(m.cacheRows) {
@@ -2052,15 +2361,160 @@ func (m *Model) ClickAt(y int) (ChannelItem, bool) {
 	}
 	n := m.nav[r.navIdx]
 	if n.kind != navChannel {
-		// Threads / Activity / Later row or section header — nothing
-		// to return; caller inspects IsThreadsSelected /
-		// IsActivitySelected / IsLaterSelected / IsSectionHeaderSelected.
+		// Synth row or section header — nothing to return; caller
+		// inspects IsThreadsSelected / IsActivitySelected /
+		// IsLaterSelected / IsDMsSelected / IsDraftsSelected /
+		// IsUnreadsSelected / IsSectionHeaderSelected. HitNavAt reports
+		// that this y
+		// was a real nav row (not a spacer).
 		return ChannelItem{}, false
 	}
 	if n.fi < 0 || n.fi >= len(m.filtered) {
 		return ChannelItem{}, false
 	}
 	return m.items[m.filtered[n.fi]], true
+}
+
+// HitNavAt reports whether y (content-relative) lands on a navigable
+// row. Spacers and empty padding return false. Used so a miss from
+// ClickAt on a blank line does not count as a section-header click.
+func (m *Model) HitNavAt(y int) bool {
+	absoluteY := y + m.yOffset
+	if absoluteY < 0 || absoluteY >= len(m.cacheRows) {
+		return false
+	}
+	return m.cacheRows[absoluteY].navIdx >= 0
+}
+
+func (m *Model) dmPreviewRow(item ChannelItem, width, navIdx int, cursorSelected, activeBorder string, hasAvatar bool) renderRow {
+	prev := oneLinePreview(item.Preview)
+	if prev == "" {
+		return renderRow{navIdx: -1}
+	}
+	indent := 2
+	if hasAvatar {
+		indent = avatar.SidebarCols + 2
+	}
+	contentWidth := width - 2
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	maxPrev := contentWidth - indent
+	if maxPrev < 4 {
+		maxPrev = 4
+	}
+	if lipgloss.Width(prev) > maxPrev {
+		prev = truncate.StringWithTail(prev, uint(maxPrev), "…")
+	}
+	pad := strings.Repeat(" ", indent)
+	muted := lipgloss.NewStyle().Foreground(styles.TextMuted)
+	lineN := pad + muted.Render(prev)
+	lineS := cursorSelected + strings.Repeat(" ", max(indent-1, 0)) + muted.Render(prev)
+	lineA := activeBorder + strings.Repeat(" ", max(indent-1, 0)) + muted.Render(prev)
+	return renderRow{
+		normal:    styles.ChannelMuted.Width(contentWidth).Render(lineN),
+		selected:  styles.ChannelSelected.Width(contentWidth).Render(lineS),
+		active:    styles.ChannelSelected.Width(contentWidth).Render(lineA),
+		height:    1,
+		navIdx:    navIdx,
+		channelID: item.ID,
+	}
+}
+
+func oneLinePreview(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func formatActivityDate(unix int64, now time.Time) string {
+	if unix <= 0 {
+		return ""
+	}
+	t := time.Unix(unix, 0).In(now.Location())
+	ny, nm, nd := now.Date()
+	ty, tm, td := t.Date()
+	if ny == ty && nm == tm && nd == td {
+		return "Today"
+	}
+	y := now.AddDate(0, 0, -1)
+	yy, ym, yd := y.Date()
+	if ty == yy && tm == ym && td == yd {
+		return "Yesterday"
+	}
+	if now.Sub(t) < 7*24*time.Hour && now.Sub(t) > 0 {
+		return t.Weekday().String()[:3]
+	}
+	if ty == ny {
+		return t.Format("Jan 2")
+	}
+	return t.Format("Jan 2 2006")
+}
+
+func (m *Model) dmsUnreadCount(readState map[string]cache.ReadState) int {
+	n := 0
+	for _, item := range m.items {
+		if item.Type != "dm" && item.Type != "group_dm" && item.Type != "app" {
+			continue
+		}
+		if item.IsVisiblyUnread(readState[item.ID]) {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Model) unreadsCount(readState map[string]cache.ReadState) int {
+	n := 0
+	seen := map[string]bool{}
+	for _, item := range m.items {
+		if item.ID == "" || seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
+		if readState[item.ID].HasUnread {
+			n++
+		}
+	}
+	return n
+}
+
+// ChannelIDsInOrder returns conversation IDs in sidebar display order
+// (section order, including collapsed children). Used by All Unreads
+// "like sidebar" sort.
+func (m *Model) ChannelIDsInOrder() []string {
+	n := len(m.items)
+	if n == 0 {
+		return nil
+	}
+	all := make([]int, n)
+	for i := range all {
+		all[i] = i
+	}
+	sectionOrder := m.modelOrderedSections(all)
+	bucket := map[string][]int{}
+	for i, item := range m.items {
+		key := m.sectionFor(item)
+		bucket[key] = append(bucket[key], i)
+	}
+	out := make([]string, 0, n)
+	seen := map[string]bool{}
+	for _, name := range sectionOrder {
+		for _, idx := range bucket[name] {
+			id := m.items[idx].ID
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, item := range m.items {
+		if item.ID != "" && !seen[item.ID] {
+			out = append(out, item.ID)
+			seen[item.ID] = true
+		}
+	}
+	return out
 }
 
 // synthRow renders one synthetic sidebar destination (Threads, Activity,
@@ -2098,6 +2552,10 @@ func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected,
 		isThreadsRow:  kind == navThreads,
 		isActivityRow: kind == navActivity,
 		isLaterRow:    kind == navLater,
+		isDMsRow:      kind == navDMs,
+		isDraftsRow:   kind == navDrafts,
+		isUnreadsRow:  kind == navUnreads,
+		isHomeRow:     kind == navHome,
 	}
 }
 

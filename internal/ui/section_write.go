@@ -39,6 +39,7 @@ func cmdMove(a *App, args []string) tea.Cmd {
 		}
 		items = append(items, it)
 	}
+	a.sectionPickerKind = "move"
 	a.sectionPicker.Open("Move to section", items)
 	a.SetMode(ModeSectionPicker)
 	return nil
@@ -54,6 +55,71 @@ func cmdSection(a *App, args []string) tea.Cmd {
 	}
 	return func() tea.Msg {
 		return a.sections.Create(name)
+	}
+}
+
+func selectedStandardSection(a *App) (sidebar.SectionMeta, bool) {
+	key, ok := a.sidebar.IsSectionHeaderSelected()
+	if !ok || key == "" {
+		return sidebar.SectionMeta{}, false
+	}
+	for _, s := range a.sidebar.SlackSections() {
+		if s.Type != "standard" {
+			continue
+		}
+		if s.ID == key || strings.EqualFold(s.Name, key) {
+			return s, true
+		}
+	}
+	return sidebar.SectionMeta{}, false
+}
+
+func cmdSectionRename(a *App, args []string) tea.Cmd {
+	name := strings.TrimSpace(strings.Join(args, " "))
+	if name == "" {
+		return toastWithClear(a, "Usage: :rename <name> (select a section header)", 2*time.Second)
+	}
+	sec, ok := selectedStandardSection(a)
+	if !ok {
+		return toastWithClear(a, "Select a custom section header to rename", 2*time.Second)
+	}
+	return func() tea.Msg {
+		return a.sections.Rename(sec.ID, name)
+	}
+}
+
+func cmdSectionDelete(a *App, _ []string) tea.Cmd {
+	sec, ok := selectedStandardSection(a)
+	if !ok {
+		return toastWithClear(a, "Select a custom section header to delete", 2*time.Second)
+	}
+	label := sec.Name
+	if label == "" {
+		label = sec.ID
+	}
+	id := sec.ID
+	a.confirmPrompt.Open(
+		"Delete section "+label+"?",
+		"Channels return to Slack's default buckets.",
+		func() tea.Msg {
+			return a.sections.Delete(id)
+		},
+	)
+	a.SetMode(ModeConfirm)
+	return nil
+}
+
+func cmdSectionUp(a *App, _ []string) tea.Cmd   { return a.moveSelectedSection(-1) }
+func cmdSectionDown(a *App, _ []string) tea.Cmd { return a.moveSelectedSection(1) }
+
+func (a *App) moveSelectedSection(delta int) tea.Cmd {
+	sec, ok := selectedStandardSection(a)
+	if !ok {
+		return toastWithClear(a, "Select a custom section header to reorder", 2*time.Second)
+	}
+	id := sec.ID
+	return func() tea.Msg {
+		return a.sections.Move(id, delta)
 	}
 }
 
@@ -150,6 +216,22 @@ var reduceSections reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return toastWithClear(a, "Created section "+name, 2*time.Second), true
 	case SectionCreateFailedMsg:
 		return toastWithClear(a, "Create failed: "+truncateReason(m.Err, 40), 3*time.Second), true
+	case SectionRenamedMsg:
+		return toastWithClear(a, "Renamed to "+m.Name, 2*time.Second), true
+	case SectionRenameFailedMsg:
+		return toastWithClear(a, "Rename failed: "+truncateReason(m.Err, 40), 3*time.Second), true
+	case SectionDeletedMsg:
+		name := m.Name
+		if name == "" {
+			name = m.ID
+		}
+		return toastWithClear(a, "Deleted section "+name, 2*time.Second), true
+	case SectionDeleteFailedMsg:
+		return toastWithClear(a, "Delete failed: "+truncateReason(m.Err, 40), 3*time.Second), true
+	case SectionReorderedMsg:
+		return toastWithClear(a, "Section moved", 2*time.Second), true
+	case SectionReorderFailedMsg:
+		return toastWithClear(a, "Reorder failed: "+truncateReason(m.Err, 40), 3*time.Second), true
 	default:
 		return nil, false
 	}

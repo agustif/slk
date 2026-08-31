@@ -221,7 +221,7 @@ func TestHelp_ListsMoveAndSectionCommands(t *testing.T) {
 		if e.Key == ":move" && e.Desc == "move channel to section" {
 			foundMove = true
 		}
-		if e.Key == ":section" && e.Desc == "create sidebar section" {
+		if strings.Contains(e.Key, ":section") && strings.Contains(e.Desc, "sidebar section") {
 			foundSection = true
 		}
 	}

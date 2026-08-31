@@ -430,6 +430,22 @@ func (s *SectionStore) ApplyUpsert(ev slk.ChannelSectionUpserted) {
 		// Preserve channel membership; upsert events don't carry it.
 		sec.ChannelIDs = prev.ChannelIDs
 		sec.ChannelsCount = prev.ChannelsCount
+		if ev.LastUpdate == 0 {
+			// Local rename/create patch: keep linked-list fields the
+			// WS event would have sent.
+			if sec.Next == "" {
+				sec.Next = prev.Next
+			}
+			if sec.Type == "" {
+				sec.Type = prev.Type
+			}
+			if sec.Emoji == "" {
+				sec.Emoji = prev.Emoji
+			}
+			if sec.Name == "" {
+				sec.Name = prev.Name
+			}
+		}
 	}
 	s.sectionsByID[ev.ID] = sec
 }
@@ -441,10 +457,97 @@ func (s *SectionStore) ApplyDelete(sectionID string) {
 	if !s.ready {
 		return
 	}
+	deleted := s.sectionsByID[sectionID]
+	next := ""
+	if deleted != nil {
+		next = deleted.Next
+	}
+	for _, sec := range s.sectionsByID {
+		if sec.Next == sectionID {
+			sec.Next = next
+		}
+	}
 	delete(s.sectionsByID, sectionID)
 	for ch, sec := range s.channelToSection {
 		if sec == sectionID {
 			delete(s.channelToSection, ch)
+		}
+	}
+}
+
+// MoveSection swaps a standard section with its neighbor in display
+// order. delta is -1 (up) or +1 (down). Returns the full linked-list
+// of section IDs for users.channelSections.reorder.
+func (s *SectionStore) MoveSection(sectionID string, delta int) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.ready {
+		return nil, fmt.Errorf("sections not ready")
+	}
+	ids := s.fullOrderedIDsLocked()
+	idx := -1
+	for i, id := range ids {
+		if id == sectionID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("section not found")
+	}
+	j := idx + delta
+	if j < 0 || j >= len(ids) {
+		return nil, fmt.Errorf("already at the edge")
+	}
+	ids[idx], ids[j] = ids[j], ids[idx]
+	s.relinkLocked(ids)
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out, nil
+}
+
+func (s *SectionStore) fullOrderedIDsLocked() []string {
+	pointedAt := map[string]bool{}
+	for _, sec := range s.sectionsByID {
+		if sec.Next != "" {
+			pointedAt[sec.Next] = true
+		}
+	}
+	var head *slk.SidebarSection
+	for id, sec := range s.sectionsByID {
+		if !pointedAt[id] {
+			if head == nil || sec.LastUpdate > head.LastUpdate {
+				head = sec
+			}
+		}
+	}
+	if head == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.sectionsByID))
+	visited := map[string]bool{}
+	cur := head
+	for cur != nil && !visited[cur.ID] {
+		visited[cur.ID] = true
+		out = append(out, cur.ID)
+		if cur.Next == "" {
+			break
+		}
+		cur = s.sectionsByID[cur.Next]
+	}
+	return out
+}
+
+func (s *SectionStore) relinkLocked(ids []string) {
+	for i, id := range ids {
+		sec := s.sectionsByID[id]
+		if sec == nil {
+			continue
+		}
+		if i+1 < len(ids) {
+			sec.Next = ids[i+1]
+		} else {
+			sec.Next = ""
 		}
 	}
 }

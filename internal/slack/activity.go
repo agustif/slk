@@ -31,10 +31,11 @@ func (a ActivityCounts) Unread() int {
 // without switching on nested bundle_info shapes.
 //
 // Captured shapes (activity.feed, 2026-08-31):
-//   channel / dm   — bundle_info.payload.{channel,dm}_entry.latest_message
-//   thread_v2      — bundle_info.payload.thread_entry.{channel_id,thread_ts,latest_ts}
-//   message_reaction — message.{channel,ts} + reaction.{user,name}
-//   at_user / at_channel / at_* — message.{channel,ts,author_user_id}
+//
+//	channel / dm   — bundle_info.payload.{channel,dm}_entry.latest_message
+//	thread_v2      — bundle_info.payload.thread_entry.{channel_id,thread_ts,latest_ts}
+//	message_reaction — message.{channel,ts} + reaction.{user,name}
+//	at_user / at_channel / at_* — message.{channel,ts,author_user_id}
 type ActivityItem struct {
 	Key       string
 	Type      string
@@ -46,6 +47,9 @@ type ActivityItem struct {
 	ThreadTS  string
 	ActorID   string
 	Reaction  string
+	// Text is the message body when the feed included it (latest_message
+	// or message.text). Empty means hydrate from cache / history.
+	Text string
 }
 
 // ActivityView is one Activity-tab row from activity.views: Slack's
@@ -309,6 +313,8 @@ type activityInner struct {
 		TS       string `json:"ts"`
 		Channel  string `json:"channel"`
 		AuthorID string `json:"author_user_id"`
+		User     string `json:"user"`
+		Text     string `json:"text"`
 	} `json:"message"`
 	Reaction struct {
 		User string `json:"user"`
@@ -319,6 +325,8 @@ type activityInner struct {
 type activityMsgRef struct {
 	TS      string `json:"ts"`
 	Channel string `json:"channel"`
+	Text    string `json:"text"`
+	User    string `json:"user"`
 }
 
 func parseActivityFeed(raw []byte) ([]ActivityItem, error) {
@@ -361,11 +369,17 @@ func flattenActivityEntry(e activityEntry) (ActivityItem, bool) {
 	}
 	switch inner.Type {
 	case "channel":
-		item.ChannelID = inner.BundleInfo.Payload.ChannelEntry.LatestMessage.Channel
-		item.MessageTS = inner.BundleInfo.Payload.ChannelEntry.LatestMessage.TS
+		lm := inner.BundleInfo.Payload.ChannelEntry.LatestMessage
+		item.ChannelID = lm.Channel
+		item.MessageTS = lm.TS
+		item.Text = lm.Text
+		item.ActorID = lm.User
 	case "dm":
-		item.ChannelID = inner.BundleInfo.Payload.DMEntry.LatestMessage.Channel
-		item.MessageTS = inner.BundleInfo.Payload.DMEntry.LatestMessage.TS
+		lm := inner.BundleInfo.Payload.DMEntry.LatestMessage
+		item.ChannelID = lm.Channel
+		item.MessageTS = lm.TS
+		item.Text = lm.Text
+		item.ActorID = lm.User
 	case "thread_v2":
 		te := inner.BundleInfo.Payload.ThreadEntry
 		item.ChannelID = te.ChannelID
@@ -379,11 +393,16 @@ func flattenActivityEntry(e activityEntry) (ActivityItem, bool) {
 		item.MessageTS = inner.Message.TS
 		item.ActorID = inner.Reaction.User
 		item.Reaction = inner.Reaction.Name
+		item.Text = inner.Message.Text
 	default:
 		// Mentions, keywords, invites, lists: message.{channel,ts}.
 		item.ChannelID = inner.Message.Channel
 		item.MessageTS = inner.Message.TS
 		item.ActorID = inner.Message.AuthorID
+		if item.ActorID == "" {
+			item.ActorID = inner.Message.User
+		}
+		item.Text = inner.Message.Text
 	}
 	if item.ChannelID == "" {
 		return ActivityItem{}, false
@@ -404,5 +423,3 @@ func parseActivityV2(raw json.RawMessage) ActivityCounts {
 	}
 	return ActivityCounts{ByType: m}
 }
-
-

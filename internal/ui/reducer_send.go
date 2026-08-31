@@ -49,14 +49,17 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slack/mrkdwn"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/sectionpicker"
 	"github.com/gammons/slk/internal/ui/statusbar"
 )
 
@@ -76,6 +79,24 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case MessageScheduleFailedMsg:
 		return toastWithClear(a, "Schedule failed: "+truncateReason(m.Reason, 40), 3*time.Second), true
+
+	case ScheduledListMsg:
+		return reduceScheduledList(a, m), true
+
+	case ScheduledDeletedMsg:
+		if m.Err != nil {
+			return toastWithClear(a, "Cancel failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		return toastWithClear(a, "Scheduled message cancelled", 2*time.Second), true
+
+	case RemindersListMsg:
+		return reduceRemindersList(a, m), true
+
+	case ReminderCompletedMsg:
+		if m.Err != nil {
+			return toastWithClear(a, "Reminder failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		return toastWithClear(a, "Reminder completed", 2*time.Second), true
 
 	case MessageSentMsg:
 		// The chat.postMessage HTTP response landed. If a
@@ -283,6 +304,7 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 		// insurance.
 		if m.Message.ThreadTS == "" || m.Message.ThreadTS == m.Message.TS {
 			mm.AppendMessage(cloneMessageItem(m.Message))
+			a.applyLiveDMSnippet(m.ChannelID, m.Message.TS, m.Message.Text, m.Message.UserID)
 		} else {
 			mm.IncrementReplyCount(m.Message.ThreadTS, m.Message.TS)
 		}
@@ -412,4 +434,73 @@ func reduceScheduleMessage(a *App, m ScheduleMessageMsg) tea.Cmd {
 	return func() tea.Msg {
 		return messageSvc.Schedule(chID, threadTS, text, postAt)
 	}
+}
+
+func reduceScheduledList(a *App, m ScheduledListMsg) tea.Cmd {
+	if m.Err != nil {
+		return toastWithClear(a, "Scheduled list failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second)
+	}
+	if len(m.Items) == 0 {
+		return toastWithClear(a, "No scheduled messages", 2*time.Second)
+	}
+	items := make([]sectionpicker.Item, 0, len(m.Items))
+	for i, it := range m.Items {
+		when := time.Unix(it.PostAt, 0).Format("Mon 3:04 PM")
+		preview := strings.Join(strings.Fields(strings.ReplaceAll(it.Text, "\n", " ")), " ")
+		if len([]rune(preview)) > 40 {
+			preview = string([]rune(preview)[:40]) + "…"
+		}
+		chName := it.Channel
+		if name, ok := a.channelNames[it.Channel]; ok && name != "" {
+			chName = name
+		}
+		label := when + "  " + chName
+		if preview != "" {
+			label += "  " + preview
+		}
+		items = append(items, sectionpicker.Item{
+			ID:    it.Channel + "\t" + it.ID,
+			Label: label,
+			Index: i,
+		})
+	}
+	a.sectionPickerKind = "scheduled"
+	a.sectionPicker.Open("Scheduled messages (enter to cancel)", items)
+	a.SetMode(ModeSectionPicker)
+	return nil
+}
+
+func reduceRemindersList(a *App, m RemindersListMsg) tea.Cmd {
+	if m.Err != nil {
+		return toastWithClear(a, "Reminders failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second)
+	}
+	pending := make([]slackclient.Reminder, 0, len(m.Items))
+	for _, it := range m.Items {
+		if it.CompleteTS == 0 {
+			pending = append(pending, it)
+		}
+	}
+	if len(pending) == 0 {
+		return toastWithClear(a, "No pending reminders", 2*time.Second)
+	}
+	items := make([]sectionpicker.Item, 0, len(pending))
+	for i, it := range pending {
+		when := ""
+		if it.Time > 0 {
+			when = time.Unix(it.Time, 0).Format("Mon 3:04 PM")
+		}
+		preview := strings.Join(strings.Fields(strings.ReplaceAll(it.Text, "\n", " ")), " ")
+		if len([]rune(preview)) > 50 {
+			preview = string([]rune(preview)[:50]) + "…"
+		}
+		label := preview
+		if when != "" {
+			label = when + "  " + preview
+		}
+		items = append(items, sectionpicker.Item{ID: it.ID, Label: label, Index: i})
+	}
+	a.sectionPickerKind = "reminders"
+	a.sectionPicker.Open("Reminders (enter to complete)", items)
+	a.SetMode(ModeSectionPicker)
+	return nil
 }

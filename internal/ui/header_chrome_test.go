@@ -108,7 +108,7 @@ func TestHeaderChrome_ClickBookmarkOpensURL(t *testing.T) {
 	}
 }
 
-func TestHeaderChrome_ClickPinsJumpsToTS(t *testing.T) {
+func TestHeaderChrome_ClickPinsOpensPickerWhenMultiple(t *testing.T) {
 	app := NewApp()
 	app.activeChannelID = "C1"
 	app.messagepane.SetMessages([]messages.MessageItem{
@@ -120,20 +120,7 @@ func TestHeaderChrome_ClickPinsJumpsToTS(t *testing.T) {
 		{TS: "9.0", Created: 20, Text: "pinned"},
 		{TS: "1.0", Created: 10, Text: "older"},
 	})
-	_ = app.handleHeaderChromeHit(messages.ChromeHit{Kind: messages.ChromeHitPins})
-	got, ok := app.messagepane.SelectedMessage()
-	if !ok || got.TS != "9.0" {
-		t.Fatalf("selected = %+v ok=%v; want ts 9.0", got, ok)
-	}
-}
-
-func TestHeaderChrome_PinsWithoutTSOpensPicker(t *testing.T) {
-	app := NewApp()
-	app.activeChannelID = "C1"
-	app.messagepane.SetHeaderChrome(nil, []messages.Pin{
-		{Text: "roadmap.pdf", Permalink: "https://example.com/files/roadmap.pdf"},
-	})
-	cmd := app.handlePinsChip()
+	cmd := app.handleHeaderChromeHit(messages.ChromeHit{Kind: messages.ChromeHitPins})
 	if cmd != nil {
 		t.Fatalf("picker should open in-mode, cmd=%#v", cmd())
 	}
@@ -142,6 +129,39 @@ func TestHeaderChrome_PinsWithoutTSOpensPicker(t *testing.T) {
 	}
 	if app.pickerKind != "pins" {
 		t.Errorf("pickerKind = %q", app.pickerKind)
+	}
+}
+
+func TestHeaderChrome_ClickPinsJumpsWhenSingle(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "9.0", Text: "pinned"},
+	})
+	app.messagepane.SelectByIndex(0)
+	app.messagepane.SetHeaderChrome(nil, []messages.Pin{
+		{TS: "9.0", Created: 20, Text: "pinned"},
+	})
+	_ = app.handleHeaderChromeHit(messages.ChromeHit{Kind: messages.ChromeHitPins})
+	got, ok := app.messagepane.SelectedMessage()
+	if !ok || got.TS != "9.0" {
+		t.Fatalf("selected = %+v ok=%v; want ts 9.0", got, ok)
+	}
+}
+
+func TestHeaderChrome_SingleFilePinOpensPermalink(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	app.messagepane.SetHeaderChrome(nil, []messages.Pin{
+		{Text: "roadmap.pdf", Permalink: "https://example.com/files/roadmap.pdf"},
+	})
+	cmd := app.handlePinsChip()
+	if cmd == nil {
+		t.Fatal("expected OpenLinkMsg cmd")
+	}
+	msg, ok := cmd().(OpenLinkMsg)
+	if !ok || msg.URL != "https://example.com/files/roadmap.pdf" {
+		t.Fatalf("got %#v", msg)
 	}
 }
 

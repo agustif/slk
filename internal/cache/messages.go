@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gammons/slk/internal/debuglog"
 )
@@ -126,6 +127,51 @@ func (db *DB) DeleteMessage(channelID, ts string) error {
 	}
 	debuglog.Cache("DeleteMessage: channel=%s ts=%s", channelID, ts)
 	return nil
+}
+
+// LatestByChannels returns the newest channel-feed message for each
+// ID in one query. Missing channels are omitted. Thread replies are
+// excluded (same rule as GetMessages).
+func (db *DB) LatestByChannels(channelIDs []string) map[string]Message {
+	out := make(map[string]Message, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out
+	}
+	const chunk = 400
+	for i := 0; i < len(channelIDs); i += chunk {
+		end := i + chunk
+		if end > len(channelIDs) {
+			end = len(channelIDs)
+		}
+		part := channelIDs[i:end]
+		placeholders := make([]string, len(part))
+		args := make([]any, len(part))
+		for j, id := range part {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+		q := `
+			SELECT m.ts, m.channel_id, m.workspace_id, m.user_id, m.text, m.thread_ts,
+			       m.reply_count, m.edited_at, m.is_deleted, m.raw_json, m.created_at, m.subtype
+			FROM messages m
+			INNER JOIN (
+				SELECT channel_id, MAX(ts) AS max_ts
+				FROM messages
+				WHERE is_deleted = 0
+				  AND channel_id IN (` + strings.Join(placeholders, ",") + `)
+				  AND (thread_ts = '' OR thread_ts = ts OR subtype = 'thread_broadcast')
+				GROUP BY channel_id
+			) t ON m.channel_id = t.channel_id AND m.ts = t.max_ts`
+		msgs, err := db.queryMessages(q, args...)
+		if err != nil {
+			debuglog.Cache("LatestByChannels: ERR=%v", err)
+			continue
+		}
+		for _, m := range msgs {
+			out[m.ChannelID] = m
+		}
+	}
+	return out
 }
 
 func (db *DB) queryMessages(query string, args ...any) ([]Message, error) {

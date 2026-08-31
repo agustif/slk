@@ -23,7 +23,10 @@ func TestRenderedSelectionMatchesNavigation(t *testing.T) {
 	// default-collapsed "Channels" section would otherwise hide
 	// "general" from the rendered output.
 	m.ToggleCollapse("Channels")
-	// Step off the synthetic Activity, Later, and Threads rows.
+	// Step off the synthetic Activity, Later, Threads, Direct Messages, Drafts, and Unreads rows.
+	m.MoveDown()
+	m.MoveDown()
+	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()

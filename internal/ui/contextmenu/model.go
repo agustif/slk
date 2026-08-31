@@ -22,7 +22,9 @@ const (
 	ActionSaveForLater  ActionID = "save_for_later"
 	ActionRemind        ActionID = "remind"
 	ActionCopyPermalink ActionID = "copy_permalink"
+	ActionShare         ActionID = "share"
 	ActionPin           ActionID = "pin"
+	ActionStar          ActionID = "star"
 	ActionFollowThread  ActionID = "follow_thread"
 	ActionDownloadFile  ActionID = "download_file"
 	ActionOpenLinks     ActionID = "open_links"
@@ -30,6 +32,9 @@ const (
 	ActionDelete        ActionID = "delete"
 	ActionMarkUnread    ActionID = "mark_unread"
 	ActionListReactions ActionID = "list_reactions"
+	ActionLaterComplete ActionID = "later_complete"
+	ActionLaterArchive  ActionID = "later_archive"
+	ActionLaterRestore  ActionID = "later_restore"
 )
 
 // Item is one row in the menu.

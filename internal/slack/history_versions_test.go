@@ -695,3 +695,47 @@ func TestHistoryWithVersions_DoesNotMutateCallerMap(t *testing.T) {
 		t.Errorf("caller map was mutated: %v", in)
 	}
 }
+
+// UnreadHistory is the All Unreads pane helper (2026-08-31 official
+// web capture): conversations.history with oldest=last_read, limit=28,
+// ignore_replies=true, inclusive=true, include_date_joined=false.
+func TestUnreadHistory_CapturedShape(t *testing.T) {
+	c, form, path := hvServer(t, hvOKBody)
+	if _, err := c.UnreadHistory(context.Background(), hvChannel, hvAnchorOldest); err != nil {
+		t.Fatalf("UnreadHistory: %v", err)
+	}
+	if *path != "/api/conversations.history" {
+		t.Errorf("path = %q, want /api/conversations.history", *path)
+	}
+	if got := form.Get("channel"); got != hvChannel {
+		t.Errorf("channel = %q, want %q", got, hvChannel)
+	}
+	if got := form.Get("oldest"); got != hvAnchorOldest {
+		t.Errorf("oldest = %q, want %q", got, hvAnchorOldest)
+	}
+	if got := form.Get("limit"); got != "28" {
+		t.Errorf("limit = %q, want 28", got)
+	}
+	if got := form.Get("ignore_replies"); got != "true" {
+		t.Errorf("ignore_replies = %q, want true", got)
+	}
+	if got := form.Get("inclusive"); got != "true" {
+		t.Errorf("inclusive = %q, want true", got)
+	}
+	if got := form.Get("include_date_joined"); got != "false" {
+		t.Errorf("include_date_joined = %q, want false", got)
+	}
+	if _, ok := (*form)["latest"]; ok {
+		t.Errorf("latest present (%q); All Unreads sends oldest only", form.Get("latest"))
+	}
+}
+
+func TestUnreadHistory_EmptyLastReadOmitsOldest(t *testing.T) {
+	c, form, _ := hvServer(t, hvOKBody)
+	if _, err := c.UnreadHistory(context.Background(), hvChannel, ""); err != nil {
+		t.Fatalf("UnreadHistory: %v", err)
+	}
+	if _, ok := (*form)["oldest"]; ok {
+		t.Errorf("oldest present (%q) when last_read is empty", form.Get("oldest"))
+	}
+}

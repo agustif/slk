@@ -25,12 +25,13 @@ import (
 //   - lastReadTS is malformed or in the future (defensive defaults)
 //
 // Empty lastReadTS is type-aware:
-//   - For "dm" and "group_dm", empty IS stale. Slack's client.counts
-//     endpoint only returns these types when the conversation is
-//     currently "open"; absence in counts (which surfaces here as
-//     empty lastReadTS) is Slack's canonical "this conversation is
-//     closed" signal. Roughly half of the user's DMs and 98% of
-//     mpdms in real workspaces fall into this bucket.
+//   - For 1:1 "dm", empty IS stale. Closed IMs are filtered at ingest
+//     via is_open; leftover rows without last_read are closed leftover
+//     conversations Slack's client.counts omits.
+//   - For "group_dm", empty is NOT stale. MPIMs arrive from
+//     users.conversations as joined conversations; client.counts often
+//     omits last_read for them even when OG Slack still shows them in
+//     Direct Messages.
 //   - For "channel" and "private", empty is unexpected (the API
 //     always provides last_read for joined channels) and is most
 //     likely a transient brand-new-join; show rather than hide.
@@ -50,9 +51,9 @@ func IsStale(item ChannelItem, hasUnread bool, lastReadTS string, threshold time
 		return false
 	}
 	if lastReadTS == "" {
-		// dm/group_dm without a last_read = closed conversation.
-		// Other types: defensive, prefer to show.
-		return item.Type == "dm" || item.Type == "group_dm"
+		// 1:1 DM without a last_read = closed conversation.
+		// Group DMs and channels: prefer to show.
+		return item.Type == "dm"
 	}
 	lastRead, ok := parseSlackTS(lastReadTS)
 	if !ok {

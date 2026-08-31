@@ -1224,6 +1224,49 @@ func TestGetStarredChannels_APIError(t *testing.T) {
 	}
 }
 
+func TestGetStarredMessages_ParsesMessageItems(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"items": [
+				{"type": "channel", "channel": "C1"},
+				{"type": "message", "channel": "C9", "message": {"ts": "1.1"}},
+				{"type": "message", "channel": "D1", "message": {"ts": "2.2"}}
+			]
+		}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	got, err := c.GetStarredMessages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ChannelID != "C9" || got[0].TS != "1.1" || got[1].TS != "2.2" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestStarMessage_PostsTimestamp(t *testing.T) {
+	var path, channel, ts string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		channel = r.PostForm.Get("channel")
+		ts = r.PostForm.Get("timestamp")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.StarMessage(context.Background(), "C9", "1.1"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/stars.add" || channel != "C9" || ts != "1.1" {
+		t.Errorf("path=%s channel=%s ts=%s", path, channel, ts)
+	}
+}
+
 func TestStarChannel_PostsChannelItem(t *testing.T) {
 	var gotPath, gotChannel, gotTS, gotItem string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1875,6 +1918,22 @@ func TestGetMutedChannels_EmptyChannelsObject(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("len = %d, want 0 (got %v)", len(got), got)
+	}
+}
+
+func TestParseVIPUsers(t *testing.T) {
+	got := ParseVIPUsers(" U1,U2, U1 ,,U3 ")
+	want := []string{"U1", "U2", "U3"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] %q want %q", i, got[i], want[i])
+		}
+	}
+	if ParseVIPUsers("") != nil {
+		t.Fatal("empty should be nil")
 	}
 }
 
@@ -3687,6 +3746,84 @@ func TestPostForm_BodyFieldOrderIsAlphabeticalThenEnvelope(t *testing.T) {
 			"If the lead is no longer alphabetical, postForm stopped using url.Values.Encode(): "+
 			"that is an improvement only if slack-go's bodies were fixed too, otherwise slk now "+
 			"emits two different body shapes. Update the residual-divergence table either way.", raw, want)
+	}
+}
+
+func TestCloseConversation_AndListScheduled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "conversations.close"):
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case strings.Contains(r.URL.Path, "scheduledMessages.list"):
+			_, _ = w.Write([]byte(`{"ok":true,"scheduled_messages":[{"id":"Q1","channel_id":"C1","post_at":1700000000,"text":"later"}]}`))
+		case strings.Contains(r.URL.Path, "deleteScheduledMessage"):
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":false,"error":"unknown"}`))
+		}
+	}))
+	defer srv.Close()
+	c := &Client{token: "xoxc-test", apiBaseURL: srv.URL + "/api/", httpClient: srv.Client()}
+	if err := c.CloseConversation(context.Background(), "D1"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	items, err := c.ListScheduledMessages(context.Background(), "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "Q1" {
+		t.Fatalf("items = %+v", items)
+	}
+	if err := c.DeleteScheduledMessage(context.Background(), "C1", "Q1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+}
+
+func TestReopenConversation_UsesChannelID(t *testing.T) {
+	var got string
+	mock := &mockSlackAPI{
+		openConversationContextFn: func(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
+			got = params.ChannelID
+			return &slack.Channel{}, false, true, nil
+		},
+	}
+	c := &Client{api: mock}
+	if err := c.ReopenConversation(context.Background(), "D1"); err != nil {
+		t.Fatalf("ReopenConversation: %v", err)
+	}
+	if got != "D1" {
+		t.Errorf("channel = %q, want D1", got)
+	}
+}
+
+func TestGetSingleMessage_ThreadReplyViaParentGuess(t *testing.T) {
+	mock := &mockSlackAPI{
+		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
+			return &slack.GetConversationHistoryResponse{
+				Messages: []slack.Message{
+					{Msg: slack.Msg{Timestamp: "1.05", Text: "channel noise", User: "U3"}},
+					{Msg: slack.Msg{Timestamp: "1.0", Text: "parent", User: "U1"}},
+				},
+			}, nil
+		},
+		getConversationRepliesFn: func(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
+			if params.Timestamp == "1.0" {
+				return []slack.Message{
+					{Msg: slack.Msg{Timestamp: "1.0", Text: "parent", User: "U1"}},
+					{Msg: slack.Msg{Timestamp: "1.1", Text: "reply body", User: "U2"}},
+				}, false, "", nil
+			}
+			return nil, false, "", fmt.Errorf("thread_not_found")
+		},
+	}
+	c := &Client{api: mock}
+	msg, err := c.GetSingleMessage(context.Background(), "C1", "1.1")
+	if err != nil {
+		t.Fatalf("GetSingleMessage: %v", err)
+	}
+	if msg.Text != "reply body" {
+		t.Errorf("text = %q", msg.Text)
 	}
 }
 

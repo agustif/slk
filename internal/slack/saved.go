@@ -51,6 +51,11 @@ type SavedItem struct {
 	DateDue       int64
 	DateCompleted int64
 	IsArchived    bool
+	// Text and UserID are not on the saved.list row itself (the
+	// official client hydrates them). Filled from a nested message
+	// object when present, then from cache / conversations.history.
+	Text   string
+	UserID string
 }
 
 // SavedListOpts is the flattened saved.list request.
@@ -158,6 +163,34 @@ func (c *Client) SavedUpdateDue(ctx context.Context, channelID, ts string, dueUn
 	return parseSavedOK(raw, "saved.update")
 }
 
+// SavedUpdateState moves a Later item between In progress / Completed /
+// Archived via saved.update state. Slack's saved.list rows use the
+// same field (in_progress | completed | archived).
+func (c *Client) SavedUpdateState(ctx context.Context, channelID, ts, state string) error {
+	state = savedItemState(state)
+	ctx = slackhttp.WithReason(ctx, "saved-api/updateSavedMessage")
+	form := url.Values{
+		"item_id":   {channelID},
+		"item_type": {"message"},
+		"ts":        {ts},
+		"state":     {state},
+	}
+	raw, err := c.PostForm(ctx, "saved.update", form)
+	if err != nil {
+		return fmt.Errorf("saved.update: %w", err)
+	}
+	return parseSavedOK(raw, "saved.update")
+}
+
+func savedItemState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "completed", "archived":
+		return strings.ToLower(strings.TrimSpace(state))
+	default:
+		return "in_progress"
+	}
+}
+
 // AddReminder creates a Slack reminder (reminders.add) for the
 // authenticated user. timeSpec is a unix timestamp, a seconds offset
 // (if within 24h), or a natural-language phrase Slack accepts
@@ -183,6 +216,84 @@ func (c *Client) AddReminder(ctx context.Context, text, timeSpec, channelID stri
 	return parseSavedOK(raw, "reminders.add")
 }
 
+// Reminder is one reminders.list row.
+type Reminder struct {
+	ID         string
+	Text       string
+	Time       int64
+	CompleteTS int64
+	Recurring  bool
+}
+
+type remindersListResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error"`
+	Reminders []struct {
+		ID         string `json:"id"`
+		Text       string `json:"text"`
+		Time       int64  `json:"time"`
+		CompleteTS int64  `json:"complete_ts"`
+		Recurring  bool   `json:"recurring"`
+	} `json:"reminders"`
+}
+
+// ListReminders returns the user's reminders (reminders.list).
+func (c *Client) ListReminders(ctx context.Context) ([]Reminder, error) {
+	raw, err := c.PostForm(ctx, "reminders.list", url.Values{})
+	if err != nil {
+		return nil, fmt.Errorf("reminders.list: %w", err)
+	}
+	var res remindersListResponse
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, fmt.Errorf("reminders.list: decoding: %w", err)
+	}
+	if !res.OK {
+		errStr := res.Error
+		if errStr == "" {
+			errStr = "ok=false"
+		}
+		return nil, fmt.Errorf("reminders.list: %s", errStr)
+	}
+	out := make([]Reminder, 0, len(res.Reminders))
+	for _, e := range res.Reminders {
+		if e.ID == "" {
+			continue
+		}
+		out = append(out, Reminder{
+			ID:         e.ID,
+			Text:       e.Text,
+			Time:       e.Time,
+			CompleteTS: e.CompleteTS,
+			Recurring:  e.Recurring,
+		})
+	}
+	return out, nil
+}
+
+// CompleteReminder marks a reminder done (reminders.complete).
+func (c *Client) CompleteReminder(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("reminders.complete: id required")
+	}
+	raw, err := c.PostForm(ctx, "reminders.complete", url.Values{"reminder": {id}})
+	if err != nil {
+		return fmt.Errorf("reminders.complete: %w", err)
+	}
+	return parseSavedOK(raw, "reminders.complete")
+}
+
+// DeleteReminder removes a reminder (reminders.delete).
+func (c *Client) DeleteReminder(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("reminders.delete: id required")
+	}
+	raw, err := c.PostForm(ctx, "reminders.delete", url.Values{"reminder": {id}})
+	if err != nil {
+		return fmt.Errorf("reminders.delete: %w", err)
+	}
+	return parseSavedOK(raw, "reminders.delete")
+}
+
 type savedListResponse struct {
 	OK       bool            `json:"ok"`
 	Error    string          `json:"error"`
@@ -202,6 +313,11 @@ type savedListItem struct {
 	DateDue       int64  `json:"date_due"`
 	DateCompleted int64  `json:"date_completed"`
 	IsArchived    bool   `json:"is_archived"`
+	Message       *struct {
+		Text string `json:"text"`
+		User string `json:"user"`
+		TS   string `json:"ts"`
+	} `json:"message"`
 }
 
 type savedCountsJSON struct {
@@ -260,6 +376,14 @@ func flattenSavedItem(e savedListItem) (SavedItem, bool) {
 	if state == "" {
 		state = "in_progress"
 	}
+	text, userID := "", ""
+	if e.Message != nil {
+		text = e.Message.Text
+		userID = e.Message.User
+		if ts == "" {
+			ts = e.Message.TS
+		}
+	}
 	return SavedItem{
 		Key:           savedItemKey(e.ItemID, ts),
 		ItemID:        e.ItemID,
@@ -270,6 +394,8 @@ func flattenSavedItem(e savedListItem) (SavedItem, bool) {
 		DateDue:       e.DateDue,
 		DateCompleted: e.DateCompleted,
 		IsArchived:    e.IsArchived,
+		Text:          text,
+		UserID:        userID,
 	}, true
 }
 

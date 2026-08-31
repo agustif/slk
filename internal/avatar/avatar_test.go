@@ -88,6 +88,31 @@ func TestPreload_OnReadyNotFiredOnFetchError(t *testing.T) {
 	}
 }
 
+func TestGetSized_IndependentOfDefault(t *testing.T) {
+	c, url, done := testCache(t)
+	defer done()
+
+	c.PreloadSync("U_SIZE", url)
+	def := c.Get("U_SIZE")
+	if def == "" {
+		t.Fatal("default-size Get empty after PreloadSync")
+	}
+	if got := c.GetSized("U_SIZE", SidebarSize()); got != "" {
+		t.Fatal("sidebar size should miss until PreloadSyncSized")
+	}
+	c.PreloadSyncSized("U_SIZE", url, SidebarSize())
+	small := c.GetSized("U_SIZE", SidebarSize())
+	if small == "" {
+		t.Fatal("sidebar size empty after PreloadSyncSized")
+	}
+	if small == def {
+		t.Fatal("sidebar 2×1 render should differ from default 4×2")
+	}
+	if c.Get("U_SIZE") != def {
+		t.Fatal("sized preload must not clobber the default-size cache entry")
+	}
+}
+
 // TestPreload_DedupesInflight asserts that calling Preload many times
 // for the same userID before the fetch completes results in exactly
 // one fetch (and one onReady fire), not N. The lazy AvatarFunc on the
@@ -157,6 +182,58 @@ func TestPreload_DedupesInflight(t *testing.T) {
 	}
 	if r := ready.Load(); r != 1 {
 		t.Fatalf("onReady fired %d times for one userID; want 1", r)
+	}
+}
+
+func TestPreload_FailedFetchRetriesAfterCooldown(t *testing.T) {
+	var hits atomic.Int32
+	src := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	var buf bytes.Buffer
+	imgpng.Encode(&buf, src)
+	pngBytes := buf.Bytes()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	imgCache, err := imgpkg.NewCache(t.TempDir(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewCache(imgpkg.NewFetcher(imgCache, http.DefaultClient), nil, false)
+	c.backoffFn = func(int) time.Duration { return 0 }
+
+	c.Preload("U_RETRY", srv.URL)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, inflight := c.inflight.Load("U_RETRY"); !inflight && hits.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c.Get("U_RETRY") != "" {
+		t.Fatal("first failed fetch should not cache a render")
+	}
+
+	c.Preload("U_RETRY", srv.URL)
+	for time.Now().Before(deadline.Add(2 * time.Second)) {
+		if c.Get("U_RETRY") != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c.Get("U_RETRY") == "" {
+		t.Fatal("retry after failed fetch never rendered")
+	}
+	if hits.Load() < 2 {
+		t.Fatalf("server hits = %d, want at least 2", hits.Load())
 	}
 }
 

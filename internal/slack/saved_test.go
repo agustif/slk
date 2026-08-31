@@ -1,6 +1,9 @@
 package slackclient
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -100,6 +103,62 @@ func TestBuildSavedListForm_ClampsAndFilter(t *testing.T) {
 	}
 	if got := buildSavedListForm(SavedListOpts{Cursor: "nudge"}).Get("cursor"); got != "nudge" {
 		t.Errorf("cursor = %q", got)
+	}
+}
+
+func TestListCompleteDeleteReminders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "reminders.list"):
+			_, _ = w.Write([]byte(`{"ok":true,"reminders":[{"id":"Rm1","text":"ping","time":1700000000}]}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer srv.Close()
+	c := testWriteClient(t, srv)
+	items, err := c.ListReminders(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "Rm1" {
+		t.Fatalf("items = %+v", items)
+	}
+	if err := c.CompleteReminder(context.Background(), "Rm1"); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if err := c.DeleteReminder(context.Background(), "Rm1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+}
+
+func TestSavedItemState(t *testing.T) {
+	if got := savedItemState("completed"); got != "completed" {
+		t.Errorf("completed = %q", got)
+	}
+	if got := savedItemState("ARCHIVED"); got != "archived" {
+		t.Errorf("archived = %q", got)
+	}
+	if got := savedItemState(""); got != "in_progress" {
+		t.Errorf("empty = %q", got)
+	}
+}
+
+func TestFlattenSavedItem_NestedMessageText(t *testing.T) {
+	got, ok := flattenSavedItem(savedListItem{
+		ItemID: "C1", ItemType: "message", TS: "1.0",
+		Message: &struct {
+			Text string `json:"text"`
+			User string `json:"user"`
+			TS   string `json:"ts"`
+		}{Text: "hello later", User: "U1"},
+	})
+	if !ok {
+		t.Fatal("expected item")
+	}
+	if got.Text != "hello later" || got.UserID != "U1" {
+		t.Errorf("got %+v", got)
 	}
 }
 

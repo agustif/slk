@@ -8,8 +8,11 @@
 //
 //	ChannelSearchResultsMsg   - FTS match list for the active channel
 //	WorkspaceSearchResultsMsg - server-side search.messages / search.files
-//	                            results for the ctrl+f modal (Kind/Page/Gen
-//	                            drop a stale page)
+//	                            / edge.UsersSearch results for the ctrl+f
+//	                            modal (Kind/Page/Gen drop a stale page)
+//	peopleSearchDebounceMsg   - People-tab typing paused: issue one
+//	                            users/search for the query the user
+//	                            stopped on
 //
 // Stale results (the user switched channels while the query ran) are
 // dropped. An error clears search state and toasts; an empty result
@@ -29,6 +32,7 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/ui/searchresults"
 )
 
 // activeSearch is the in-channel `/` search state: the query, its
@@ -45,6 +49,19 @@ var reduceSearch reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ChannelSearchResultsMsg:
 		return reduceChannelSearchResults(a, m), true
+	case peopleSearchDebounceMsg:
+		// Typing has stopped. Anything older than the current
+		// generation is a keystroke the user has already typed past.
+		if !a.searchResults.IsVisible() || a.searchResults.Kind() != searchresults.KindPeople {
+			return nil, true
+		}
+		if m.gen != a.pendingPeopleSearchGen || m.query == "" || a.searchResults.Query() != m.query {
+			return nil, true
+		}
+		if !a.searchResults.StartSearch() {
+			return nil, true
+		}
+		return workspaceSearchCmd(a, 1), true
 	case WorkspaceSearchResultsMsg:
 		if !a.searchResults.IsVisible() || a.searchResults.Query() != m.Query {
 			return nil, true // stale: modal closed or query changed
@@ -56,6 +73,7 @@ var reduceSearch reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			a.searchResults.SetError("Search failed: " + m.Err.Error())
 			return nil, true
 		}
+		annotatePeoplePresence(a, m.Items)
 		if m.Page > 1 {
 			a.searchResults.AppendResults(m.Items, m.Total)
 			return nil, true
@@ -65,6 +83,19 @@ var reduceSearch reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// annotatePeoplePresence fills KindPeople rows from the live sidebar
+// presence map. Cheap: no extra API, and empty means "don't draw it".
+func annotatePeoplePresence(a *App, items []searchresults.Item) {
+	for i := range items {
+		if items[i].Kind != searchresults.KindPeople || items[i].UserID == "" {
+			continue
+		}
+		if p := a.sidebar.PresenceForUser(items[i].UserID); p != "" {
+			items[i].Presence = p
+		}
+	}
 }
 
 // workspaceHighlightTerms derives the highlightable terms of a

@@ -97,11 +97,11 @@ func TestIsStale(t *testing.T) {
 			want:       true,
 		},
 		{
-			name:       "empty LastReadTS on group_dm IS stale",
+			name:       "empty LastReadTS on group_dm is NOT stale",
 			item:       ChannelItem{ID: "MPDM1", Type: "group_dm"},
 			lastReadTS: "",
 			threshold:  threshold,
-			want:       true,
+			want:       false,
 		},
 		{
 			name:       "empty LastReadTS on stale dm respects unread exception",

@@ -190,14 +190,40 @@ type Self struct {
 }
 
 // Team is the workspace record. The captured object also carries a
-// large `prefs` sub-object, an `icon` set and counters; none of it has
-// a consumer in slk, so none of it is modelled.
+// large `prefs` sub-object and counters; those have no consumer in slk
+// so they stay unmodelled. Icon is modelled because the workspace rail
+// renders the team logo from it.
 type Team struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Domain        string `json:"domain"`
-	URL           string `json:"url"`
-	AvatarBaseURL string `json:"avatar_base_url"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Domain        string   `json:"domain"`
+	URL           string   `json:"url"`
+	AvatarBaseURL string   `json:"avatar_base_url"`
+	Icon          TeamIcon `json:"icon"`
+}
+
+// TeamIcon is team.icon from client.userBoot. Slack sends a handful of
+// square PNG sizes; URL() picks one suitable for a 4×2 cell logo.
+type TeamIcon struct {
+	ImageDefault bool   `json:"image_default"`
+	Image34      string `json:"image_34"`
+	Image44      string `json:"image_44"`
+	Image68      string `json:"image_68"`
+	Image88      string `json:"image_88"`
+	Image102     string `json:"image_102"`
+	Image132     string `json:"image_132"`
+}
+
+// URL returns the best available team-logo URL. Prefer 88 (sharp on a
+// 4×2 kitty tile) then 68 (the size the captured boot payload carries)
+// then the other documented squares. Empty when Slack sent no images.
+func (i TeamIcon) URL() string {
+	for _, u := range []string{i.Image88, i.Image68, i.Image132, i.Image102, i.Image44, i.Image34} {
+		if u != "" {
+			return u
+		}
+	}
+	return ""
 }
 
 // Subteams is userBoot's `subteams` value.
@@ -242,6 +268,9 @@ type Prefs struct {
 	// internal/slack — the wrong direction, since internal/slack is
 	// what will import this package. Callers parse.
 	AllNotificationsPrefs string
+	// VipUsers is Slack's comma-separated list of VIP people/apps
+	// (prefs.vip_users). Empty when the user has none.
+	VipUsers string
 	// Raw is the whole prefs object, undecoded, including the two
 	// fields above. Pulling those out is additive, not a move.
 	Raw json.RawMessage
@@ -254,6 +283,7 @@ type Prefs struct {
 type prefsWire struct {
 	MutedChannels         string `json:"muted_channels"`
 	AllNotificationsPrefs string `json:"all_notifications_prefs"`
+	VipUsers              string `json:"vip_users"`
 }
 
 // UnmarshalJSON decodes the two named prefs and keeps the rest verbatim.
@@ -264,6 +294,7 @@ func (p *Prefs) UnmarshalJSON(b []byte) error {
 	}
 	p.MutedChannels = w.MutedChannels
 	p.AllNotificationsPrefs = w.AllNotificationsPrefs
+	p.VipUsers = w.VipUsers
 	// Cloned, not aliased. This is encoding/json's stated contract for
 	// an Unmarshaler — "UnmarshalJSON must copy the JSON data if it
 	// wishes to retain the data after returning" — and aliasing here

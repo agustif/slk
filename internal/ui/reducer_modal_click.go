@@ -56,7 +56,7 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
 	space := tea.KeyPressMsg{Code: tea.KeySpace}
 	switch a.mode {
-	case ModeChannelFinder:
+	case ModeChannelFinder, ModeShare:
 		return modalClickTarget{&a.channelFinder, &a.channelFinder, enter}, true
 	case ModeChannelMembers:
 		return modalClickTarget{&a.channelMembers, &a.channelMembers, enter}, true
@@ -70,6 +70,8 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		return modalClickTarget{&a.presenceMenu, &a.presenceMenu, enter}, true
 	case ModeScheduleMenu:
 		return modalClickTarget{&a.scheduleMenu, &a.scheduleMenu, enter}, true
+	case ModeDateMenu:
+		return modalClickTarget{&a.dateMenu, &a.dateMenu, enter}, true
 	case ModePresenceSetStatus:
 		return modalClickTarget{&a.statusInput, &a.statusInput, enter}, true
 	case ModeUserProfile:

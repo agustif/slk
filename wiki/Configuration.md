@@ -63,6 +63,41 @@ message_retention_days = 30
 max_db_size_mb = 500
 max_image_cache_mb = 200
 
+# Composable within-section sort. Each value is an ordered list of
+# atoms (SQL ORDER BY). First atom partitions; later atoms sort
+# inside each partition. Omitted type keys fall through to default.
+#
+# Atoms:
+#   slack          Slack / config :N / input order (the default)
+#   alphabetical   display name A–Z (case-insensitive)
+#   recent         last opened, then last activity, then last_read
+#   vip_first      Slack VIP people (prefs.vip_users), plus [sidebar.vip] extras
+#   unread_first   unread before read
+#   starred_first  Slack-starred conversations first
+#
+# Examples:
+#   dms = ["recent"]                      — newest activity first (default)
+#   dms = ["vip_first", "recent"]         — two recency lists, VIPs on top
+#   dms = ["vip_first", "alphabetical"]   — two A–Z lists, VIPs on top
+[sidebar.sort]
+default  = ["slack"]
+dms      = ["recent"]
+channels = ["slack"]
+starred  = ["slack"]
+apps     = ["recent"]
+
+[sidebar.sort.section]
+Engineering = ["unread_first", "alphabetical"]
+
+# Extra VIP membership on top of Slack Preferences → VIP (prefs.vip_users).
+# Slack's list is the source of truth; this only adds names/IDs/globs.
+#
+# group_dms: "split" (default) is Direct Messages then Group DMs;
+# "together" is one Direct Messages section (OG Slack).
+[sidebar]
+group_dms = "split"
+vip = ["alice", "@cto", "exec-*"]
+
 # Activity inbox (Slack's Activity tab). These are the session defaults;
 # f / F / s / u in the Activity view cycle them live without rewriting
 # this file.
@@ -156,13 +191,53 @@ other `eng-*` channel in Slack-API order.
 
 This syntax is only honored when `use_slack_sections = false` (or
 when Slack's section endpoint is unreachable and slk falls back to
-glob mode). In Slack-native mode, channel order within a section
-comes from Slack and the `:<N>` suffix is ignored along with the
-rest of the `[sections.*]` block.
+glob mode) **and** that section's sort pipeline still includes the
+`slack` atom (the default). A pipeline of `["alphabetical"]` ignores
+`:N` and Slack's linked-list order.
+
+## Sidebar sort atoms
+
+`[sidebar.sort]` is a set of **composable keys**, not a single enum.
+They apply **within** a section (section order in the sidebar is
+unchanged). Lookup for a section, first match wins:
+
+1. `[sidebar.sort.section]` by header name (case-insensitive), including
+   Slack-renamed sections
+2. Type shortcut: `dms` (`direct_messages`), `channels`, `starred`
+   (`stars`), `apps` (`recent_apps`)
+3. `default` (implicit `["slack"]`; Direct Messages / Group DMs fall
+   through to `["recent"]` when `dms` is omitted)
+
+`[sidebar] group_dms` is independent of sort: `split` (default) is two
+Home sections, `together` is one.
+
+| Atom | What it compares |
+|---|---|
+| `slack` | Config `:N` then Slack / bootstrap order |
+| `alphabetical` | Display name, case-insensitive |
+| `recent` | Last time you opened the conversation, then last activity, then `last_read_ts` |
+| `vip_first` | Slack VIP people (`prefs.vip_users`) first, plus `[sidebar.vip]` extras |
+| `unread_first` | Unread (unmuted) first |
+| `starred_first` | Slack-starred first |
+
+Aliases (`vip`, `alpha`, `recency`, `unread`, `starred`, …) are
+accepted and unknown atoms are dropped on load.
+
+`vip_first` uses Slack's own VIP list (`prefs.vip_users`, the same
+Preferences → VIP contacts that drive Activity's VIP tab and the
+desktop "VIP unreads" section). `[sidebar.vip]` is an **optional
+additive override**: extra channel IDs, DM user IDs, display names,
+`@handles`, and `*` globs on top of Slack's list. It does not replace
+Slack VIPs. `starred_first` is a different atom (channel stars).
 
 ### Limitations of Slack-native sections
 
-`:move` / `:section` write membership and create empty sections. Rename, delete, and reorder still happen in the official client. The `stars` section type (Slack's "Starred" feature) is rendered
+`:move` / `:section` write membership and create empty sections.
+`:rename` / `:section-delete` use `users.channelSections.update` /
+`users.channelSections.delete`. `:section-up` / `:section-down` rewrite
+each section's `next_channel_section_id` (the same linked-list field
+`users.channelSections.list` and `channel_section_upserted` already
+carry). The `stars` section type (Slack's "Starred" feature) is rendered
 when non-empty, with the header `Starred`. Sections of type `slack_connect`,
 `salesforce_records`, and `agents` are hidden. Sections with more than 10 channels may be returned
 only partially by Slack's API on initial load; the missing channels

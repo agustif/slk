@@ -107,20 +107,19 @@ func TestExecuteCommand_LeaveCancelDoesNotLeave(t *testing.T) {
 	}
 }
 
-func TestExecuteCommand_LeaveOnDMToasts(t *testing.T) {
+func TestExecuteCommand_LeaveOnDMOpensCloseConfirm(t *testing.T) {
 	for _, typ := range []string{"dm", "group_dm", "app"} {
 		a := seedLeaveChannel(t, []sidebar.ChannelItem{
 			{ID: "D1", Name: "alice", Type: typ},
 		}, "D1")
-		cmd := executeCommand(a, "leave")
-		if cmd == nil {
-			t.Fatalf("type %s: expected toast cmd", typ)
+		if cmd := executeCommand(a, "leave"); cmd != nil {
+			t.Fatalf("type %s: expected nil cmd (prompt opens), got %T", typ, cmd)
 		}
-		if a.confirmPrompt.IsVisible() {
-			t.Errorf("type %s: confirm should not open for DMs", typ)
+		if !a.confirmPrompt.IsVisible() {
+			t.Errorf("type %s: confirm should open for DMs", typ)
 		}
-		if out := a.statusbar.View(120); !strings.Contains(out, dmLeaveToast) {
-			t.Errorf("type %s: toast missing %q:\n%s", typ, dmLeaveToast, out)
+		if out := a.confirmPrompt.View(80); !strings.Contains(out, "Close this conversation?") {
+			t.Errorf("type %s: confirm copy missing close prompt:\n%s", typ, out)
 		}
 	}
 }

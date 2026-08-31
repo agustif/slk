@@ -51,9 +51,10 @@ func TestModalClick_OnRowActivates(t *testing.T) {
 	startX, startY := channelFinderOrigin(app)
 
 	// Row offset from the first list row. NewApp pins synthetic
-	// Threads, Activity, then Later at the top, so 0=Threads,
-	// 1=Activity, 2=Later, 3=C1, 4=C2.
-	clickY := startY + 5 + 4
+	// Threads, Activity, Later, Direct Messages, Drafts, then Unreads
+	// at the top, so 0=Threads, 1=Activity, 2=Later, 3=Direct Messages,
+	// 4=Drafts, 5=Unreads, 6=C1, 7=C2.
+	clickY := startY + 5 + 7
 	clickX := startX + 3
 
 	cmd := reduceMouseClick(app, tea.MouseClickMsg{Button: tea.MouseLeft, X: clickX, Y: clickY})

@@ -866,10 +866,52 @@ func TestBootConversations_MapsWhatTheSidebarBuilderReads(t *testing.T) {
 	}
 }
 
-func TestBootConversations_SkipsArchivedAndClosed(t *testing.T) {
+func TestMergeMissingGroupDMs(t *testing.T) {
+	have := []slack.Channel{
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "C1"},
+			Name:         "general",
+		}},
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G1"},
+			Name:         "mpdm-alice--bob-1",
+		}},
+	}
+	boot := []slack.Channel{
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G1", IsMpIM: true},
+			Name:         "mpdm-alice--bob-1",
+		}},
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "G2", IsMpIM: true},
+			Name:         "mpdm-carol--dave-1",
+		}},
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "C2"},
+			Name:         "random",
+		}},
+	}
+	got := mergeMissingGroupDMs(have, boot)
+	ids := map[string]bool{}
+	for _, ch := range got {
+		ids[ch.ID] = true
+		if ch.ID == "G1" && !ch.IsMpIM {
+			t.Error("G1 should be marked IsMpIM from mpdm-* name")
+		}
+	}
+	if !ids["G2"] {
+		t.Error("missing G2 from boot was not merged")
+	}
+	if ids["C2"] {
+		t.Error("plain channel from boot should not merge")
+	}
+}
+
+func TestBootConversations_SkipsArchivedKeepsClosed(t *testing.T) {
 	// users.conversations was called with ExcludeArchived: true, so
 	// keeping archived channels here would be a visible regression
-	// dressed up as a fix. A closed DM is not in the sidebar either.
+	// dressed up as a fix. Closed IMs stay: Home hides them via
+	// IsStale, but the Direct Messages view lists Slack's full set.
 	res := &bootstrap.Result{
 		Channels: []boot.Channel{
 			{ID: "C1", Name: "live", IsChannel: true},
@@ -884,8 +926,10 @@ func TestBootConversations_SkipsArchivedAndClosed(t *testing.T) {
 	}
 	got := bootConversations(res)
 	ids := map[string]bool{}
+	open := map[string]bool{}
 	for _, c := range got {
 		ids[c.ID] = true
+		open[c.ID] = c.IsOpen
 	}
 	if ids["C2"] {
 		t.Error("archived channel kept")
@@ -893,11 +937,66 @@ func TestBootConversations_SkipsArchivedAndClosed(t *testing.T) {
 	if ids["D3"] {
 		t.Error("archived DM kept")
 	}
-	if ids["D2"] {
-		t.Error("closed DM kept; it is not in IsOpen and IsOpen is false on it")
+	if !ids["D2"] {
+		t.Error("closed DM dropped; DMs view needs it")
+	}
+	if open["D2"] {
+		t.Error("closed DM marked IsOpen")
 	}
 	if !ids["C1"] || !ids["D1"] {
 		t.Errorf("dropped something live: %v", ids)
+	}
+	if !open["D1"] {
+		t.Error("open DM not marked IsOpen")
+	}
+}
+
+func TestMarkOpenConversations(t *testing.T) {
+	channels := []slack.Channel{
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "D1", IsIM: true},
+		}},
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "D2", IsIM: true},
+		}},
+	}
+	markOpenConversations(channels, []string{"D1"})
+	if !channels[0].IsOpen {
+		t.Error("D1 should be open")
+	}
+	if channels[1].IsOpen {
+		t.Error("D2 should stay closed")
+	}
+}
+
+func TestMergeMissingIMs_AddsClosed(t *testing.T) {
+	have := []slack.Channel{
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "D1", IsIM: true, IsOpen: true},
+		}},
+	}
+	boot := []slack.Channel{
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "D1", IsIM: true, IsOpen: true},
+		}},
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "D2", IsIM: true, User: "U2"},
+		}},
+		{GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "C1"},
+			Name:         "general",
+		}},
+	}
+	got := mergeMissingIMs(have, boot)
+	ids := map[string]bool{}
+	for _, ch := range got {
+		ids[ch.ID] = true
+	}
+	if !ids["D2"] {
+		t.Error("closed IM from boot was not merged")
+	}
+	if ids["C1"] {
+		t.Error("plain channel from boot should not merge")
 	}
 }
 

@@ -110,15 +110,10 @@ Last updated: 2026-05-03
 
 ## Not Yet Implemented
 
-### Medium Priority
-- [ ] Search (`:search <query>` or `Ctrl+/`)
-- [ ] File downloads (browser-style "save attachment" command; uploads via Ctrl+V paste are implemented)
-- [x] Self presence and DND/snooze controls (Ctrl+S menu, live status bar segment, notification suppression)
 ### Low Priority
-
-- [ ] Quiet hours for notifications
 - [ ] Custom keybinding overrides in config
-- [ ] Message link previews / unfurling
+
+Search (`Ctrl+f`), file downloads (`d`), quiet hours, and link unfurls shipped. See wiki/Features.md.
 
 ## Architecture Overview
 

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ui/linkpicker"
@@ -28,12 +30,18 @@ func (a *App) handleHeaderChromeHit(hit messages.ChromeHit) tea.Cmd {
 }
 
 func (a *App) handlePinsChip() tea.Cmd {
+	return a.openPinsList()
+}
+
+// openPinsList shows every pin in this channel. One item jumps
+// straight to it; several open the picker (Slack's pin pane).
+func (a *App) openPinsList() tea.Cmd {
 	pins := a.messagepane.Pins()
-	if pin, ok := mostRecentMessagePin(pins); ok {
-		return a.jumpToMessageTS(a.activeChannelID, pin.TS)
-	}
 	if len(pins) == 0 {
-		return nil
+		return toastWithClear(a, "No pinned messages", 2*time.Second)
+	}
+	if len(pins) == 1 {
+		return a.jumpToPin(pins[0])
 	}
 	return a.openPinsPicker(pins)
 }

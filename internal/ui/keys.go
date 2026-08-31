@@ -47,47 +47,56 @@ type KeyMap struct {
 	PrevUnread          key.Binding
 	WorkspaceFinder     key.Binding
 	LeaveChannel        key.Binding
+	ListPins            key.Binding
 	NewMessage          key.Binding
 	ThemeSwitcher       key.Binding
 	ThemeSwitcherGlobal key.Binding
 	PresenceMenu        key.Binding
 	// Insert-mode schedule overlay. Ctrl+Enter is intentionally unbound
 	// (reserved for also-send on another branch).
-	ScheduleMessage     key.Binding
-	UserProfile         key.Binding
-	ToggleSection       key.Binding
-	ToggleStar          key.Binding
-	NavBack             key.Binding
-	NavForward          key.Binding
-	Help                key.Binding
-	ChannelMembers      key.Binding
-	SaveThread          key.Binding
-	ListReactions       key.Binding
-	WindowPrefix        key.Binding
-	WinSplit            key.Binding
-	WinVSplit           key.Binding
-	WinNavigate         key.Binding
-	WinCycle            key.Binding
-	WinClose            key.Binding
-	WinOnly             key.Binding
-	ActivityFilter      key.Binding
-	ActivityFilterPrev  key.Binding
-	ActivitySort        key.Binding
-	ActivityUnreadOnly  key.Binding
-	ToggleMute          key.Binding
-	MoveSection         key.Binding
-	CreateSection       key.Binding
+	ScheduleMessage key.Binding
+	UserProfile     key.Binding
+	// JumpToDate is J (j is down). :date / :jump also work.
+	JumpToDate         key.Binding
+	ToggleSection      key.Binding
+	ToggleStar         key.Binding
+	NavBack            key.Binding
+	NavForward         key.Binding
+	Help               key.Binding
+	ChannelMembers     key.Binding
+	SaveThread         key.Binding
+	ListReactions      key.Binding
+	WindowPrefix       key.Binding
+	WinSplit           key.Binding
+	WinVSplit          key.Binding
+	WinNavigate        key.Binding
+	WinCycle           key.Binding
+	WinClose           key.Binding
+	WinOnly            key.Binding
+	ActivityFilter     key.Binding
+	ActivityFilterPrev key.Binding
+	ActivitySort       key.Binding
+	ActivityUnreadOnly key.Binding
+	ToggleMute         key.Binding
+	MoveSection        key.Binding
+	CreateSection      key.Binding
 	// ContextMenu opens the message-actions overlay. Right-click on a
 	// message does the same when the terminal reports MouseRight;
 	// some terminals steal right-click for paste/their own menu, so
 	// `x` is the keyboard path. Do not bind `g` (gg prefix) or `c`
 	// (permalink with Y).
-	ContextMenu         key.Binding
-	Pin                 key.Binding
-	FollowThread        key.Binding
-	BroadcastSend       key.Binding
-	SaveForLater        key.Binding
-	RemindMessage       key.Binding
+	ContextMenu   key.Binding
+	Pin           key.Binding
+	FollowThread  key.Binding
+	BroadcastSend key.Binding
+	SaveForLater  key.Binding
+	RemindMessage key.Binding
+	LaterComplete key.Binding
+	LaterArchive  key.Binding
+	// ShareMessage is keyless help for the OG share/forward action
+	// (message actions menu + :share). No dedicated letter: x and
+	// :share are the daily-driver paths.
+	ShareMessage key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -103,7 +112,7 @@ func DefaultKeyMap() KeyMap {
 		SearchMode:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		SearchNext:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
 		SearchPrev:      key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "prev match")),
-		WorkspaceSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "search workspace (messages/files)")),
+		WorkspaceSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "search workspace (messages/files/people)")),
 		Tab:             key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next panel")),
 		ShiftTab:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev panel")),
 		ToggleSidebar:   key.NewBinding(key.WithKeys("ctrl+b"), key.WithHelp("ctrl+b", "toggle sidebar")),
@@ -138,14 +147,16 @@ func DefaultKeyMap() KeyMap {
 		// matches but keeps the help-overlay entry pointing at :ws
 		// (1-9 also switch workspaces directly).
 		WorkspaceFinder:     key.NewBinding(key.WithHelp(":ws", "switch workspace")),
-		LeaveChannel:        key.NewBinding(key.WithHelp(":leave", "leave channel")),
+		LeaveChannel:        key.NewBinding(key.WithHelp(":leave", "leave channel / close DM")),
+		ListPins:            key.NewBinding(key.WithHelp(":pins", "list pinned messages")),
 		NewMessage:          key.NewBinding(key.WithKeys("ctrl+n"), key.WithHelp("ctrl+n", "new message")),
 		ThemeSwitcher:       key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "switch theme (per workspace)")),
 		ThemeSwitcherGlobal: key.NewBinding(key.WithKeys("ctrl+shift+y"), key.WithHelp("ctrl+shift+y", "set default theme")),
 		PresenceMenu:        key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "set status")),
-		ScheduleMessage:     key.NewBinding(key.WithKeys("ctrl+g"), key.WithHelp("ctrl+g / :schedule", "schedule message")),
+		ScheduleMessage:     key.NewBinding(key.WithKeys("ctrl+g"), key.WithHelp("ctrl+g / :schedule / :scheduled", "schedule / list")),
 		UserProfile:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "user profile")),
-		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section")),
+		JumpToDate:          key.NewBinding(key.WithKeys("J"), key.WithHelp("J / :date / :jump", "jump to date")),
+		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section (or double-click header)")),
 		ToggleStar:          key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "star/unstar channel")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		NavForward:          key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "navigate forward")),
@@ -164,18 +175,21 @@ func DefaultKeyMap() KeyMap {
 		WinCycle:           key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
 		WinClose:           key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
 		WinOnly:            key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
-		ActivityFilter:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next activity tab")),
-		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev activity tab")),
+		ActivityFilter:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next tab / unreads sort")),
+		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev tab / unreads sort")),
 		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),
 		ActivityUnreadOnly: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle activity unread-only")),
 		ToggleMute:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute channel")),
 		MoveSection:        key.NewBinding(key.WithHelp(":move", "move channel to section")),
-		CreateSection:      key.NewBinding(key.WithHelp(":section", "create sidebar section")),
+		CreateSection:      key.NewBinding(key.WithHelp(":section / :rename / :section-delete", "sidebar sections")),
 		ContextMenu:        key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "message actions")),
 		Pin:                key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "pin/unpin message")),
 		FollowThread:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "follow/unfollow thread")),
 		BroadcastSend:      key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "also send reply to channel")),
 		SaveForLater:       key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "save for later")),
-		RemindMessage:      key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "remind me about this")),
+		RemindMessage:      key.NewBinding(key.WithKeys("W"), key.WithHelp("W / :remind / :reminders", "remind / list")),
+		LaterComplete:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "complete later item")),
+		LaterArchive:       key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "archive later item")),
+		ShareMessage:       key.NewBinding(key.WithHelp(":share / x", "share message")),
 	}
 }

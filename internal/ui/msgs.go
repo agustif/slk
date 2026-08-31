@@ -24,6 +24,7 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/searchresults"
 	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/gammons/slk/internal/ui/unreadsview"
 	"github.com/gammons/slk/internal/ui/userprofile"
 )
 
@@ -91,11 +92,16 @@ type (
 	// TargetTS (jump-to-message navigation: search matches, search
 	// results, permalinks whose target is outside the loaded buffer).
 	// The reducer replaces the pane buffer and selects TargetTS.
+	// JumpDate selects the nearest message to TargetTS instead of
+	// requiring an exact match (calendar-date jumps).
 	MessagesAroundLoadedMsg struct {
 		ChannelID string
 		TargetTS  string
 		Messages  []messages.MessageItem // ascending by TS, like MessagesLoadedMsg
 		Err       error
+		// JumpDate is set by :date / J so the reducer lands on the
+		// nearest message instead of requiring an exact ts hit.
+		JumpDate bool
 	}
 	// ChannelSearchResultsMsg delivers in-channel FTS results for the `/`
 	// search. TSes are match timestamps newest-first; Terms are the folded
@@ -110,18 +116,21 @@ type (
 		Gen       uint64
 		Err       error
 	}
-	// WorkspaceSearchRequest is one ctrl+f overlay search: messages or
-	// files, a 1-indexed Slack page, and the overlay generation so a
-	// superseded in-flight page is dropped.
+	// WorkspaceSearchRequest is one ctrl+f overlay search: messages,
+	// files, or people, a 1-indexed Slack page, and the overlay
+	// generation so a superseded in-flight page is dropped.
+	// CurrentChannel is a ranking hint for KindPeople (edge.UsersSearch);
+	// unused for messages/files.
 	WorkspaceSearchRequest struct {
-		Query string
-		Kind  searchresults.Kind
-		Page  int
-		Gen   uint64
+		Query          string
+		Kind           searchresults.Kind
+		Page           int
+		Gen            uint64
+		CurrentChannel string
 	}
 
-	// WorkspaceSearchResultsMsg delivers server-side search.messages or
-	// search.files results for the ctrl+f modal. Total is Slack's
+	// WorkspaceSearchResultsMsg delivers server-side search.messages,
+	// search.files, or edge.UsersSearch results for the ctrl+f modal. Total is Slack's
 	// reported total match count (may exceed len(Items)). Page/Gen/Kind
 	// echo the request so the reducer can reject a stale page.
 	WorkspaceSearchResultsMsg struct {
@@ -177,6 +186,15 @@ type (
 		TS        string
 		Pinned    bool
 		Err       error
+	}
+	StarToggledMsg struct {
+		ChannelID string
+		TS        string
+		Starred   bool
+		Err       error
+	}
+	StarredLoadedMsg struct {
+		Items []slackclient.StarredMessage
 	}
 	// FollowToggledMsg is the result of following or unfollowing the
 	// open thread. The reducer refreshes the threads list and toasts.
@@ -253,12 +271,60 @@ type (
 	// LaterViewActivatedMsg is dispatched when the user picks the
 	// synthetic Later sidebar row (or the finder shortcut).
 	LaterViewActivatedMsg struct{}
+	// DMsViewActivatedMsg is dispatched when the user picks the
+	// synthetic Direct Messages sidebar row (or the finder shortcut).
+	// The sidebar becomes Slack's DMs tab: every 1:1 / group DM,
+	// including conversations Home hides as stale or closed.
+	DMsViewActivatedMsg    struct{}
+	DraftsViewActivatedMsg struct{}
+	DraftsListLoadedMsg    struct {
+		TeamID string
+		Gen    uint64
+		Filter string
+		Drafts []slackclient.ComposerDraft
+		Sched  []slackclient.ScheduledMessage
+		NextTS string
+		Append bool
+		Err    error
+	}
+	DraftsCountsMsg struct {
+		TeamID string
+		Count  int
+	}
+	DraftDeletedMsg struct {
+		Kind string
+		ID   string
+		Err  error
+	}
+	UnreadsViewActivatedMsg struct{}
+	UnreadsListLoadedMsg    struct {
+		TeamID string
+		Gen    uint64
+		Blocks []unreadsview.Block
+		Err    error
+	}
+	UnreadsMarkedMsg struct {
+		ChannelID string
+		TS        string
+		LastRead  string
+		Undo      bool
+		Err       error
+	}
+	// DMsSnippetsMsg delivers last-message text + activity stamps for
+	// the Direct Messages tab. Applied onto sidebar rows; recency
+	// re-sorts. TeamID must match the active workspace.
+	DMsSnippetsMsg struct {
+		TeamID string
+		Snips  map[string]sidebar.DMSnippet
+	}
 	// LaterListLoadedMsg carries a saved.list page. Ignored if
 	// TeamID/Gen don't match the in-flight request.
 	LaterListLoadedMsg struct {
 		TeamID string
 		Items  []slackclient.SavedItem
 		Counts slackclient.SavedCounts
+		Cursor string
+		Append bool
 		Err    error
 		Gen    uint64
 	}
@@ -484,6 +550,10 @@ type (
 		// LaterCount is client.counts saved.uncompleted_count, used
 		// for the sidebar Later-row badge on the initial workspace.
 		LaterCount int
+		// IconURL is team.icon from client.userBoot, used to paint
+		// the workspace-rail logo. Empty until boot (or a cached
+		// icon_url) supplies one; initials stay until then.
+		IconURL string
 	}
 	// CustomEmojisLoadedMsg is sent when a workspace's custom emoji list
 	// finishes loading in the background, after WorkspaceReadyMsg has
@@ -596,6 +666,19 @@ type MessageSendFailedMsg struct {
 	ChannelID string
 	LocalTS   string
 	Reason    string
+}
+
+// MessageSharedMsg is delivered after a successful share/forward
+// (permalink posted to dest). App toasts "Shared to #channel".
+type MessageSharedMsg struct {
+	DestName string
+	DestType string
+}
+
+// MessageShareFailedMsg is delivered when permalink lookup or
+// chat.postMessage fails during share.
+type MessageShareFailedMsg struct {
+	Reason string
 }
 
 // EditMessageMsg is emitted when the user submits an edit. App.Update
@@ -772,6 +855,79 @@ type ChannelLeaveFailedMsg struct {
 	Err  error
 }
 
+// CloseChannelMsg is emitted when the user confirms closing a DM.
+type CloseChannelMsg struct {
+	ID   string
+	Name string
+}
+
+type ChannelClosedMsg struct {
+	ID   string
+	Name string
+}
+
+type ChannelCloseFailedMsg struct {
+	ID   string
+	Name string
+	Err  error
+}
+
+type ChannelReopenedMsg struct {
+	ID string
+}
+
+type ChannelReopenFailedMsg struct {
+	ID  string
+	Err error
+}
+
+type ScheduledListMsg struct {
+	Items []slackclient.ScheduledMessage
+	Err   error
+}
+
+type ScheduledDeletedMsg struct {
+	ID  string
+	Err error
+}
+
+type RemindersListMsg struct {
+	Items []slackclient.Reminder
+	Err   error
+}
+
+type ReminderCompletedMsg struct {
+	ID  string
+	Err error
+}
+
+type SectionRenamedMsg struct {
+	ID   string
+	Name string
+}
+
+type SectionRenameFailedMsg struct {
+	ID   string
+	Name string
+	Err  string
+}
+
+type SectionDeletedMsg struct {
+	ID   string
+	Name string
+}
+
+type SectionDeleteFailedMsg struct {
+	ID  string
+	Err string
+}
+
+type SectionReorderedMsg struct{}
+
+type SectionReorderFailedMsg struct {
+	Err string
+}
+
 // previewLoadedMsg is dispatched after a preview thumb has been fetched.
 // The receiver constructs (or, when isCycle is set, swaps the image of)
 // an imgpkg.Preview and stores it on the App.
@@ -851,6 +1007,16 @@ type NewMessageFailedMsg struct {
 // four-second typing session, and a per-keystroke finder would emit a
 // request pattern no human hand produces.
 type channelSearchDebounceMsg struct {
+	query string
+	gen   uint64
+}
+
+// peopleSearchDebounceMsg is delivered after the ctrl+f People tab
+// query stops changing for peopleSearchDebounceDelay. Same contract
+// as channelSearchDebounceMsg: gen mismatch or an empty query drops
+// the tick so a typing burst (or backspace-to-empty) issues no
+// users/search request.
+type peopleSearchDebounceMsg struct {
 	query string
 	gen   uint64
 }

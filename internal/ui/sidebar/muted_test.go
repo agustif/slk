@@ -82,10 +82,17 @@ func TestAggregateBadge_ExcludesMutedChannels(t *testing.T) {
 	// Collapsed by default; aggregate counts 2 channels-with-unreads
 	// (C1 and C3); the muted C2 must not contribute.
 	view := m.View(15, 30)
-	if !strings.Contains(view, "•2") {
+	var chLine string
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, "Channels") {
+			chLine = l
+			break
+		}
+	}
+	if !strings.Contains(chLine, "•2") {
 		t.Errorf("expected aggregate badge •2 (muted excluded), got:\n%s", view)
 	}
-	if strings.Contains(view, "•3") {
+	if strings.Contains(chLine, "•3") {
 		t.Errorf("aggregate badge counted muted channel toward total:\n%s", view)
 	}
 }

@@ -72,6 +72,8 @@ var modeHandlers = map[Mode]modeHandler{
 	ModeContextMenu:          handleContextMenuMode,
 	ModeChannelMembers:       handleChannelMembersMode,
 	ModeRemindDuration:       handleRemindDurationMode,
+	ModeDateMenu:             handleDateMenuMode,
+	ModeShare:                handleShareMode,
 }
 
 // normalizeFinderKey maps a tea.KeyMsg to the plain-string form the

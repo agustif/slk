@@ -13,6 +13,10 @@
 //	                no compose). Cached on activityView.Version.
 //	ViewLater    -> Later / saved-items list (same chrome as
 //	                Activity). Cached on laterView.Version.
+//	ViewDrafts   -> Drafts & sent list. Cached on draftsView.Version.
+//	ViewUnreads  -> All Unreads grouped list. Cached on unreadsView.Version.
+//	ViewDMs      -> same message pane as ViewChannels; the sidebar
+//	                is the full Direct Messages list.
 //	ViewChannels -> message pane + typing row + compose box, with
 //	                a split-cache pattern: bordered top region
 //	                (messages + top edge + sides only, no bottom
@@ -83,11 +87,13 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	// window models have INDEPENDENT version counters, so after a
 	// pointer-swap focus change the cache could otherwise serve the
 	// previous window's frame on a (version, dims, key) collision.
-	// Bit budget: bits 1-2 focus/view, themeVer from bit 3 (bumped
-	// only on theme Apply — reaching the composeHeight bits at 16
-	// would take 2^13 theme switches, and bit 32 would take 2^29),
-	// composeHeight bits 16+ (terminal rows, < 2^10), window id
-	// bits 32+ (wintree.LeafID increments per split; tiny).
+	// Bit budget: bit 1 focus, bits 2-4 view (0-7), themeVer from
+	// bit 5 (bumped only on theme Apply — reaching composeHeight at
+	// 16 would take 2^11 theme switches), composeHeight bits 16+
+	// (terminal rows, < 2^10), window id bits 32+ (wintree.LeafID
+	// increments per split; tiny). ViewDMs/ViewDrafts/ViewUnreads
+	// need three bits (0-7); ViewUnreads=6 still fits. The old
+	// viewN<<2 + themeVer<<4 collided at bit 4.
 	viewN := int64(0)
 	switch a.view {
 	case ViewThreads:
@@ -96,9 +102,15 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 		viewN = 2
 	case ViewLater:
 		viewN = 3
+	case ViewDMs:
+		viewN = 4
+	case ViewDrafts:
+		viewN = 5
+	case ViewUnreads:
+		viewN = 6
 	}
 	msgLayoutKey := int64(a.focusedWin)<<32 |
-		themeVer<<4 |
+		themeVer<<5 |
 		viewN<<2 |
 		boolToInt(msgFocused)<<1
 	a.compose.SetWidth(msgWidth - 2)
@@ -116,6 +128,12 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	}
 	if a.view == ViewLater {
 		return a.renderLaterViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
+	}
+	if a.view == ViewDrafts {
+		return a.renderDraftsViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
+	}
+	if a.view == ViewUnreads {
+		return a.renderUnreadsViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
 	}
 	return a.renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight, msgFocused, composeFocused, msgLayoutKey)
 }
@@ -215,6 +233,58 @@ func (a *App) renderLaterViewPanel(msgWidth, msgBorder, contentHeight int, msgFo
 		msgWidth+msgBorder, contentHeight,
 	)
 	c.store(out, lvVersion, msgWidth, contentHeight, msgLayoutKey)
+	return out
+}
+
+func (a *App) renderDraftsViewPanel(msgWidth, msgBorder, contentHeight int, msgFocused bool, msgLayoutKey int64) string {
+	a.draftsView.SetFocused(msgFocused)
+	dvVersion := a.draftsView.Version()
+	c := &a.renderCache.msgPanel
+	if c.hit(dvVersion, msgWidth, contentHeight, msgLayoutKey) {
+		return c.output
+	}
+	msgBorderStyle := styles.UnfocusedBorder.Width(msgWidth)
+	if msgFocused {
+		msgBorderStyle = styles.FocusedBorder.Width(msgWidth)
+	}
+	msgContentHeight := contentHeight - 2
+	a.layout.SetMsgHeight(msgContentHeight)
+	if msgContentHeight < 3 {
+		msgContentHeight = 3
+	}
+	dvView := a.draftsView.View(msgContentHeight, msgWidth-2)
+	dvView = messages.ReapplyBgAfterResets(dvView, messages.BgANSI())
+	out := exactSize(
+		msgBorderStyle.Render(dvView),
+		msgWidth+msgBorder, contentHeight,
+	)
+	c.store(out, dvVersion, msgWidth, contentHeight, msgLayoutKey)
+	return out
+}
+
+func (a *App) renderUnreadsViewPanel(msgWidth, msgBorder, contentHeight int, msgFocused bool, msgLayoutKey int64) string {
+	a.unreadsView.SetFocused(msgFocused)
+	uvVersion := a.unreadsView.Version()
+	c := &a.renderCache.msgPanel
+	if c.hit(uvVersion, msgWidth, contentHeight, msgLayoutKey) {
+		return c.output
+	}
+	msgBorderStyle := styles.UnfocusedBorder.Width(msgWidth)
+	if msgFocused {
+		msgBorderStyle = styles.FocusedBorder.Width(msgWidth)
+	}
+	msgContentHeight := contentHeight - 2
+	a.layout.SetMsgHeight(msgContentHeight)
+	if msgContentHeight < 3 {
+		msgContentHeight = 3
+	}
+	uvView := a.unreadsView.View(msgContentHeight, msgWidth-2)
+	uvView = messages.ReapplyBgAfterResets(uvView, messages.BgANSI())
+	out := exactSize(
+		msgBorderStyle.Render(uvView),
+		msgWidth+msgBorder, contentHeight,
+	)
+	c.store(out, uvVersion, msgWidth, contentHeight, msgLayoutKey)
 	return out
 }
 

@@ -2,6 +2,37 @@ package compose
 
 import "testing"
 
+func TestSnapshotAndMergeTextDrafts(t *testing.T) {
+	m := New("a")
+	m.SwapDraft("C1")
+	m.SetValue("live")
+	got := m.SnapshotTextDrafts()
+	if got["C1"] != "live" {
+		t.Fatalf("snapshot = %v", got)
+	}
+	m2 := New("a")
+	m2.MergeTextDrafts(map[string]string{"C1": "from disk", "C2": "other"})
+	m2.SwapDraft("C1")
+	if m2.Value() != "from disk" {
+		t.Fatalf("C1 = %q", m2.Value())
+	}
+	m2.SetValue("typed")
+	m2.MergeTextDrafts(map[string]string{"C1": "should not win"})
+	if m2.Value() != "typed" {
+		t.Fatalf("in-memory must win, got %q", m2.Value())
+	}
+}
+
+func TestReplaceTextDraftOverwritesLive(t *testing.T) {
+	m := New("a")
+	m.SwapDraft("C1")
+	m.SetValue("local")
+	m.ReplaceTextDraft("C1", "from drafts view")
+	if m.Value() != "from drafts view" {
+		t.Fatalf("live = %q, want from drafts view", m.Value())
+	}
+}
+
 func TestSwapDraft_SavesAndRestoresText(t *testing.T) {
 	m := New("a")
 	m.SwapDraft("C1")

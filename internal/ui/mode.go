@@ -28,6 +28,8 @@ const (
 	ModePresenceSetStatus
 	ModeUserProfile
 	ModeRemindDuration
+	ModeDateMenu
+	ModeShare
 )
 
 // IsModalOverlay reports whether the mode is a full-screen modal
@@ -59,7 +61,9 @@ func (m Mode) IsModalOverlay() bool {
 		ModeChannelMembers,
 		ModePresenceSetStatus,
 		ModeUserProfile,
-		ModeRemindDuration:
+		ModeRemindDuration,
+		ModeDateMenu,
+		ModeShare:
 		return true
 	default:
 		return false
@@ -116,6 +120,10 @@ func (m Mode) String() string {
 		return "PROFILE"
 	case ModeRemindDuration:
 		return "REMIND"
+	case ModeDateMenu:
+		return "DATE"
+	case ModeShare:
+		return "SHARE"
 	default:
 		return "UNKNOWN"
 	}

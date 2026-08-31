@@ -26,17 +26,18 @@ func TestApp_ClickOnWorkspaceRailSwitches(t *testing.T) {
 		t.Fatalf("layoutRailWidth should be populated after View(); got %d", a.layout.railWidth)
 	}
 	// Workspace 0 is selected by default; we expect a click on
-	// workspace 1 (tile at Y=3) to trigger the switcher.
+	// workspace 1 (2-row tiles: item 0 at y=1,2, gap y=3, item 1 at y=4,5)
+	// to trigger the switcher.
 	var lastSwitch string
 	a.SetWorkspaceSwitcher(func(teamID string) tea.Msg {
 		lastSwitch = teamID
 		return nil
 	})
 
-	// Click the second tile. The rail has no top border; tiles
-	// occupy rail rows 1, 3, 5, ... (row 0 is top padding).
+	// Click the second tile. The rail has no top border; 2-row
+	// tiles occupy y=1-2, 4-5, ... (row 0 is top padding).
 	clickX := 0
-	clickY := 3
+	clickY := 4
 	_, cmd := a.Update(tea.MouseClickMsg{X: clickX, Y: clickY, Button: tea.MouseLeft})
 	if cmd == nil {
 		t.Fatal("expected a tea.Cmd for the workspace-rail click; got nil")
@@ -80,8 +81,8 @@ func TestApp_ClickOnWorkspaceRailGapDoesNothing(t *testing.T) {
 		return nil
 	})
 
-	// Y=2 is the gap row between tiles 0 (row 1) and 1 (row 3).
-	_, cmd := a.Update(tea.MouseClickMsg{X: 0, Y: 2, Button: tea.MouseLeft})
+	// Y=3 is the gap row between tiles 0 (y=1,2) and 1 (y=4,5).
+	_, cmd := a.Update(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft})
 	if cmd != nil {
 		_ = drainBatch(cmd)
 	}

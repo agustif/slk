@@ -1,6 +1,7 @@
 // Package searchresults is the workspace-wide search modal (ctrl+f).
 // Unlike channelfinder it does not filter locally: Enter submits the
-// query to Slack's search.messages / search.files and the caller
+// query to Slack's search.messages / search.files, the People tab
+// debounces edge.UsersSearch as the user types, and the caller
 // injects results via SetResults/AppendResults/SetError.
 package searchresults
 
@@ -23,13 +24,23 @@ type Kind int
 const (
 	KindMessages Kind = iota
 	KindFiles
+	KindPeople
 )
 
+// searchTabCount is the Tab/Shift+Tab cycle length. Keep in lockstep
+// with the Kind iota so a new tab cannot be added without widening
+// the cache array.
+const searchTabCount = int(KindPeople) + 1
+
 func (k Kind) String() string {
-	if k == KindFiles {
+	switch k {
+	case KindFiles:
 		return "Files"
+	case KindPeople:
+		return "People"
+	default:
+		return "Messages"
 	}
-	return "Messages"
 }
 
 // Item is one search hit, rendered as a block: a "#channel  author
@@ -46,12 +57,15 @@ type Item struct {
 	Timestamp   string // pre-formatted for display
 	IsDM        bool   // render the channel as "@name" instead of "#name"
 
-	Kind      Kind // KindFiles: Enter downloads or opens permalink
+	Kind      Kind // KindFiles: Enter downloads or opens permalink; KindPeople: Enter opens a DM
 	FileID    string
 	FileName  string
 	FileURL   string // url_private(_download); empty => fall back to Permalink
 	Permalink string
 	FileSize  int64
+
+	UserID   string // KindPeople: conversations.open recipient
+	Presence string // KindPeople: "active"/"away"/"dnd" when already known; empty skips the column
 }
 
 // Action tells the mode handler what a keypress did.
@@ -96,7 +110,7 @@ type Model struct {
 	kind     Kind
 	gen      uint64
 	paging   bool // true while a Load more request is in flight
-	tabs     [2]tabCache
+	tabs     [searchTabCount]tabCache
 	// highlightTerms are the active query's folded terms (see
 	// text.Fold); word-prefix occurrences light up in snippet lines.
 	highlightTerms []string
@@ -117,11 +131,11 @@ func (m *Model) Open() {
 	m.kind = KindMessages
 	m.gen = 0
 	m.paging = false
-	m.tabs = [2]tabCache{}
+	m.tabs = [searchTabCount]tabCache{}
 	m.highlightTerms = nil
 }
 
-// Kind is the active Messages/Files tab.
+// Kind is the active Messages/Files/People tab.
 func (m Model) Kind() Kind { return m.kind }
 
 // Gen is the in-flight request generation. The reducer drops results
@@ -334,17 +348,30 @@ func (m *Model) HandleKey(keyStr string) Action {
 func (m *Model) noteQueryEdit() {
 	m.st = stateInput
 	m.paging = false
-	m.tabs = [2]tabCache{}
+	m.tabs = [searchTabCount]tabCache{}
 	m.items = nil
 	m.total = 0
 	m.highlightTerms = nil
 	m.errMsg = ""
 }
 
+// StartSearch puts the overlay in the loading state for a new
+// first-page request. False if the query is empty or a search is
+// already in flight (so a debounce tick cannot double-submit).
+func (m *Model) StartSearch() bool {
+	if m.query == "" || m.st == stateLoading {
+		return false
+	}
+	m.gen++
+	m.st = stateLoading
+	m.paging = false
+	return true
+}
+
 func (m *Model) switchTab(delta int) Action {
-	next := (int(m.kind) + delta) % 2
+	next := (int(m.kind) + delta) % searchTabCount
 	if next < 0 {
-		next = 1
+		next += searchTabCount
 	}
 	if Kind(next) == m.kind {
 		return ActionNone
@@ -544,7 +571,7 @@ func (m Model) renderTabs(innerWidth int) string {
 		}
 		return idle.Render(label)
 	}
-	line := chip(KindMessages) + "  " + chip(KindFiles)
+	line := chip(KindMessages) + "  " + chip(KindFiles) + "  " + chip(KindPeople)
 	if pad := innerWidth - lipgloss.Width(line); pad > 0 {
 		line += strings.Repeat(" ", pad)
 	} else if lipgloss.Width(line) > innerWidth {
@@ -576,7 +603,11 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 	// Query input with blue left border
 	var inputText string
 	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type a query, Enter to search...")
+		hint := "Type a query, Enter to search..."
+		if m.kind == KindPeople {
+			hint = "Type a name to find people..."
+		}
+		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render(hint)
 		inputText = "█ " + placeholder
 	} else {
 		// Truncate head-side (keep the tail and the cursor visible) so a
@@ -644,6 +675,9 @@ func (m Model) bodyLines(innerWidth, termHeight int) []string {
 		}
 		return m.resultRows(innerWidth, termHeight)
 	default: // stateInput
+		if m.kind == KindPeople && m.query == "" {
+			return []string{muted.Italic(true).Render("Type a name to find people")}
+		}
 		return []string{""}
 	}
 }
@@ -666,6 +700,32 @@ func splitAtWidth(s string, w int) (head, tail string) {
 	// so slicing off len(head) bytes yields the exact remainder.
 	head = truncate.String(s, uint(w))
 	return head, s[len(head):]
+}
+
+// peopleRowLines renders a KindPeople hit: display name, @username,
+// and presence when the caller already had it. Snippet lines stay
+// blank so the row still occupies rowLines (layout is shared with
+// message/file hits).
+func peopleRowLines(item Item, contentWidth int, muted, nameStyle lipgloss.Style) (line1, line2, line3 string) {
+	display := flattenText(item.UserName)
+	if display == "" {
+		display = flattenText(item.UserID)
+	}
+	line1 = nameStyle.Render(display)
+	handle := flattenText(item.Text)
+	if handle != "" && !strings.EqualFold(handle, display) {
+		if !strings.HasPrefix(handle, "@") {
+			handle = "@" + handle
+		}
+		line1 += "  " + muted.Render(handle)
+	}
+	if p := flattenText(item.Presence); p != "" {
+		line1 += "  " + muted.Render(p)
+	}
+	if lipgloss.Width(line1) > contentWidth {
+		line1 = truncate.StringWithTail(line1, uint(contentWidth), "…")
+	}
+	return line1, "", ""
 }
 
 // resultRows renders the visible window of result rows plus a Load
@@ -763,43 +823,45 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 			textStyle = textStyle.Foreground(styles.Primary).Bold(true)
 		}
 
-		sigil := "#"
-		if item.IsDM {
-			sigil = "@"
-		}
-		snippet := flattenText(item.Text)
-		// Header fields are flattened too: a control rune in a channel
-		// or author name would break the width math below.
-		channelName := flattenText(item.ChannelName)
-		userName := flattenText(item.UserName)
+		var line1, line2, line3 string
+		if item.Kind == KindPeople {
+			line1, line2, line3 = peopleRowLines(item, contentWidth, chanStyle, nameStyle)
+		} else {
+			sigil := "#"
+			if item.IsDM {
+				sigil = "@"
+			}
+			snippet := flattenText(item.Text)
+			// Header fields are flattened too: a control rune in a channel
+			// or author name would break the width math below.
+			channelName := flattenText(item.ChannelName)
+			userName := flattenText(item.UserName)
 
-		// Line 1: metadata only — channel, author, timestamp.
-		line1 := chanStyle.Render(sigil+channelName) + "  " +
-			nameStyle.Render(userName) + "  " +
-			chanStyle.Render(item.Timestamp)
+			// Line 1: metadata only — channel, author, timestamp.
+			line1 = chanStyle.Render(sigil+channelName) + "  " +
+				nameStyle.Render(userName) + "  " +
+				chanStyle.Render(item.Timestamp)
+			// Lines 2-3: the snippet, wrapped to two lines, each indented
+			// 2 spaces. The split math runs on plain text (flattenText
+			// emits no ANSI); styling is applied per line afterwards.
+			snippetWidth := contentWidth - 2
+			part1, rest := splitAtWidth(snippet, snippetWidth)
+			if part1 != "" {
+				line2 = "  " + highlight(textStyle.Render(part1))
+			}
+			// Second snippet line: truncated with "…" if more remains;
+			// blank when the snippet fit on the first.
+			if rest = strings.TrimLeft(rest, " "); rest != "" {
+				if lipgloss.Width(rest) > snippetWidth {
+					rest = truncate.StringWithTail(rest, uint(snippetWidth), "…")
+				}
+				line3 = "  " + highlight(textStyle.Render(rest))
+			}
+		}
 		// Defensive: an overlong header still must not wrap the box.
 		// truncate.StringWithTail is ANSI-aware.
 		if lipgloss.Width(line1) > contentWidth {
 			line1 = truncate.StringWithTail(line1, uint(contentWidth), "…")
-		}
-
-		// Lines 2-3: the snippet, wrapped to two lines, each indented
-		// 2 spaces. The split math runs on plain text (flattenText
-		// emits no ANSI); styling is applied per line afterwards.
-		snippetWidth := contentWidth - 2
-		part1, rest := splitAtWidth(snippet, snippetWidth)
-		line2 := ""
-		if part1 != "" {
-			line2 = "  " + highlight(textStyle.Render(part1))
-		}
-		// Second snippet line: truncated with "…" if more remains;
-		// blank when the snippet fit on the first.
-		line3 := ""
-		if rest = strings.TrimLeft(rest, " "); rest != "" {
-			if lipgloss.Width(rest) > snippetWidth {
-				rest = truncate.StringWithTail(rest, uint(snippetWidth), "…")
-			}
-			line3 = "  " + highlight(textStyle.Render(rest))
 		}
 
 		// Line 4: a blank separator between rows (trailing one above

@@ -3,11 +3,13 @@
 // Workspace-search mode key handler: the ctrl+f modal.
 //
 // Forwards normalized keys to the searchresults overlay and
-// translates its actions: Submit / Load more dispatch search.messages
-// or search.files via the SearchService (Kind/Page/Gen stamped so a
-// stale page is dropped). Select on a message hit navigates via
-// pendingLinkNav; Select on a file hit downloads through filedl when
-// a URL is present, otherwise opens the permalink.
+// translates its actions: Submit / Load more dispatch search.messages,
+// search.files, or edge.UsersSearch via the SearchService (Kind/Page/Gen
+// stamped so a stale page is dropped). Select on a message hit navigates
+// via pendingLinkNav; Select on a file hit downloads through filedl when
+// a URL is present, otherwise opens the permalink; Select on a person
+// opens a DM via ChannelService.OpenConversation. People-tab query
+// edits are debounced (~300 ms) rather than searched per keystroke.
 package ui
 
 import (
@@ -20,6 +22,7 @@ import (
 
 func handleWorkspaceSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	keyStr := normalizeFinderKey(msg)
+	before := a.searchResults.Query()
 	switch action := a.searchResults.HandleKey(keyStr); action {
 	case searchresults.ActionClose:
 		a.SetMode(ModeNormal)
@@ -36,10 +39,18 @@ func handleWorkspaceSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if !ok {
 			return nil
 		}
+		if kind == searchresults.KindPeople {
+			return selectSearchPerson(a, item)
+		}
 		if kind == searchresults.KindFiles {
 			return selectSearchFile(item)
 		}
 		return selectSearchMessage(a, item)
+	}
+	if a.searchResults.Kind() == searchresults.KindPeople {
+		if after := a.searchResults.Query(); after != before {
+			return a.schedulePeopleSearch(after)
+		}
 	}
 	return nil
 }
@@ -49,13 +60,24 @@ func workspaceSearchCmd(a *App, page int) tea.Cmd {
 	// nil msg), the modal isn't stuck: backspace drops the widget
 	// back to the input state and Esc closes it.
 	req := WorkspaceSearchRequest{
-		Query: a.searchResults.Query(),
-		Kind:  a.searchResults.Kind(),
-		Page:  page,
-		Gen:   a.searchResults.Gen(),
+		Query:          a.searchResults.Query(),
+		Kind:           a.searchResults.Kind(),
+		Page:           page,
+		Gen:            a.searchResults.Gen(),
+		CurrentChannel: a.activeChannelID,
 	}
 	search := a.searchSvc
 	return func() tea.Msg { return search.SearchWorkspace(req) }
+}
+
+func selectSearchPerson(a *App, item searchresults.Item) tea.Cmd {
+	if item.UserID == "" {
+		return func() tea.Msg { return ToastMsg{Text: "No user to message"} }
+	}
+	a.newMessageInFlightID++
+	a.newMessageCancelled = false
+	reqID := a.newMessageInFlightID
+	return a.channels.OpenConversation([]string{item.UserID}, reqID)
 }
 
 func selectSearchFile(item searchresults.Item) tea.Cmd {

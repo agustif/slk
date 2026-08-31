@@ -2,15 +2,31 @@ package slackfmt
 
 import "testing"
 
+func TestParseMPDMHandles(t *testing.T) {
+	got := ParseMPDMHandles("mpdm-grant--myles--ray-1")
+	want := []string{"grant", "myles", "ray"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v want %v", got, want)
+		}
+	}
+	if ParseMPDMHandles("general") != nil {
+		t.Error("non-mpdm should return nil")
+	}
+}
+
 func TestFormatMPDMName(t *testing.T) {
 	// Lookup table mapping handles to display names. Anything missing
 	// returns "" so the formatter falls back to the handle itself.
 	display := map[string]string{
-		"grant":  "Grant Ammons",
-		"myles":  "Myles Williamson",
-		"ray":    "Ray Bradbury",
-		"alice":  "Alice A.",
-		"bob.r":  "Bob R.",
+		"grant": "Grant Ammons",
+		"myles": "Myles Williamson",
+		"ray":   "Ray Bradbury",
+		"alice": "Alice A.",
+		"bob.r": "Bob R.",
 	}
 	lookup := func(handle string) string { return display[handle] }
 
@@ -65,10 +81,10 @@ func TestFormatMPDMName(t *testing.T) {
 func TestFormatMPDMName_FallsBackOnUnparseable(t *testing.T) {
 	lookup := func(string) string { return "" }
 	cases := []string{
-		"general",         // not an mpdm name
-		"mpdm-",           // empty body
-		"mpdm",            // missing prefix dash
-		"",                // empty
+		"general",             // not an mpdm name
+		"mpdm-",               // empty body
+		"mpdm",                // missing prefix dash
+		"",                    // empty
 		"mpim-grant--myles-1", // wrong prefix
 	}
 	for _, in := range cases {

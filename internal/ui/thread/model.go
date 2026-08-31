@@ -49,10 +49,9 @@ type viewEntry struct {
 	// Mirrors internal/ui/messages viewEntry.flushes. nil for entries
 	// with no inline image attachments.
 	//
-	// v1 scope: sixel inline-byte injection is deferred — sixel images
-	// render as their imgrender placeholder/sentinel only, so no
-	// sixelRows field is captured here.
-	flushes []func(io.Writer) error
+	flushes   []func(io.Writer) error
+	sixelRows map[int]sixelEntry
+	imageHits []imageEntryHit
 
 	// reactionHits records the column extents of each rendered
 	// reaction pill on this reply, in coordinates relative to
@@ -73,6 +72,34 @@ type reactionEntryHit struct {
 	colStart        int
 	colEnd          int // exclusive
 	emoji           string
+}
+
+type imageEntryHit struct {
+	rowStartInEntry int
+	rowEndInEntry   int
+	colStart        int
+	colEnd          int
+	fileID          string
+	attIdx          int
+}
+
+type imageHitRect struct {
+	rowStart int
+	rowEnd   int
+	colStart int
+	colEnd   int
+	replyIdx int
+	attIdx   int
+	fileID   string
+}
+
+type sixelEntry struct {
+	key      string
+	bytes    []byte
+	fallback []string
+	height   int
+	width    int
+	col      int
 }
 
 // reactionHitRect is one clickable reaction-pill footprint in the
@@ -185,6 +212,8 @@ type Model struct {
 	// rows). Consumed by HitTestReaction so the app-level mouse
 	// handler can toggle a reaction when the user clicks a pill.
 	lastReactionHits []reactionHitRect
+	lastImageHits    []imageHitRect
+	sixelPaints      []imgpkg.SixelPaint
 
 	// unreadBoundaryTS is the Slack timestamp the user has already read up
 	// to in this thread. Replies whose TS > unreadBoundaryTS are considered
@@ -367,6 +396,29 @@ func (m *Model) SetPinned(ts string, pinned bool) bool {
 				return true
 			}
 			m.replies[i].Pinned = pinned
+			m.InvalidateCache()
+			return true
+		}
+	}
+	return false
+}
+
+// SetStarred sets the starred flag on the parent or a reply with ts.
+func (m *Model) SetStarred(ts string, starred bool) bool {
+	if m.parent.TS == ts {
+		if m.parent.Starred == starred {
+			return true
+		}
+		m.parent.Starred = starred
+		m.InvalidateCache()
+		return true
+	}
+	for i := range m.replies {
+		if m.replies[i].TS == ts {
+			if m.replies[i].Starred == starred {
+				return true
+			}
+			m.replies[i].Starred = starred
 			m.InvalidateCache()
 			return true
 		}
@@ -1380,11 +1432,15 @@ func (m *Model) View(height, width int) string {
 	// lifecycle adds complexity; reply flushes and hit rects ARE captured
 	// in the per-reply loop below.
 	parentIsSelected := m.selected == parentSelected
-	parentContent, _, _ := m.renderThreadMessage(m.parent, width, m.userNames, m.channelNames, parentIsSelected)
+	parentContent, parentFlushes, _, parentImgs, parentSixel := m.renderThreadMessage(m.parent, width, m.userNames, m.channelNames, parentIsSelected)
 	m.parentEntry = viewEntry{
 		linesPlain:       messages.PlainLines(parentContent),
 		height:           lipgloss.Height(parentContent),
 		contentColOffset: 1,
+		flushes:          parentFlushes,
+		imageHits:        parentImgs,
+		sixelRows:        parentSixel,
+		replyIdx:         parentSelected,
 	}
 	// Selection border for the parent row mirrors the per-reply
 	// cache-build treatment (borderSelect / borderInvis below): thick
@@ -1496,7 +1552,7 @@ func (m *Model) View(height, width int) string {
 			// so the cache rebuilds whenever the highlighted index changes.
 			// This matches the messages-pane convention
 			// (internal/ui/messages/model.go:1050).
-			rendered, attachFlushes, reactHits := m.renderThreadMessage(reply, width, m.userNames, m.channelNames, i == m.selected)
+			rendered, attachFlushes, reactHits, imgHits, sixel := m.renderThreadMessage(reply, width, m.userNames, m.channelNames, i == m.selected)
 			// Two filled variants — see internal/ui/messages/model.go for the
 			// rationale. Without per-variant fills, the trailing whitespace of
 			// every wrapped line shows the wrong bg and the tint stops at the
@@ -1530,6 +1586,8 @@ func (m *Model) View(height, width int) string {
 				contentColOffset: 1,
 				flushes:          attachFlushes,
 				reactionHits:     reactHits,
+				imageHits:        imgHits,
+				sixelRows:        sixel,
 			})
 			m.replyIDToIdx[reply.TS] = i
 		}
@@ -1622,16 +1680,12 @@ func (m *Model) View(height, width int) string {
 			endLine = parentBlockHeight
 		}
 		currentLine := parentBlockHeight
-		// kittyFlushBuf collects per-image kitty APC upload bytes for
-		// every cached entry (the thread cache holds only the open
-		// thread's replies — typically a handful — so we don't bother
-		// with viewport-visibility scoping). Written directly to
-		// imgpkg.KittyOutput AFTER the loop, before viewContent is
-		// assembled. Mirrors internal/ui/messages/model.go's
-		// kittyFlushBuf handling; APC sequences embedded in line
-		// content are known to get mangled by the bubbletea/lipgloss
-		// renderer, so we bypass the frame buffer.
 		var kittyFlushBuf bytes.Buffer
+		for _, fl := range m.parentEntry.flushes {
+			if fl != nil {
+				_ = fl(&kittyFlushBuf)
+			}
+		}
 
 		// entryOffsets / totalLines mirror the BORDERED viewContent. Each
 		// reply takes lipgloss.Height(borderedReply) lines (== e.height,
@@ -1757,12 +1811,61 @@ func (m *Model) View(height, width int) string {
 	// invisible entry's hits don't survive the next render. Capacity
 	// is preserved across frames (typical case: a handful of pills).
 	m.lastReactionHits = m.lastReactionHits[:0]
+	m.lastImageHits = m.lastImageHits[:0]
+	m.sixelPaints = m.sixelPaints[:0]
 	yOff := m.vp.YOffset()
+	appendThreadImageHits := func(e viewEntry, entryStart int) {
+		for _, h := range e.imageHits {
+			absStart := entryStart + h.rowStartInEntry
+			absEnd := entryStart + h.rowEndInEntry
+			if absEnd <= yOff || absStart >= yOff+replyAreaHeight {
+				continue
+			}
+			clipStart := absStart - yOff
+			if clipStart < 0 {
+				clipStart = 0
+			}
+			clipEnd := absEnd - yOff
+			if clipEnd > replyAreaHeight {
+				clipEnd = replyAreaHeight
+			}
+			m.lastImageHits = append(m.lastImageHits, imageHitRect{
+				rowStart: chromeHeight + clipStart,
+				rowEnd:   chromeHeight + clipEnd,
+				colStart: h.colStart,
+				colEnd:   h.colEnd,
+				replyIdx: e.replyIdx,
+				attIdx:   h.attIdx,
+				fileID:   h.fileID,
+			})
+		}
+		for startRowInEntry, sx := range e.sixelRows {
+			if sx.height <= 0 || len(sx.bytes) == 0 {
+				continue
+			}
+			absStart := entryStart + startRowInEntry
+			absEnd := absStart + sx.height
+			if absStart < yOff || absEnd > yOff+replyAreaHeight {
+				continue
+			}
+			windowRow := absStart - yOff
+			m.sixelPaints = append(m.sixelPaints, imgpkg.SixelPaint{
+				Key:   imgpkg.PlacementKey(sx.key, sx.bytes, sx.width, sx.height),
+				Row:   windowRow,
+				Col:   sx.col,
+				Rows:  sx.height,
+				Cols:  sx.width,
+				Bytes: sx.bytes,
+			})
+		}
+	}
+	appendThreadImageHits(m.parentEntry, 0)
 	for i, e := range m.cache {
-		if len(e.reactionHits) == 0 {
+		if i >= len(m.entryOffsets) {
 			continue
 		}
 		entryStart := m.entryOffsets[i]
+		appendThreadImageHits(e, entryStart)
 		for _, h := range e.reactionHits {
 			absStart := entryStart + h.rowStartInEntry
 			absEnd := entryStart + h.rowEndInEntry
@@ -1828,6 +1931,23 @@ func (m *Model) HitTestReaction(row, col int) (replyIdx int, emoji string, ok bo
 	return 0, "", false
 }
 
+// ChromeHeight is the header+separator rows at the top of View().
+func (m *Model) ChromeHeight() int { return m.chromeHeight }
+
+// SixelPlacements returns pane-local sixel paints from the last View.
+func (m *Model) SixelPlacements() []imgpkg.SixelPaint { return m.sixelPaints }
+
+// HitTestImage reports an inline image at pane-local (row, col),
+// including chrome (same frame as HitTestReaction / panelAt).
+func (m *Model) HitTestImage(row, col int) (replyIdx, attIdx int, fileID string, ok bool) {
+	for _, h := range m.lastImageHits {
+		if row >= h.rowStart && row < h.rowEnd && col >= h.colStart && col < h.colEnd {
+			return h.replyIdx, h.attIdx, h.fileID, true
+		}
+	}
+	return 0, 0, "", false
+}
+
 // renderThreadMessage renders a single message for the thread panel.
 // Returns the content string, any per-frame kitty flush callbacks for
 // inline image attachments, and the per-pill hit rects for the
@@ -1877,10 +1997,13 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 	}
 }
 
-func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit) {
+func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit, []imageEntryHit, map[int]sixelEntry) {
 	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
 	if msg.Pinned {
 		line += " " + styles.Timestamp.Render("📌 pinned")
+	}
+	if msg.Starred {
+		line += " " + styles.Timestamp.Render("★ starred")
 	}
 
 	contentWidth := width - 4
@@ -2025,19 +2148,17 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		reactionLineCount = len(reactionLines)
 	}
 
-	// Attachments: per-attachment inline render via imgrender.Renderer.
-	// v1: flushes are aggregated into the unified `flushes` slice for
-	// the cache layer to invoke during View(); the per-block Hit and
-	// SixelRows are discarded (click-to-preview from threads and inline
-	// sixel emission are out of scope for v1; sixel images render their
-	// res.Lines placeholder/sentinel only).
+	const contentColBase = 1
 	var attachmentLines string
 	attachmentLineCount := 0
+	var imageHits []imageEntryHit
+	sixelRows := map[int]sixelEntry{}
 	if len(msg.Attachments) > 0 {
 		if m.imgRenderer == nil {
 			m.imgRenderer = imgrender.NewRenderer()
 		}
 		blocks := make([]string, 0, len(msg.Attachments))
+		rowCursor := 1 + lipgloss.Height(text) + bkLineCount
 		for attIdx, att := range msg.Attachments {
 			imgThumbs := make([]imgrender.ThumbSpec, len(att.Thumbs))
 			for i, t := range att.Thumbs {
@@ -2049,12 +2170,32 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 				Name:   att.Name,
 				URL:    att.URL,
 				Thumbs: imgThumbs,
-			}, m.channelID, msg.TS, contentWidth, 0 /* baseRow */, attIdx, 0 /* contentColBase */)
+			}, m.channelID, msg.TS, contentWidth, rowCursor, attIdx, contentColBase)
 			blocks = append(blocks, strings.Join(res.Lines, "\n"))
 			flushes = append(flushes, res.Flushes...)
 			attachmentLineCount += len(res.Lines)
+			if res.Hit.RowEndInEntry > res.Hit.RowStartInEntry {
+				imageHits = append(imageHits, imageEntryHit{
+					rowStartInEntry: res.Hit.RowStartInEntry,
+					rowEndInEntry:   res.Hit.RowEndInEntry,
+					colStart:        res.Hit.ColStart,
+					colEnd:          res.Hit.ColEnd,
+					fileID:          res.Hit.FileID,
+					attIdx:          res.Hit.AttIdx,
+				})
+			}
+			for k, v := range res.SixelRows {
+				sixelRows[k] = sixelEntry{
+					key: v.Key, bytes: v.Bytes, fallback: v.Fallback,
+					height: v.Height, width: v.Width, col: res.Hit.ColStart,
+				}
+			}
+			rowCursor += res.Height
 		}
 		attachmentLines = "\n" + strings.Join(blocks, "\n")
+	}
+	if len(sixelRows) == 0 {
+		sixelRows = nil
 	}
 
 	// Translate per-pill specs into reactionEntryHit rects. Row layout
@@ -2082,5 +2223,5 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		}
 	}
 
-	return line + "\n" + text + bkBlock + attachmentLines + reactionLine, flushes, reactionHits
+	return line + "\n" + text + bkBlock + attachmentLines + reactionLine, flushes, reactionHits, imageHits, sixelRows
 }

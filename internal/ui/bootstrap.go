@@ -30,11 +30,14 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/ui/workspace"
 )
 
 // loadingEntry is one workspace's row in the startup overlay.
 type loadingEntry struct {
 	TeamName string
+	TeamID   string
+	IconURL  string
 	Status   string // "connecting", "ready", "failed"
 }
 
@@ -64,6 +67,21 @@ func (b *workspaceBootstrap) SetWorkspaces(names []string) {
 	for _, name := range names {
 		b.states = append(b.states, loadingEntry{
 			TeamName: name,
+			Status:   "connecting",
+		})
+	}
+}
+
+// SetWorkspaceItems seeds the overlay from rail items so cached team
+// logos (icon_url + image disk cache) can paint on the first frame.
+func (b *workspaceBootstrap) SetWorkspaceItems(items []workspace.WorkspaceItem) {
+	b.loading = true
+	b.states = nil
+	for _, it := range items {
+		b.states = append(b.states, loadingEntry{
+			TeamName: it.Name,
+			TeamID:   it.ID,
+			IconURL:  it.IconURL,
 			Status:   "connecting",
 		})
 	}
@@ -209,8 +227,11 @@ func (b *workspaceBootstrap) Handle(a *App, msg tea.Msg) (tea.Cmd, bool) {
 // "Connecting to ..." rows; the caller resolves it from a shared
 // spinner-frame counter so the same animation cadence is used for
 // both this overlay and the messages-pane spinner.
-func (b *workspaceBootstrap) Render(width, height int, spinnerGlyph string) string {
+func (b *workspaceBootstrap) Render(width, height int, spinnerGlyph string, logoFn workspace.LogoFunc) string {
 	var rows []string
+	if splash := b.splashLogo(logoFn); splash != "" {
+		rows = append(rows, splash, "")
+	}
 
 	for _, entry := range b.states {
 		switch entry.Status {
@@ -235,4 +256,19 @@ func (b *workspaceBootstrap) Render(width, height int, spinnerGlyph string) stri
 		box,
 		lipgloss.WithWhitespaceStyle(lipgloss.NewStyle().Background(styles.SurfaceDark)),
 	)
+}
+
+func (b *workspaceBootstrap) splashLogo(logoFn workspace.LogoFunc) string {
+	if logoFn == nil || len(b.states) == 0 {
+		return ""
+	}
+	e := b.states[0]
+	if e.TeamID == "" || e.IconURL == "" {
+		return ""
+	}
+	s := logoFn(e.TeamID, e.IconURL)
+	if s == "" {
+		return ""
+	}
+	return lipgloss.NewStyle().Align(lipgloss.Center).Render(s)
 }

@@ -836,3 +836,54 @@ func TestSyntheticItemMatchesByName(t *testing.T) {
 			m.items[m.filtered[0]].Name)
 	}
 }
+
+func TestShareModeHidesSyntheticAndUnjoined(t *testing.T) {
+	m := New()
+	m.SetSyntheticItems([]Item{{
+		ID: ThreadsViewID, Name: "Threads", Type: "threads", Joined: true,
+	}})
+	m.SetItems([]Item{
+		{ID: "C1", Name: "general", Type: "channel", Joined: true, LastVisited: 200},
+		{ID: "C2", Name: "browseable", Type: "channel", Joined: false, LastVisited: 100},
+	})
+	m.SetShareMode(true)
+	m.Open()
+
+	if m.Title() != "Share to..." {
+		t.Errorf("title = %q, want Share to...", m.Title())
+	}
+	got := m.FilteredItems()
+	if len(got) != 1 || got[0].ID != "C1" {
+		t.Fatalf("share-mode rows = %+v, want only joined C1", got)
+	}
+
+	m.HandleKey("t")
+	m.HandleKey("h")
+	m.HandleKey("r")
+	if len(m.FilteredItems()) != 0 {
+		t.Errorf("share mode should hide Threads even when the query matches, got %+v", m.FilteredItems())
+	}
+
+	m.SetShareMode(false)
+	m.Open()
+	if m.Title() != "Switch Channel" {
+		t.Errorf("title after reset = %q, want Switch Channel", m.Title())
+	}
+	if len(m.FilteredItems()) < 2 {
+		t.Fatalf("switch mode should show synthetic + channels, got %d", len(m.FilteredItems()))
+	}
+}
+
+func TestShareModeTitleInView(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{{ID: "C1", Name: "general", Type: "channel", Joined: true}})
+	m.SetShareMode(true)
+	m.Open()
+	view := m.View(80)
+	if !strings.Contains(view, "Share to...") {
+		t.Errorf("view missing share title:\n%s", view)
+	}
+	if strings.Contains(view, "Switch Channel") {
+		t.Error("share-mode view still says Switch Channel")
+	}
+}

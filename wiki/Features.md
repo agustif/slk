@@ -7,9 +7,10 @@
 - Delete your own messages (`D`) — centered confirmation overlay with message preview
 - Slack markdown rendering (bold, italic, strikethrough, code, blockquotes, links, mentions)
 - Emoji shortcodes (`:rocket:` → 🚀)
+- Jump to date (`J`, or `:date` / `:jump`) — land the current channel or DM on a calendar date. Optional `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` (local time); no argument opens a small overlay. Fetches history around that timestamp and selects the nearest message. Toasts if there are no messages around that date or on a network error. Does not work from Activity / Later / Drafts / Unreads / Threads list.
 - Day separators (Today, Yesterday, Monday, full date)
 - Infinite scroll backfill into SQLite cache
-- Search: vim-style in-channel search (`/`, `n`/`N`) over cached history, plus server-side workspace search (`Ctrl+f`) with Messages/Files tabs (`Tab`), `from:` / `in:` / `before:` modifiers, and Enter on **Load more** to fetch the next page
+- Search: vim-style in-channel search (`/`, `n`/`N`) over cached history, plus server-side workspace search (`Ctrl+f`) with Messages/Files/People tabs (`Tab` / `Shift+Tab`), `from:` / `in:` / `before:` modifiers, Enter on **Load more** to fetch the next page of messages or files, and Enter on a person to open a DM
 - New-message landmark (red `── new ──` line at the unread boundary)
 - Mark-as-read synced to Slack on channel entry
 - Mark-as-unread (`U`) — rolls the read watermark backward to the selected message; thread replies supported. Inbound `channel_marked` / `thread_marked` events from other Slack clients are reflected live.
@@ -17,7 +18,8 @@
 - Edited / threaded message indicators
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
-- Message actions menu (`x` or right-click): add reaction, reply in thread, save for later / remind me, copy permalink, pin, follow thread (thread pane), download file, open links, edit/delete own messages, mark unread, list reactions. Some terminals steal right-click; `x` always works.
+- Message actions menu (`x` or right-click): add reaction, reply in thread, save for later / remind me, copy permalink, share/forward, pin, follow thread (thread pane), download file, open links, edit/delete own messages, mark unread, list reactions. Some terminals steal right-click; `x` always works.
+- Share / forward (`x` → Share, or `:share`): pick a channel or DM and post the selected message's permalink so Slack unfurls it. Permalink only (no extra comment prompt). Works from the messages pane and the thread pane.
 
 ## Compose
 
@@ -28,15 +30,15 @@
 - Bracketed paste — paste multi-line text from the system clipboard without it being interpreted as keystrokes
 - Smart paste (`Ctrl+V`) — pastes a clipboard image as an attachment, or a copied file path as an attached file, or falls through to text. Multiple attachments + caption send together via Slack's V2 file-upload API. Note: use `Ctrl+V` (not your terminal's `Ctrl+Shift+V` paste shortcut) — terminal-initiated paste only delivers text, never image bytes.
 - CommonMark in compose: type `**bold**`, `~~strike~~`, `[label](url)`, `- list items`, `1. numbered`, or fenced ```code blocks``` and slk converts them on send to Slack's mrkdwn + rich_text format. Already-mrkdwn syntax (`*bold*`, `_italic_`, `~strike~`) passes through unchanged. Single-asterisk emphasis (`*x*`) is preserved as literal text since it conflicts with Slack mrkdwn bold.
-- In-memory per-channel and per-thread drafts: switching conversations saves the compose box (text + pending attachments) and restores it when you return; not synced to Slack
-- Scheduled send: `Ctrl+g` in insert mode opens a duration overlay (20m / 1h / 2h / 4h / 8h / tomorrow 9am / custom minutes). `:schedule 20m` / `:schedule 1h` (or `:schedule` with no args to pick) does the same from command mode. Confirm queues the draft with Slack `chat.scheduleMessage` and clears compose; a toast shows the local post time (e.g. `Scheduled for 3:04 PM`). v1 does not list or delete scheduled messages. `Ctrl+Enter` is left unbound.
+- Per-channel and per-thread drafts: switching conversations saves the compose box (text + pending attachments) and restores it when you return. Text drafts persist across restarts (SQLite) and sync to Slack (`drafts.list` / `drafts.create` / `drafts.update` / `drafts.delete`) so the official client sees the same unsent compose. Browse them in the **Drafts** sidebar view (`✎ Drafts`).
+- Scheduled send: `Ctrl+g` in insert mode opens a duration overlay (20m / 1h / 2h / 4h / 8h / tomorrow 9am / custom minutes). `:schedule 20m` / `:schedule 1h` (or `:schedule` with no args to pick) does the same from command mode. Confirm queues the draft with Slack `chat.scheduleMessage` and clears compose; a toast shows the local post time (e.g. `Scheduled for 3:04 PM`). `:scheduled` lists pending scheduled messages (`chat.scheduledMessages.list`); Enter cancels one (`chat.deleteScheduledMessage`). `Ctrl+Enter` is left unbound.
 
 ## Images
 
 - Inline image attachments render automatically in the messages pane: kitty graphics protocol on capable terminals (kitty, ghostty, recent WezTerm), sixel on foot/mlterm and on any terminal that advertises sixel in its DA1 reply (xterm with sixel support, DomTerm, toyterm, …), half-block (`▀`) fallback everywhere else
 - Link unfurls render their preview images inline through the same pipeline (`image_url`, `thumb_url` if no `image_url`, and nested Block Kit image blocks), capped by `max_image_rows`
 - User avatars use the same kitty graphics path on capable terminals for sharper pixels; sixel and other terminals fall back to half-block
-- Click any inline image (or press `O` on the selected message) for a full-screen in-app preview
+- Click any inline image in the messages pane or thread panel (or press `O` / `v` on the selected message) for a full-screen in-app preview
 - `Enter` from the preview launches the OS image viewer
 - Lazy-loaded: images download only as they scroll into view
 - LRU cache at `~/.cache/slk/images/` (default 200 MB cap)
@@ -91,14 +93,80 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 
 - **Later** (`◷ Later` in the sidebar, below Activity and above Threads):
   Slack's Save for later / Remind me list, synced via `saved.list`.
-  The sidebar badge is `client.counts` `saved.uncompleted_count`
+  Cards show the author, channel, and message text (hydrated from the
+  local cache, then `conversations.history` / thread replies). Tabs
+  match Slack: In progress (`saved`), Completed, and Archived. `f`/`F`
+  cycle them; click the tab labels too. `c` marks complete, `z`
+  archives, `u` restores to In progress (`saved.update` `state`).
+  `Enter` on **load more…** fetches the next `saved.list` page. The
+  sidebar badge is `client.counts` `saved.uncompleted_count`
   (incomplete items). `Enter` on a row opens the message through the
   same in-app permalink path Activity uses.
 - `w` on a selected message (or thread reply) toggles save-for-later
-  (`saved.add` / `saved.delete`). `W` opens a duration menu (same
-  intervals as snooze) and sets a reminder with `reminders.add` plus
-  `saved.update` `date_due`. `:remind 20m` does the same from command
-  mode.
+  (`saved.add` / `saved.delete`). On a Later row, `w` unsaves from any
+  tab. `W` opens a duration menu (same intervals as snooze) and sets a
+  reminder with `reminders.add` plus `saved.update` `date_due`.
+  `:remind 20m` does the same from command mode. `:reminders` lists
+  pending Slack reminders; Enter marks one complete. `x` on a Later
+  card opens complete / archive / restore / unsave.
+
+## Direct Messages
+
+- **Direct Messages view** (`✉ Direct Messages` under Threads): Slack's
+  DMs tab. Home still shows a compact Direct Messages section (open /
+  recently read, hiding 30-day stale 1:1 leftover rows and closed IMs
+  with `is_open=false`). The dedicated view is a conversation column
+  (no Activity/Later/Threads/Drafts/Unreads switcher rows) of **every** 1:1 DM, group
+  DM, and app DM. Esc returns to Home. Each row shows the last-message
+  preview and a relative date (Today / Yesterday / weekday / Jul 16).
+  Sorted unread first, then recency (cache, then
+  `conversations.history` limit=1). Group DMs use the first other
+  participant's 2×1 avatar when Slack sent member IDs.
+- `Enter` on a DM stays in this view so the full list remains beside
+  the conversation. Opening a channel (finder, permalink) returns to
+  Home. The channel finder also has a Direct Messages shortcut.
+  `:leave` on a DM closes it (`conversations.close`) instead of
+  leaving; it drops off Home and stays in this list. Opening a closed
+  DM from this list reopens it (`conversations.open`) so it returns to
+  Home. The DMs column has a **← Home** row at the top (Esc also
+  returns to Home).
+
+## Drafts
+
+- **Drafts & sent** (`✎ Drafts` in the sidebar, under Direct Messages):
+  unsent composer drafts (`drafts.list`, `is_active=true`) plus scheduled
+  messages (`chat.scheduledMessages.list`). Tabs are Drafts / Scheduled
+  (`f`/`F`, or click the labels). Cards show the destination channel and
+  a one-line preview. `Enter` opens a draft in its channel (or thread)
+  and restores the compose text; `D` deletes it (`drafts.delete` or
+  `chat.deleteScheduledMessage`). `Enter` on **load more…** pages
+  `drafts.list` via `next_ts`. The sidebar badge is `drafts.listActive`
+  (`active_draft_ids`). The channel finder has a Drafts shortcut.
+
+## Unreads
+
+- **All Unreads** (`◉ Unreads` in the sidebar, under Drafts): Slack's Home
+  Unreads view as captured from the official web client (2026-08-31). The
+  pane lists every conversation `client.counts` reports `has_unreads` for,
+  grouped as a channel header plus recent top-level messages since
+  `last_read` via `conversations.history` (`limit=28`,
+  `ignore_replies=true`, `inclusive=true`, `oldest=last_read`). Empty copy
+  is "no unreads". The sidebar badge is the number of conversations with
+  `HasUnread` from counts / sidebar read state.
+- `j`/`k` move between headers and messages. `Enter` (or click) on a
+  message opens it in the channel at that ts (same permalink jump path as
+  Activity / Later). `Enter` or click on a header calls
+  `conversations.mark` with the latest message ts; the header then shows
+  "N message(s) marked read" and **undo**, which rolls the watermark back
+  with `conversations.mark` via `MarkChannelUnread`.
+- `f`/`F` cycle session-local sort: sidebar order, alphabetical, newest,
+  oldest. Sort is not persisted (`users.prefs.set` was not captured for
+  sort). Section filters (VIP / Starred / Channels / DMs) are not in v1
+  — only `all_unreads_section_filter=all_sections` was captured, and slk
+  does not write that pref. Recommended / scientifically sort is omitted
+  (algorithm unknown). Workspace switch clears the list; opening Unreads
+  refetches counts + history. The channel finder has an Unreads shortcut
+  (`unreads`).
 
 ## Reactions
 
@@ -111,17 +179,17 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 ## Channels & Workspaces
 
 - Three-panel layout: workspace rail, channel sidebar, message pane
-- Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DM channels. 1:1 DMs show the peer's avatar (two sidebar rows when the face is cached) next to the presence glyph.
+- Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DMs. Home splits 1:1 DMs and group DMs into two sections (both recency-sorted); `[sidebar] group_dms = "together"` puts them in one Direct Messages section like OG Slack. Custom / Starred placements still win. 1:1 DMs show a compact 2×1 peer avatar on the same row as the name; group DMs use the first other member's face when Slack sent member IDs. The workspace rail paints each team's Slack logo (4×2, initials until the fetch lands); the connecting overlay paints the cached logo on the first frame after a previous session.
 - Channel topic shown under the name in the message-pane header (omitted when empty)
-- Channel header extras: bookmark titles (clickable, OSC-8) and a pin count (`📌 N`) on one row under the channel name; empty channels omit the row. Clicking a pin jumps to the most recent pinned message
-- **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. `:move` assigns the active channel to an existing section (`users.channelSections.channels.bulkUpdate`); `:section <name>` creates an empty section (`users.channelSections.create`). Rename, delete, and reorder still happen in the official client. Falls back to glob-based config sections when disabled or if the API is unavailable.
-- Star / unstar a channel with `*` — adds it to Slack's Starred sidebar section (hidden when empty). Message stars are not supported.
-- Collapsible sections — `Enter`/`Space` on a section header toggles it. The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
+- Channel header extras: bookmark titles (clickable, OSC-8) and a pin count (`📌 N`) on one row under the channel name; empty channels omit the row. Clicking `📌 N` opens the pin list (`:pins`); a single pin jumps to it. Enter on a pin jumps in-app when it has a timestamp, otherwise opens the permalink.
+- **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. `:move` assigns the active channel to an existing section (`users.channelSections.channels.bulkUpdate`); `:section <name>` creates an empty section (`users.channelSections.create`); `:rename <name>` / `:section-delete` write `users.channelSections.update` / `.delete`; `:section-up` / `:section-down` retarget each section's `next_channel_section_id`. Falls back to glob-based config sections when disabled or if the API is unavailable. Within a section, `[sidebar.sort]` atom pipelines compose (`vip_first` + `recent`, `alphabetical`, …); see [Configuration](Configuration.md#sidebar-sort-atoms).
+- Star / unstar a channel with `*` — adds it to Slack's Starred sidebar section (hidden when empty). Star a message from the actions menu (`x`) — `stars.add` with timestamp; starred rows show a muted ★ marker.
+- Collapsible sections — `Enter`/`Space` on a section header toggles it, as does double-clicking the header (two clicks within ~500ms; terminals don't report a native double-click). The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
 - Live unread indicators: bold + blue dot for unread channels, muted text for read ones, aggregate dot+count on collapsed section headers
 - Mute / unmute a channel (`m`) — writes Slack's per-channel notification pref. Muted conversations dim in the sidebar, drop unread dots, and suppress desktop notifications (including mentions). Sidebar-focused `m` toggles the selected row; otherwise it toggles the active channel. Reconciles live via `pref_change`.
 - Glob-based config sections (`[sections.*]` in `config.toml`) — used when `use_slack_sections = false` or as a fallback when Slack's API is unreachable. Channel patterns can carry an optional `":<N>"` suffix (e.g. `"eng-general:1"`) to pin order within a section; see [Configuration › Ordering channels within a section](Configuration.md#ordering-channels-within-a-section).
 - Fuzzy channel finder (`Ctrl+t` / `Ctrl+p`) — auto-expands a collapsed section when you open a channel inside it; ranks 1:1 DMs above group DMs when searching by person name
-- Leave the current public or private channel (`:leave`) — confirmation overlay, then the channel drops from the sidebar and slk switches to last-visited or Threads. DMs cannot be left from slk.
+- Leave the current public or private channel (`:leave`) — confirmation overlay, then the channel drops from the sidebar and slk switches to last-visited or Threads. On a DM, `:leave` closes the conversation (`conversations.close`).
 - **Channel members** (`I`) — overlay listing members of the active channel (filter-as-you-type, `j`/`k` to move). Presence dots appear for users already in the live presence map; `[guest]` marks `is_restricted` / `is_ultra_restricted` users. `Enter` opens a DM with the selected person (same `conversations.open` path as `Ctrl+n`). The message pane header shows the member count when it is already known.
 - Workspace picker (`:ws`) and direct jump (`1`–`9`)
 - All workspaces stay connected in parallel for live unread badges

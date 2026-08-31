@@ -38,6 +38,8 @@
 //	statusbar.DeleteFailedMsg         - "Delete failed: ..."
 //	statusbar.DeleteNotOwnMsg         - "Can only delete your own..."
 //	statusbar.SendFailedMsg           - "Send failed: ..."
+//	MessageSharedMsg                  - "Shared to #channel"
+//	MessageShareFailedMsg             - "Share failed: ..."
 //
 // Free reducer: these arms have no shared domain or invariant,
 // only the common "push to status bar / clear after N seconds"
@@ -147,6 +149,20 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case statusbar.SendFailedMsg:
 		return toastWithClear(a, "Send failed: "+truncateReason(m.Reason, 40), 3*time.Second), true
 
+	case MessageSharedMsg:
+		label := shareDestLabel(m.DestName, m.DestType)
+		if label == "" {
+			label = "channel"
+		}
+		return toastWithClear(a, "Shared to "+label, 2*time.Second), true
+
+	case MessageShareFailedMsg:
+		reason := m.Reason
+		if reason == "" {
+			reason = "unknown error"
+		}
+		return toastWithClear(a, "Share failed: "+truncateReason(reason, 40), 3*time.Second), true
+
 	case statusbar.EditNotOwnMsg:
 		_ = m
 		return toastWithClear(a, "Can only edit your own messages", 2*time.Second), true
@@ -175,6 +191,49 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		return toastWithClear(a, text, 2*time.Second), true
 
+	case StarToggledMsg:
+		if m.Err != nil {
+			action := "Star"
+			if !m.Starred {
+				action = "Unstar"
+			}
+			return toastWithClear(a, action+" failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		if a.starredMessages == nil {
+			a.starredMessages = map[string]bool{}
+		}
+		a.starredMessages[starMessageKey(m.ChannelID, m.TS)] = m.Starred
+		for _, mm := range a.modelsForChannel(m.ChannelID) {
+			mm.SetStarred(m.TS, m.Starred)
+		}
+		if a.threadVisible && a.threadPanel.ChannelID() == m.ChannelID {
+			a.threadPanel.SetStarred(m.TS, m.Starred)
+		}
+		text := "Starred"
+		if !m.Starred {
+			text = "Unstarred"
+			delete(a.starredMessages, starMessageKey(m.ChannelID, m.TS))
+		}
+		return toastWithClear(a, text, 2*time.Second), true
+
+	case StarredLoadedMsg:
+		stars := make(map[string]bool, len(m.Items))
+		for _, it := range m.Items {
+			if it.ChannelID != "" && it.TS != "" {
+				stars[starMessageKey(it.ChannelID, it.TS)] = true
+			}
+		}
+		a.starredMessages = stars
+		if a.activeChannelID != "" {
+			for _, mm := range a.modelsForChannel(a.activeChannelID) {
+				for i, msg := range mm.Messages() {
+					_ = i
+					mm.SetStarred(msg.TS, stars[starMessageKey(a.activeChannelID, msg.TS)])
+				}
+			}
+		}
+		return nil, true
+
 	case ToastMsg:
 		return toastWithClear(a, m.Text, 3*time.Second), true
 
@@ -193,8 +252,11 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.compose.ClearAttachments()
 		a.threadCompose.ClearAttachments()
+		chKey, thKey := a.compose.DraftKey(), a.threadCompose.DraftKey()
 		a.compose.Reset()
 		a.threadCompose.Reset()
+		a.clearComposeDraft(chKey)
+		a.clearComposeDraft(thKey)
 		return a.uploadToastCmd("Sent", 2*time.Second), true
 
 	case ConnectionStateMsg:
@@ -277,6 +339,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		a.activityView.HandleAvatarReady(m.UserID)
 		a.threadsView.HandleAvatarReady(m.UserID)
 		a.sidebar.HandleAvatarReady(m.UserID)
+		a.workspaceRail.HandleLogoReady(m.UserID)
 		return nil, true
 
 	case imgrender.ImageFailedMsg:

@@ -34,11 +34,47 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ui/activityview"
+	"github.com/gammons/slk/internal/ui/draftsview"
+	"github.com/gammons/slk/internal/ui/laterview"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/unreadsview"
 )
+
+// sidebarHeaderDoubleClick is the window in which a second left-click
+// on the same section header collapses or expands it. Terminals do not
+// report click-count, so this is two MouseClickMsg on the same header.
+const sidebarHeaderDoubleClick = 500 * time.Millisecond
+
+// sidebarHeaderClick remembers the last left-click on a sidebar
+// section header so a second click can toggle collapse.
+type sidebarHeaderClick struct {
+	name string
+	at   time.Time
+}
+
+// registerSidebarHeaderClick records a click on the named header.
+// Returns true when this click completes a double-click (same name
+// within sidebarHeaderDoubleClick). A completed pair is consumed so a
+// third click starts a new sequence instead of immediately re-toggling.
+func (a *App) registerSidebarHeaderClick(name string) bool {
+	now := time.Now()
+	if name == "" {
+		a.sidebarHeaderClick = sidebarHeaderClick{}
+		return false
+	}
+	prev := a.sidebarHeaderClick
+	a.sidebarHeaderClick = sidebarHeaderClick{name: name, at: now}
+	if prev.name == name && !prev.at.IsZero() && now.Sub(prev.at) <= sidebarHeaderDoubleClick {
+		a.sidebarHeaderClick = sidebarHeaderClick{}
+		return true
+	}
+	return false
+}
 
 var reduceMouse reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
@@ -132,6 +168,22 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 				a.laterView.ScrollUp(wheelLinesPerNotch)
 			} else {
 				a.laterView.ScrollDown(wheelLinesPerNotch)
+			}
+			return nil
+		}
+		if a.view == ViewDrafts {
+			if up {
+				a.draftsView.ScrollUp(wheelLinesPerNotch)
+			} else {
+				a.draftsView.ScrollDown(wheelLinesPerNotch)
+			}
+			return nil
+		}
+		if a.view == ViewUnreads {
+			if up {
+				a.unreadsView.ScrollUp(wheelLinesPerNotch)
+			} else {
+				a.unreadsView.ScrollDown(wheelLinesPerNotch)
 			}
 			return nil
 		}
@@ -244,22 +296,55 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			return nil
 		}
 		if item, ok := a.sidebar.ClickAt(sidebarY); ok {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
 			return func() tea.Msg {
 				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type, Topic: item.Topic}
 			}
+		}
+		if !a.sidebar.HitNavAt(sidebarY) {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
+			return nil
 		}
 		// ClickAt returns ok=false for the synthetic Threads row;
 		// if the click landed there (sidebar updates its own
 		// selection state), activate the threads view.
 		if a.sidebar.IsActivitySelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
 			return func() tea.Msg { return ActivityViewActivatedMsg{} }
 		}
 		if a.sidebar.IsLaterSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
 			return func() tea.Msg { return LaterViewActivatedMsg{} }
 		}
 		if a.sidebar.IsThreadsSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 		}
+		if a.sidebar.IsDMsSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
+			return func() tea.Msg { return DMsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsDraftsSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
+			return func() tea.Msg { return DraftsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsUnreadsSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
+			return func() tea.Msg { return UnreadsViewActivatedMsg{} }
+		}
+		if a.sidebar.IsHomeSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
+			a.setInboxView(ViewChannels)
+			a.sidebar.SelectDMsRow()
+			return nil
+		}
+		if name, ok := a.sidebar.IsSectionHeaderSelected(); ok {
+			if a.registerSidebarHeaderClick(name) {
+				a.sidebar.ToggleCollapseSelected()
+			}
+			return nil
+		}
+		a.sidebarHeaderClick = sidebarHeaderClick{}
 		return nil
 
 	case x < a.layout.MsgEnd():
@@ -309,9 +394,45 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			return nil
 		}
 		if a.view == ViewLater {
-			panel, _, py, ok := a.panelAt(m.X, m.Y)
-			if ok && panel == PanelMessages && py >= 0 && a.laterView.ClickAt(py) {
+			panel, px, py, ok := a.panelAt(m.X, m.Y)
+			if !ok || panel != PanelMessages || py < 0 {
+				return nil
+			}
+			switch a.laterView.ClickAt(py, px) {
+			case laterview.ClickItem:
 				return a.openSelectedLaterCmd()
+			case laterview.ClickTab:
+				return a.fetchLaterCmd()
+			case laterview.ClickLoadMore:
+				return a.fetchLaterMoreCmd()
+			}
+			return nil
+		}
+		if a.view == ViewDrafts {
+			panel, px, py, ok := a.panelAt(m.X, m.Y)
+			if !ok || panel != PanelMessages || py < 0 {
+				return nil
+			}
+			switch a.draftsView.ClickAt(py, px) {
+			case draftsview.ClickItem:
+				return a.openSelectedDraftCmd()
+			case draftsview.ClickTab:
+				return a.fetchDraftsCmd()
+			case draftsview.ClickLoadMore:
+				return a.fetchDraftsMoreCmd()
+			}
+			return nil
+		}
+		if a.view == ViewUnreads {
+			panel, px, py, ok := a.panelAt(m.X, m.Y)
+			if !ok || panel != PanelMessages || py < 0 {
+				return nil
+			}
+			switch a.unreadsView.ClickAt(py, px) {
+			case unreadsview.ClickMessage:
+				return a.openSelectedUnreadCmd()
+			case unreadsview.ClickHeader:
+				return a.markSelectedUnreadCmd()
 			}
 			return nil
 		}
@@ -383,6 +504,24 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 				return a.toggleReactionOnMessageItem(a.threadPanel.ChannelID(), replies[hitReplyIdx], emojiName)
 			}
 		}
+		if hitReplyIdx, attIdx, fileID, hit := a.threadPanel.HitTestImage(py, px); hit && fileID != "" {
+			ch := a.threadPanel.ChannelID()
+			var ts string
+			if hitReplyIdx < 0 {
+				ts = a.threadPanel.ParentMsg().TS
+			} else {
+				replies := a.threadPanel.Replies()
+				if hitReplyIdx >= 0 && hitReplyIdx < len(replies) {
+					ts = replies[hitReplyIdx].TS
+				}
+			}
+			if ts != "" {
+				idx := attIdx
+				return func() tea.Msg {
+					return messages.OpenImagePreviewMsg{Channel: ch, TS: ts, AttIdx: idx}
+				}
+			}
+		}
 		a.drag.Begin(PanelThread, px, py)
 		a.threadPanel.BeginSelectionAt(py, px)
 		a.threadPanel.ClickAt(py)
@@ -426,7 +565,7 @@ func reduceMouseRightClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if a.wins.Len() > 1 {
 			return nil
 		}
-		if a.view != ViewChannels {
+		if !a.inChannelView() {
 			return nil
 		}
 		a.focusedPanel = PanelMessages

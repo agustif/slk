@@ -29,10 +29,7 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ActivityViewActivatedMsg:
 		_ = m
-		a.view = ViewActivity
-		a.sidebar.SetActivityActive(true)
-		a.sidebar.SetThreadsActive(false)
-		a.sidebar.SetLaterActive(false)
+		a.setInboxView(ViewActivity)
 		a.focusedPanel = PanelMessages
 		a.activityView.SetUnreadBadge(a.sidebar.ActivityUnreadCount())
 		var batch []tea.Cmd
@@ -123,6 +120,9 @@ func (a *App) decorateActivityItems(in []slackclient.ActivityItem) []activityvie
 			} else if name, ok := a.userNames[it.ActorID]; ok && name != "" {
 				item.ActorName = name
 			}
+		}
+		if it.Text != "" {
+			item.ParentText = it.Text
 		}
 		a.decorateActivityParent(&item)
 		out[i] = item

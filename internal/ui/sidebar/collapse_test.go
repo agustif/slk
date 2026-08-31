@@ -32,7 +32,10 @@ func TestToggleCollapse_OnSelectedHeader(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "D1", Name: "alice", Type: "dm"},
 	})
-	// Cursor: Activity → Later → Threads → Direct Messages header.
+	// Cursor: Activity → Later → Threads → Direct Messages view → Drafts → Unreads → Direct Messages header.
+	m.MoveDown()
+	m.MoveDown()
+	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()
@@ -113,13 +116,15 @@ func TestCollapsedHeader_ShowsAggregateUnreadBadge(t *testing.T) {
 	})
 	// Channels is collapsed by default; aggregate badge should count 2.
 	view := m.View(15, 30)
-	if !strings.Contains(view, "•2") {
+	chLine := lineContaining(view, "Channels")
+	if !strings.Contains(chLine, "•2") {
 		t.Errorf("collapsed header should show aggregate badge •2, got:\n%s", view)
 	}
 	// Expand, the badge disappears (per-channel dots take over).
 	m.ToggleCollapse("Channels")
 	view = m.View(15, 30)
-	if strings.Contains(view, "•2") {
+	chLine = lineContaining(view, "Channels")
+	if strings.Contains(chLine, "•") {
 		t.Errorf("expanded header should not carry an aggregate badge:\n%s", view)
 	}
 }
@@ -180,6 +185,9 @@ func TestToggleCollapse_PreservesCursorOnHeader(t *testing.T) {
 	})
 	m.MoveDown() // Later
 	m.MoveDown() // Threads
+	m.MoveDown() // Direct Messages view
+	m.MoveDown() // Drafts
+	m.MoveDown() // Unreads
 	m.MoveDown() // onto DM header
 	if name, _ := m.IsSectionHeaderSelected(); name != "Direct Messages" {
 		t.Fatalf("precondition: expected DM header, got %q", name)
@@ -199,6 +207,9 @@ func TestIsThreadsSelected_FalseOnSectionHeader(t *testing.T) {
 	m := New([]ChannelItem{{ID: "D1", Name: "alice", Type: "dm"}})
 	m.MoveDown() // Later
 	m.MoveDown() // Threads
+	m.MoveDown() // Direct Messages view
+	m.MoveDown() // Drafts
+	m.MoveDown() // Unreads
 	m.MoveDown() // DM header
 	if m.IsThreadsSelected() {
 		t.Errorf("Threads should not be reported selected when cursor is on a section header")
@@ -206,4 +217,13 @@ func TestIsThreadsSelected_FalseOnSectionHeader(t *testing.T) {
 	if _, ok := m.SelectedItem(); ok {
 		t.Errorf("SelectedItem should return ok=false when cursor is on a section header")
 	}
+}
+
+func lineContaining(view, needle string) string {
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, needle) {
+			return l
+		}
+	}
+	return ""
 }

@@ -15,16 +15,16 @@ import (
 )
 
 type Config struct {
-	General       General                      `toml:"general"`
-	Appearance    Appearance                   `toml:"appearance"`
-	Animations    Animations                   `toml:"animations"`
-	Notifications Notifications                `toml:"notifications"`
-	Cache         CacheConfig                  `toml:"cache"`
-	Sidebar       Sidebar                      `toml:"sidebar"`
-	Activity      Activity                     `toml:"activity"`
-	Sections      map[string]SectionDef        `toml:"sections"`
-	Theme         Theme                        `toml:"theme"`
-	Workspaces    map[string]Workspace         `toml:"workspaces"`
+	General       General               `toml:"general"`
+	Appearance    Appearance            `toml:"appearance"`
+	Animations    Animations            `toml:"animations"`
+	Notifications Notifications         `toml:"notifications"`
+	Cache         CacheConfig           `toml:"cache"`
+	Sidebar       Sidebar               `toml:"sidebar"`
+	Activity      Activity              `toml:"activity"`
+	Sections      map[string]SectionDef `toml:"sections"`
+	Theme         Theme                 `toml:"theme"`
+	Workspaces    map[string]Workspace  `toml:"workspaces"`
 }
 
 // SectionDef defines a sidebar section with channel name patterns.
@@ -156,6 +156,32 @@ type Sidebar struct {
 	// hidden regardless of this setting.
 	HideInactiveAfterDays int `toml:"hide_inactive_after_days"`
 	Width                 int `toml:"width"`
+	// Sort is the [sidebar.sort] table of composable atom pipelines.
+	Sort SidebarSort `toml:"sort"`
+	// VIP is the membership list for the vip_first sort atom.
+	// Patterns match a channel ID, DM user ID, or display name
+	// (globs and a leading @ are accepted).
+	VIP []string `toml:"vip"`
+	// GroupDMs is how 1:1 DMs and group DMs are grouped on the Home
+	// sidebar. "split" (default) is two sections (Direct Messages,
+	// then Group DMs). "together" is one Direct Messages section,
+	// matching OG Slack. The dedicated DMs view always lists both.
+	GroupDMs string `toml:"group_dms"`
+}
+
+const (
+	GroupDMsSplit    = "split"
+	GroupDMsTogether = "together"
+)
+
+// ClampGroupDMs maps [sidebar].group_dms aliases. Empty / unknown → split.
+func ClampGroupDMs(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case GroupDMsTogether, "combined", "all", "og":
+		return GroupDMsTogether
+	default:
+		return GroupDMsSplit
+	}
 }
 
 // Activity is the Activity inbox: Slack's activity.feed surface
@@ -403,6 +429,11 @@ func Default() Config {
 		},
 		Sidebar: Sidebar{
 			HideInactiveAfterDays: 30,
+			GroupDMs:              GroupDMsSplit,
+			Sort: SidebarSort{
+				Default: []string{SortAtomSlack},
+				DMs:     []string{SortAtomRecent},
+			},
 		},
 		Activity: Activity{
 			Filter:  ActivityFilterAll,
@@ -454,6 +485,8 @@ func Load(path string) (Config, error) {
 	}
 
 	cfg.Activity = cfg.Activity.Normalized()
+	cfg.Sidebar.Sort = cfg.Sidebar.Sort.Normalized()
+	cfg.Sidebar.GroupDMs = ClampGroupDMs(cfg.Sidebar.GroupDMs)
 	cfg.Notifications.QuietHours = ClampQuietHours(cfg.Notifications.QuietHours)
 
 	return cfg, nil

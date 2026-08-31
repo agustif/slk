@@ -33,6 +33,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Cache.MaxDBSizeMB != 500 {
 		t.Errorf("expected 500 MB max, got %d", cfg.Cache.MaxDBSizeMB)
 	}
+	if cfg.Sidebar.GroupDMs != GroupDMsSplit {
+		t.Errorf("expected group_dms %q, got %q", GroupDMsSplit, cfg.Sidebar.GroupDMs)
+	}
 }
 
 func TestLoadConfigFromFile(t *testing.T) {

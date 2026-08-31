@@ -8,6 +8,7 @@ import (
 
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/ui"
+	"github.com/gammons/slk/internal/ui/searchresults"
 )
 
 // TestSearchWorkspaceNoActiveWorkspaceReturnsErr verifies the
@@ -64,5 +65,20 @@ func TestSearchWorkspaceNoActiveWorkspaceReturnsErr(t *testing.T) {
 	}
 	if res.Gen != 1 || res.Page != 1 {
 		t.Fatalf("Gen/Page = %d/%d, want 1/1", res.Gen, res.Page)
+	}
+}
+
+func TestSearchWorkspacePeopleNoActiveWorkspaceReturnsErr(t *testing.T) {
+	fn := searchWorkspaceFunc(newWorkspaceRouter(), nil, "15:04")
+	msg := fn(ui.WorkspaceSearchRequest{Query: "ada", Kind: searchresults.KindPeople, Page: 1, Gen: 3})
+	res, ok := msg.(ui.WorkspaceSearchResultsMsg)
+	if !ok {
+		t.Fatalf("got %T, want ui.WorkspaceSearchResultsMsg", msg)
+	}
+	if res.Err == nil {
+		t.Fatal("want non-nil Err so the People tab spinner is not stuck")
+	}
+	if res.Kind != searchresults.KindPeople || res.Gen != 3 {
+		t.Fatalf("Kind/Gen = %v/%d, want People/3", res.Kind, res.Gen)
 	}
 }

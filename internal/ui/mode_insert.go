@@ -187,7 +187,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			text := a.threadCompose.Value()
 			if text != "" {
 				text = a.threadCompose.TranslateMentionsForSend(text)
+				draftKey := a.threadCompose.DraftKey()
 				a.threadCompose.Reset()
+				a.clearComposeDraft(draftKey)
 				threadTS := a.threadPanel.ThreadTS()
 				channelID := a.threadPanel.ChannelID()
 				broadcast := isBroadcastSend
@@ -237,7 +239,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		text := a.compose.Value()
 		if text != "" {
 			text = a.compose.TranslateMentionsForSend(text)
+			draftKey := a.compose.DraftKey()
 			a.compose.Reset()
+			a.clearComposeDraft(draftKey)
 			a.exitInsertAfterSend()
 			return func() tea.Msg {
 				return SendMessageMsg{

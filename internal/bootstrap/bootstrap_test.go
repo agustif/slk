@@ -773,6 +773,7 @@ func TestRun_CarriesEveryMappedFieldFromUserBoot(t *testing.T) {
 		{"EmojiCacheTS", res.EmojiCacheTS, want.EmojiCacheTS},
 		{"MutePrefsRaw", res.MutePrefsRaw, want.Prefs.AllNotificationsPrefs},
 		{"LegacyMutedRaw", res.LegacyMutedRaw, want.Prefs.MutedChannels},
+		{"VIPUsersRaw", res.VIPUsersRaw, want.Prefs.VipUsers},
 	} {
 		if !reflect.DeepEqual(tc.got, tc.want) {
 			t.Errorf("Result.%s = %#v; want %#v", tc.field, tc.got, tc.want)

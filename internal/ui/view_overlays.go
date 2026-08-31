@@ -70,6 +70,9 @@ func (a *App) applyOverlays(screen string) string {
 	} else if a.scheduleMenu.IsVisible() {
 		screen = a.scheduleMenu.ViewOverlay(a.width, a.height, screen)
 	}
+	if a.dateMenu.IsVisible() {
+		screen = a.dateMenu.ViewOverlay(a.width, a.height, screen)
+	}
 	if a.contextMenu.IsVisible() {
 		screen = a.contextMenu.ViewOverlay(a.width, a.height, screen)
 	}
@@ -95,7 +98,7 @@ func (a *App) applyOverlays(screen string) string {
 		screen = presencemenu.CustomSnoozeView(a.width, a.height, screen, a.presence.SnoozeBuf())
 	}
 	if a.bootstrap.IsLoading() {
-		screen = a.bootstrap.Render(a.width, a.height, a.spinnerGlyph())
+		screen = a.bootstrap.Render(a.width, a.height, a.spinnerGlyph(), a.workspaceRail.LogoFunc())
 	}
 	return screen
 }
@@ -116,6 +119,7 @@ func (a *App) overlayActive() bool {
 		a.presenceMenu.IsVisible() ||
 		a.scheduleMenu.IsVisible() ||
 		a.mode == ModeScheduleCustom ||
+		a.dateMenu.IsVisible() ||
 		a.contextMenu.IsVisible() ||
 		a.statusInput.IsVisible() ||
 		a.userProfile.IsVisible() ||

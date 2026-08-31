@@ -244,6 +244,10 @@ type Result struct {
 	// through rather than dropped.
 	LegacyMutedRaw string
 
+	// VIPUsersRaw is prefs.vip_users: comma-separated user/bot IDs
+	// the user marked VIP in Slack Preferences.
+	VIPUsersRaw string
+
 	// Counts is the unread state. It is the zero value when
 	// client.counts failed, which on its own is not distinguishable
 	// from a workspace with nothing unread — hence CountsOK.
@@ -414,6 +418,7 @@ func Run(ctx context.Context, deps Deps) (*Result, error) {
 		EmojiCacheTS:     bootRes.EmojiCacheTS,
 		MutePrefsRaw:     bootRes.Prefs.AllNotificationsPrefs,
 		LegacyMutedRaw:   bootRes.Prefs.MutedChannels,
+		VIPUsersRaw:      bootRes.Prefs.VipUsers,
 	}
 
 	// Unread state. Non-fatal: badges are cosmetic and a workspace

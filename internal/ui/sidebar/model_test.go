@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -29,46 +30,37 @@ func TestSidebarView(t *testing.T) {
 	}
 }
 
-func TestDMAvatarTwoVisualRows(t *testing.T) {
+func TestDMAvatarSingleRow(t *testing.T) {
 	m := New([]ChannelItem{
 		{ID: "D1", Name: "alice", Type: "dm", Presence: "active", DMUserID: "U1"},
 	})
 	m.SetAvatarFunc(func(id string) string {
 		if id == "U1" {
-			return "AV0S\nAV1S"
+			return "AV"
 		}
 		return ""
 	})
 	view := m.View(20, 40)
-	if !strings.Contains(view, "AV0S") || !strings.Contains(view, "AV1S") {
+	if !strings.Contains(view, "AV") {
 		t.Fatalf("DM row missing avatar:\n%s", view)
 	}
 	if !strings.Contains(view, "alice") {
 		t.Fatalf("DM name missing next to avatar:\n%s", view)
 	}
-	// Second visual line is still the same nav stop.
-	item, ok := m.ClickAt( /* after Activity, Threads, blank, DM header */ 4)
+	lines := strings.Split(view, "\n")
+	idx := -1
+	for i, l := range lines {
+		if strings.Contains(l, "AV") && strings.Contains(l, "alice") {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("avatar and name should share one row:\n%s", view)
+	}
+	item, ok := m.ClickAt(idx)
 	if !ok || item.ID != "D1" {
-		// Locate alice's first line dynamically.
-		lines := strings.Split(view, "\n")
-		idx := -1
-		for i, l := range lines {
-			if strings.Contains(l, "AV0S") {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			t.Fatal("could not find avatar line 0")
-		}
-		item, ok = m.ClickAt(idx)
-		if !ok || item.ID != "D1" {
-			t.Fatalf("click avatar line 0: ok=%v id=%q", ok, item.ID)
-		}
-		item, ok = m.ClickAt(idx + 1)
-		if !ok || item.ID != "D1" {
-			t.Fatalf("click avatar line 1: ok=%v id=%q", ok, item.ID)
-		}
+		t.Fatalf("click avatar row: ok=%v id=%q", ok, item.ID)
 	}
 }
 
@@ -83,9 +75,12 @@ func TestSidebarNavigation(t *testing.T) {
 	// Expand the Channels section so j/k can reach the channel rows.
 	m.ToggleCollapse("Channels")
 
-	// Nav order: Activity → Later → Threads → "Channels" header → C1 → C2 → C3.
+	// Nav order: Activity → Later → Threads → Direct Messages → Drafts → Unreads → "Channels" header → C1 → C2 → C3.
 	m.MoveDown() // Later
 	m.MoveDown() // Threads
+	m.MoveDown() // Direct Messages
+	m.MoveDown() // Drafts
+	m.MoveDown() // Unreads
 	m.MoveDown() // onto the "Channels" section header
 	if name, ok := m.IsSectionHeaderSelected(); !ok || name != "Channels" {
 		t.Errorf("expected Channels header selected, got name=%q ok=%v", name, ok)
@@ -134,9 +129,12 @@ func TestThreadsItem_MoveDownLeavesIt(t *testing.T) {
 	m.ToggleCollapse("Channels")
 	m.MoveDown() // Later
 	m.MoveDown() // Threads
+	m.MoveDown() // Direct Messages
+	m.MoveDown() // Drafts
+	m.MoveDown() // Unreads
 	m.MoveDown() // header
 	m.MoveDown() // first channel
-	if m.IsThreadsSelected() || m.IsActivitySelected() || m.IsLaterSelected() {
+	if m.IsThreadsSelected() || m.IsActivitySelected() || m.IsLaterSelected() || m.IsDMsSelected() || m.IsDraftsSelected() || m.IsUnreadsSelected() {
 		t.Errorf("MoveDown should leave the synthetic rows")
 	}
 	item, ok := m.SelectedItem()
@@ -152,15 +150,30 @@ func TestThreadsItem_MoveUpReturnsToIt(t *testing.T) {
 	m.ToggleCollapse("Channels")
 	m.MoveDown() // Later
 	m.MoveDown() // Threads
+	m.MoveDown() // Direct Messages
+	m.MoveDown() // Drafts
+	m.MoveDown() // Unreads
 	m.MoveDown() // header
 	m.MoveDown() // C1
 	if m.IsThreadsSelected() {
 		t.Fatalf("precondition: should be on a channel")
 	}
 	m.MoveUp() // back to header
+	m.MoveUp() // Unreads
+	if !m.IsUnreadsSelected() {
+		t.Errorf("MoveUp from first header should land on Unreads")
+	}
+	m.MoveUp() // Drafts
+	if !m.IsDraftsSelected() {
+		t.Errorf("MoveUp from Unreads should land on Drafts")
+	}
+	m.MoveUp() // Direct Messages
+	if !m.IsDMsSelected() {
+		t.Errorf("MoveUp from Drafts should land on Direct Messages")
+	}
 	m.MoveUp() // Threads
 	if !m.IsThreadsSelected() {
-		t.Errorf("MoveUp from first channel should land on Threads (under Later)")
+		t.Errorf("MoveUp from Direct Messages should land on Threads (under Later)")
 	}
 	m.MoveUp() // Later
 	if !m.IsLaterSelected() {
@@ -253,6 +266,18 @@ func TestThreadsItem_SelectedItemFalseWhenOnThreadsRow(t *testing.T) {
 	if _, ok := m.SelectedItem(); ok {
 		t.Errorf("SelectedItem should return ok=false when Threads row is selected")
 	}
+	m.MoveDown() // Direct Messages
+	if _, ok := m.SelectedItem(); ok {
+		t.Errorf("SelectedItem should return ok=false when Direct Messages row is selected")
+	}
+	m.MoveDown() // Drafts
+	if _, ok := m.SelectedItem(); ok {
+		t.Errorf("SelectedItem should return ok=false when Drafts row is selected")
+	}
+	m.MoveDown() // Unreads
+	if _, ok := m.SelectedItem(); ok {
+		t.Errorf("SelectedItem should return ok=false when Unreads row is selected")
+	}
 }
 
 func TestActivityItem_SitsAboveThreads(t *testing.T) {
@@ -268,8 +293,20 @@ func TestActivityItem_SitsAboveThreads(t *testing.T) {
 	if !m.IsThreadsSelected() {
 		t.Error("MoveDown from Later should land on Threads")
 	}
+	m.MoveDown()
+	if !m.IsDMsSelected() {
+		t.Error("MoveDown from Threads should land on Direct Messages")
+	}
+	m.MoveDown()
+	if !m.IsDraftsSelected() {
+		t.Error("MoveDown from Direct Messages should land on Drafts")
+	}
+	m.MoveDown()
+	if !m.IsUnreadsSelected() {
+		t.Error("MoveDown from Drafts should land on Unreads")
+	}
 	if _, ok := m.SelectedItem(); ok {
-		t.Error("SelectedItem should be false on the Threads row")
+		t.Error("SelectedItem should be false on the Unreads row")
 	}
 }
 
@@ -291,8 +328,35 @@ func TestLaterItem_SitsBetweenActivityAndThreads(t *testing.T) {
 	if activityI < 0 || laterI < 0 || threadsI < 0 {
 		t.Fatalf("missing synthetic rows in view: %q", out)
 	}
+	dmsI := -1
+	for i, line := range strings.Split(out, "\n") {
+		if dmsI < 0 && strings.Contains(line, "Direct Messages") {
+			dmsI = i
+		}
+	}
 	if !(activityI < laterI && laterI < threadsI) {
 		t.Errorf("want Activity < Later < Threads insertion order; got %d, %d, %d", activityI, laterI, threadsI)
+	}
+	if dmsI < 0 || !(threadsI < dmsI) {
+		t.Errorf("want Threads < Direct Messages; got threads=%d dms=%d", threadsI, dmsI)
+	}
+	draftsI := -1
+	for i, line := range strings.Split(out, "\n") {
+		if draftsI < 0 && strings.Contains(line, "Drafts") {
+			draftsI = i
+		}
+	}
+	if draftsI < 0 || !(dmsI < draftsI) {
+		t.Errorf("want Direct Messages < Drafts; got dms=%d drafts=%d", dmsI, draftsI)
+	}
+	unreadsI := -1
+	for i, line := range strings.Split(out, "\n") {
+		if unreadsI < 0 && strings.Contains(line, "Unreads") {
+			unreadsI = i
+		}
+	}
+	if unreadsI < 0 || !(draftsI < unreadsI) {
+		t.Errorf("want Drafts < Unreads; got drafts=%d unreads=%d", draftsI, unreadsI)
 	}
 }
 
@@ -312,6 +376,52 @@ func TestLaterItem_UnreadBadgeRenders(t *testing.T) {
 	}
 	if !strings.Contains(line, "•5") {
 		t.Errorf("Later line should contain badge '•5', got %q", line)
+	}
+}
+
+func TestUnreadsItem_UnreadBadgeRenders(t *testing.T) {
+	m := New([]ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel"},
+		{ID: "C2", Name: "random", Type: "channel"},
+	})
+	m.SetReadStateReader(func() map[string]cache.ReadState {
+		return map[string]cache.ReadState{
+			"C1": {HasUnread: true},
+			"C2": {HasUnread: true},
+		}
+	})
+	out := m.View(12, 30)
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "Unreads") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("no Unreads line in view: %q", out)
+	}
+	if !strings.Contains(line, "•2") {
+		t.Errorf("Unreads line should contain badge '•2', got %q", line)
+	}
+}
+
+func TestDraftsItem_UnreadBadgeRenders(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SetDraftsUnreadCount(4)
+	out := m.View(12, 30)
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "Drafts") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("no Drafts line in view: %q", out)
+	}
+	if !strings.Contains(line, "•4") {
+		t.Errorf("Drafts line should contain badge '•4', got %q", line)
 	}
 }
 
@@ -745,6 +855,36 @@ func TestSlackMode_UnclaimedItemFallsToTypeDefault(t *testing.T) {
 	}
 	if headerBefore != "DMS" {
 		t.Errorf("D1 bucketed under %q, want DMS (direct_messages-type fallback)", headerBefore)
+	}
+}
+
+func TestSlackMode_GroupDMInChannelsCatchAllHoistsToDMs(t *testing.T) {
+	items := []ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel", Section: "CH"},
+		{ID: "G1", Name: "alice, bob", Type: "group_dm", Section: "CH"},
+		{ID: "G2", Name: "filed", Type: "group_dm", Section: "ENG"},
+	}
+	provider := &fakeProvider{
+		ready: true,
+		sections: []SectionMeta{
+			{ID: "DMS", Name: "Direct Messages", Type: "direct_messages"},
+			{ID: "ENG", Name: "Engineering", Type: "standard"},
+			{ID: "CH", Name: "Channels", Type: "channels"},
+		},
+	}
+	m := New(items)
+	m.SetSectionsProvider(provider)
+	// Default split: unfiled MPIMs get their own section, not Slack's
+	// channels catch-all and not mixed into 1:1 Direct Messages.
+	if got := m.sectionFor(items[1]); got != defaultGroupDMSection {
+		t.Errorf("group DM in channels catch-all → %q, want %q", got, defaultGroupDMSection)
+	}
+	if got := m.sectionFor(items[2]); got != "ENG" {
+		t.Errorf("group DM in custom section → %q, want ENG", got)
+	}
+	m.SetGroupDMs(config.GroupDMsTogether)
+	if got := m.sectionFor(items[1]); got != "DMS" {
+		t.Errorf("together: catch-all group DM → %q, want DMS", got)
 	}
 }
 

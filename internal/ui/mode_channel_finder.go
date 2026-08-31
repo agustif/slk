@@ -37,6 +37,15 @@ func handleChannelFinderMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if result.Type == "later" {
 			return func() tea.Msg { return LaterViewActivatedMsg{} }
 		}
+		if result.Type == "dms" {
+			return func() tea.Msg { return DMsViewActivatedMsg{} }
+		}
+		if result.Type == "drafts" {
+			return func() tea.Msg { return DraftsViewActivatedMsg{} }
+		}
+		if result.Type == "unreads" {
+			return func() tea.Msg { return UnreadsViewActivatedMsg{} }
+		}
 		// Already-joined: switch immediately. Not joined: kick off
 		// a join command; ChannelJoinedMsg will fold the channel
 		// into the sidebar and switch to it.

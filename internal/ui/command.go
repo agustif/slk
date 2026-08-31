@@ -25,17 +25,27 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":       cmdWorkspaceFinder,
-	"sp":       cmdSplit,
-	"vsp":      cmdVSplit,
-	"q":        cmdCloseWindow,
-	"only":     cmdOnlyWindow,
-	"on":       cmdOnlyWindow,
-	"leave":    cmdLeave,
-	"schedule": cmdSchedule,
-	"move":     cmdMove,
-	"section":  cmdSection,
-	"remind":   cmdRemind,
+	"ws":             cmdWorkspaceFinder,
+	"sp":             cmdSplit,
+	"vsp":            cmdVSplit,
+	"q":              cmdCloseWindow,
+	"only":           cmdOnlyWindow,
+	"on":             cmdOnlyWindow,
+	"leave":          cmdLeave,
+	"schedule":       cmdSchedule,
+	"scheduled":      cmdScheduledList,
+	"move":           cmdMove,
+	"section":        cmdSection,
+	"rename":         cmdSectionRename,
+	"section-delete": cmdSectionDelete,
+	"section-up":     cmdSectionUp,
+	"section-down":   cmdSectionDown,
+	"remind":         cmdRemind,
+	"reminders":      cmdRemindersList,
+	"pins":           cmdPinsList,
+	"date":           cmdDate,
+	"jump":           cmdDate,
+	"share":          cmdShare,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
@@ -60,25 +70,27 @@ func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 	return nil
 }
 
-// dmLeaveToast is the status-bar copy when :leave is used on a DM.
-// conversations.leave does not apply to IMs; we refuse rather than
-// guess at conversations.close.
-const dmLeaveToast = "Can't leave a DM; close it from Slack"
-
 func cmdLeave(a *App, _ []string) tea.Cmd {
 	return a.beginLeaveChannel()
 }
 
-// beginLeaveChannel opens the leave-channel confirm overlay, or toasts
-// when the current view is not a leavable channel (DMs, Threads,
-// Activity, nothing selected).
+// beginLeaveChannel opens the leave-channel confirm overlay, or the
+// close-DM confirm for 1:1 / group / app DMs.
 func (a *App) beginLeaveChannel() tea.Cmd {
 	id, name, chType, ok := a.activeChannelMeta()
 	if !ok {
 		return toastWithClear(a, "No channel to leave", 2*time.Second)
 	}
 	if isDirectMessage(chType) {
-		return toastWithClear(a, dmLeaveToast, 2*time.Second)
+		a.confirmPrompt.Open(
+			"Close this conversation?",
+			name+" leaves Home and stays in Direct Messages.",
+			func() tea.Msg {
+				return CloseChannelMsg{ID: id, Name: name}
+			},
+		)
+		a.SetMode(ModeConfirm)
+		return nil
 	}
 
 	title := "Leave #" + name + "?"
@@ -93,10 +105,30 @@ func (a *App) beginLeaveChannel() tea.Cmd {
 	return nil
 }
 
+func cmdScheduledList(a *App, _ []string) tea.Cmd {
+	return func() tea.Msg {
+		return a.messageSvc.ListScheduled()
+	}
+}
+
+func cmdRemindersList(a *App, _ []string) tea.Cmd {
+	return func() tea.Msg {
+		return a.messageSvc.ListReminders()
+	}
+}
+
+func cmdPinsList(a *App, _ []string) tea.Cmd {
+	return a.openPinsList()
+}
+
+func cmdShare(a *App, _ []string) tea.Cmd {
+	return a.openSharePicker()
+}
+
 // activeChannelMeta returns the currently viewed channel. ok is false
 // in Threads/Activity or when no channel is selected.
 func (a *App) activeChannelMeta() (id, name, chType string, ok bool) {
-	if a.view != ViewChannels || a.activeChannelID == "" {
+	if !a.inChannelView() || a.activeChannelID == "" {
 		return "", "", "", false
 	}
 	id = a.activeChannelID

@@ -171,8 +171,8 @@ func TestViewSmoke(t *testing.T) {
 	if !strings.Contains(out, "general") || !strings.Contains(out, "grant") {
 		t.Fatal("results View must show channel and author")
 	}
-	if !strings.Contains(out, "Messages") || !strings.Contains(out, "Files") {
-		t.Fatal("results View must show Messages | Files tabs")
+	if !strings.Contains(out, "Messages") || !strings.Contains(out, "Files") || !strings.Contains(out, "People") {
+		t.Fatal("results View must show Messages | Files | People tabs")
 	}
 	if !strings.Contains(out, "showing 2 of 5") {
 		t.Fatal("results View must show footer when total > len(items)")
@@ -643,8 +643,8 @@ func TestTabsSwitchKindAndSubmitUncached(t *testing.T) {
 	}
 
 	m.SetResults([]Item{{FileName: "a.pdf", Text: "a.pdf", ChannelName: "ops"}}, 1)
-	if act := m.HandleKey("tab"); act != ActionNone {
-		t.Fatalf("tab back to cached Messages = %v, want ActionNone", act)
+	if act := m.HandleKey("shift+tab"); act != ActionNone {
+		t.Fatalf("shift+tab back to cached Messages = %v, want ActionNone", act)
 	}
 	if m.Kind() != KindMessages {
 		t.Fatalf("kind = %v, want Messages", m.Kind())
@@ -661,8 +661,101 @@ func TestShiftTabCyclesBack(t *testing.T) {
 	if act := m.HandleKey("shift+tab"); act != ActionNone {
 		t.Fatalf("shift+tab on empty query = %v", act)
 	}
+	if m.Kind() != KindPeople {
+		t.Fatalf("kind = %v, want People", m.Kind())
+	}
+}
+
+func TestTabCyclesMessagesFilesPeople(t *testing.T) {
+	m := New()
+	m.Open()
+	if m.Kind() != KindMessages {
+		t.Fatalf("kind = %v, want Messages", m.Kind())
+	}
+	if act := m.HandleKey("tab"); act != ActionNone {
+		t.Fatalf("tab on empty query = %v", act)
+	}
 	if m.Kind() != KindFiles {
 		t.Fatalf("kind = %v, want Files", m.Kind())
+	}
+	if act := m.HandleKey("tab"); act != ActionNone {
+		t.Fatalf("tab on empty query = %v", act)
+	}
+	if m.Kind() != KindPeople {
+		t.Fatalf("kind = %v, want People", m.Kind())
+	}
+	if act := m.HandleKey("tab"); act != ActionNone {
+		t.Fatalf("tab wrap on empty query = %v", act)
+	}
+	if m.Kind() != KindMessages {
+		t.Fatalf("kind = %v, want Messages after wrap", m.Kind())
+	}
+
+	submitQuery(&m, "ada")
+	m.SetResults(items(), 2)
+	if act := m.HandleKey("tab"); act != ActionSubmit {
+		t.Fatalf("tab to uncached Files = %v, want ActionSubmit", act)
+	}
+	if m.Kind() != KindFiles {
+		t.Fatalf("kind = %v, want Files", m.Kind())
+	}
+	m.SetResults([]Item{{Kind: KindFiles, FileName: "a.pdf", Text: "a.pdf"}}, 1)
+	if act := m.HandleKey("tab"); act != ActionSubmit {
+		t.Fatalf("tab to uncached People = %v, want ActionSubmit", act)
+	}
+	if m.Kind() != KindPeople {
+		t.Fatalf("kind = %v, want People", m.Kind())
+	}
+	if act := m.HandleKey("shift+tab"); act != ActionNone {
+		t.Fatalf("shift+tab back to cached Files = %v", act)
+	}
+	if m.Kind() != KindFiles {
+		t.Fatalf("kind = %v, want Files", m.Kind())
+	}
+}
+
+func TestPeopleEmptyQueryShowsHint(t *testing.T) {
+	m := New()
+	m.Open()
+	m.HandleKey("tab")
+	m.HandleKey("tab")
+	plain := ansi.Strip(m.View(80, 24))
+	if !strings.Contains(plain, "Type a name to find people") {
+		t.Fatalf("empty People tab missing hint:\n%s", plain)
+	}
+}
+
+func TestPeopleEmptyQueryDoesNotSubmit(t *testing.T) {
+	m := New()
+	m.Open()
+	m.HandleKey("tab")
+	m.HandleKey("tab")
+	if m.Kind() != KindPeople {
+		t.Fatalf("kind = %v, want People", m.Kind())
+	}
+	if act := m.HandleKey("enter"); act != ActionNone {
+		t.Fatalf("enter on empty People query = %v, want ActionNone", act)
+	}
+	if m.StartSearch() {
+		t.Fatal("StartSearch on empty query must be false")
+	}
+}
+
+func TestPeopleRowRendersNameHandlePresence(t *testing.T) {
+	m := New()
+	m.Open()
+	m.HandleKey("tab")
+	m.HandleKey("tab")
+	submitQuery(&m, "ali")
+	m.SetResults([]Item{{
+		Kind: KindPeople, UserID: "U1", UserName: "Alice Smith", Text: "alice", Presence: "active",
+	}}, 1)
+	plain := ansi.Strip(m.View(80, 24))
+	if !strings.Contains(plain, "Alice Smith") || !strings.Contains(plain, "@alice") {
+		t.Fatalf("missing display/handle:\n%s", plain)
+	}
+	if !strings.Contains(plain, "active") {
+		t.Fatalf("missing presence:\n%s", plain)
 	}
 }
 

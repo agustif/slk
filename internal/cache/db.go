@@ -196,6 +196,16 @@ func (db *DB) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_channel_members_channel
 		ON channel_members(workspace_id, channel_id);
+
+	CREATE TABLE IF NOT EXISTS drafts (
+		workspace_id TEXT NOT NULL,
+		draft_key TEXT NOT NULL,
+		text TEXT NOT NULL DEFAULT '',
+		slack_id TEXT NOT NULL DEFAULT '',
+		last_updated_ts TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (workspace_id, draft_key)
+	);
 	`
 
 	if _, err := db.conn.Exec(schema); err != nil {

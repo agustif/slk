@@ -44,6 +44,10 @@ type MessageItem struct {
 	// (Slack pinned_to, or a local pin/unpin toggle).
 	Pinned bool
 
+	// Starred is true when the current user has starred this message
+	// (stars.add with timestamp). Distinct from channel stars.
+	Starred bool
+
 	// Blocks holds parsed Slack Block Kit blocks. Rendered between
 	// the body Text and the file Attachments by Phase 5.
 	Blocks []blockkit.Block
@@ -1227,6 +1231,22 @@ func (m *Model) SetPinned(ts string, pinned bool) bool {
 	return false
 }
 
+// SetStarred sets the starred flag on the message with the given TS.
+func (m *Model) SetStarred(ts string, starred bool) bool {
+	for i, msg := range m.messages {
+		if msg.TS == ts {
+			if m.messages[i].Starred == starred {
+				return true
+			}
+			m.messages[i].Starred = starred
+			m.cache = nil
+			m.dirty()
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateMessageInPlace finds a message by TS, replaces its text, and
 // marks it as edited. Returns true if the message was found.
 // Invalidates the render cache.
@@ -2178,6 +2198,9 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	var pinMark string
 	if msg.Pinned {
 		pinMark = " " + styles.Timestamp.Render("📌 pinned")
+	}
+	if msg.Starred {
+		pinMark += " " + styles.Timestamp.Render("★ starred")
 	}
 
 	// Pre-attachment row count, so attachment rows can compute their
