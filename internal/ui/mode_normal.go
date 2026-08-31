@@ -7,11 +7,11 @@
 //     prompt), Ctrl-Y (theme switcher), ? (help),
 //     S (presence menu), R (reaction picker)
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
-//     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
-//     (nav back/forward through visited channels)
+//     (page), gg (top) / G (bottom), Tab/h/l (focus next/prev),
+//     Ctrl-o/i (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
-//   - message ops: y (copy permalink), E (edit), D (delete),
-//     M (mark unread), O (open image preview)
+//   - message ops: yy (yank text), Y/C (copy permalink), E (edit),
+//     D (delete), M (mark unread), O (open image preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -51,6 +51,26 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 	if a.focusedPanel == PanelThread && a.threadPanel.ReactionNavActive() {
 		return a.handleThreadReactionNav(msg)
+	}
+
+	// Two-key prefixes (gg, yy): a repeat of the armed key completes
+	// the chord; any other key cancels the prefix and is handled
+	// normally. A matching prefixTimeoutMsg (see reduceIO) also
+	// cancels without performing the action.
+	if a.pendingPrefix != 0 {
+		switch a.pendingPrefix {
+		case 'g':
+			if key.Matches(msg, a.keys.Top) {
+				a.pendingPrefix = 0
+				return a.handleGoToTop()
+			}
+		case 'y':
+			if key.Matches(msg, a.keys.Yank) {
+				a.pendingPrefix = 0
+				return a.yankSelectedMessage()
+			}
+		}
+		a.pendingPrefix = 0
 	}
 
 	switch {
@@ -199,6 +219,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 
+	case key.Matches(msg, a.keys.Top):
+		return a.armPrefix('g')
+
 	case key.Matches(msg, a.keys.Bottom):
 		if cmd := a.handleGoToBottom(); cmd != nil {
 			return cmd
@@ -273,6 +296,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.SaveThread):
 		return a.saveThreadToFile()
+
+	case key.Matches(msg, a.keys.Yank):
+		return a.armPrefix('y')
 
 	case key.Matches(msg, a.keys.CopyPermalink):
 		return a.copyPermalinkOfSelected()

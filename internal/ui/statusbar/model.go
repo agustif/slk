@@ -393,6 +393,11 @@ type CopiedClearMsg struct{}
 // and scheduling a CopiedClearMsg.
 type PermalinkCopiedMsg struct{}
 
+// MessageCopiedMsg is delivered when yy has copied the selected message's
+// plain text to the clipboard. App handles it by setting the toast to
+// "Copied message" and scheduling a CopiedClearMsg.
+type MessageCopiedMsg struct{}
+
 // PermalinkCopyFailedMsg is delivered when fetching the permalink fails.
 // App handles it by setting the toast to "Failed to copy link" and
 // scheduling a CopiedClearMsg.

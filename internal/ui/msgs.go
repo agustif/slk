@@ -433,6 +433,14 @@ type (
 	ToastMsg struct{ Text string }
 )
 
+// prefixTimeoutMsg clears a pending two-key prefix (gg / yy) after
+// keyPrefixTimeout if the second key never arrived. gen must match
+// App.prefixGen so a stale tick cannot cancel a newer prefix.
+type prefixTimeoutMsg struct {
+	prefix rune
+	gen    uint64
+}
+
 // autoScrollTickMsg is dispatched by tea.Tick while a drag is held near
 // the top or bottom edge of a pane. Each tick scrolls the pane one line
 // in the indicated direction, extends the selection to the new lastY,

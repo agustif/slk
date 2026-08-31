@@ -37,6 +37,7 @@ type KeyMap struct {
 	ReactionNav         key.Binding
 	Edit                key.Binding
 	Delete              key.Binding
+	Yank                key.Binding
 	CopyPermalink       key.Binding
 	OpenPreview         key.Binding
 	OpenLink            key.Binding
@@ -103,6 +104,7 @@ func DefaultKeyMap() KeyMap {
 		ReactionNav:     key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "navigate reactions")),
 		Edit:            key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit message")),
 		Delete:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete message")),
+		Yank:            key.NewBinding(key.WithKeys("y"), key.WithHelp("yy", "yank message")),
 		CopyPermalink:   key.NewBinding(key.WithKeys("Y", "C"), key.WithHelp("Y/C", "copy permalink")),
 		OpenPreview:     key.NewBinding(key.WithKeys("O", "v"), key.WithHelp("O/v", "open image preview")),
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
@@ -129,13 +131,13 @@ func DefaultKeyMap() KeyMap {
 		// binding; the Win* entries are keyless help-only bindings
 		// (same trick as WorkspaceFinder above) — actual dispatch of
 		// the chord key happens in handleWindowChord.
-		WindowPrefix: key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "window commands")),
-		WinSplit:     key.NewBinding(key.WithHelp("ctrl+w s / :sp", "split window")),
-		WinVSplit:    key.NewBinding(key.WithHelp("ctrl+w v / :vsp", "vertical split window")),
-		WinNavigate:  key.NewBinding(key.WithHelp("ctrl+w h/j/k/l", "focus window in direction")),
-		WinCycle:     key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
-		WinClose:     key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
-		WinOnly:      key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
+		WindowPrefix:       key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "window commands")),
+		WinSplit:           key.NewBinding(key.WithHelp("ctrl+w s / :sp", "split window")),
+		WinVSplit:          key.NewBinding(key.WithHelp("ctrl+w v / :vsp", "vertical split window")),
+		WinNavigate:        key.NewBinding(key.WithHelp("ctrl+w h/j/k/l", "focus window in direction")),
+		WinCycle:           key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
+		WinClose:           key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
+		WinOnly:            key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
 		ActivityFilter:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next activity tab")),
 		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev activity tab")),
 		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),

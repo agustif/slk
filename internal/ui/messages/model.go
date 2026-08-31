@@ -591,6 +591,26 @@ func MessageTextSource(msg MessageItem) string {
 	return msg.Text
 }
 
+// YankText returns clipboard-friendly plain text for this message:
+// "Author: body" when UserName is set, otherwise just the body. Body
+// is Slack mrkdwn rendered then ANSI-stripped — the same conversion
+// drag-select uses for visible text (mentions, links, emphasis).
+func (m MessageItem) YankText(userNames, channelNames, userGroups map[string]string) string {
+	body := strings.TrimSpace(ansi.Strip(RenderSlackMarkdownWith(MessageTextSource(m), RenderSlackMarkdownOpts{
+		UserNames:    userNames,
+		ChannelNames: channelNames,
+		UserGroups:   userGroups,
+	})))
+	switch {
+	case m.UserName != "" && body != "":
+		return m.UserName + ": " + body
+	case m.UserName != "":
+		return m.UserName
+	default:
+		return body
+	}
+}
+
 // dirty bumps the render-version counter.
 func (m *Model) dirty() { m.version++ }
 
