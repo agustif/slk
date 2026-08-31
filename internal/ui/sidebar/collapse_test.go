@@ -32,7 +32,8 @@ func TestToggleCollapse_OnSelectedHeader(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "D1", Name: "alice", Type: "dm"},
 	})
-	// Cursor: Activity → Threads → Direct Messages header.
+	// Cursor: Activity → Later → Threads → Direct Messages header.
+	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()
 	name, ok := m.IsSectionHeaderSelected()
@@ -177,6 +178,7 @@ func TestToggleCollapse_PreservesCursorOnHeader(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "D1", Name: "alice", Type: "dm"},
 	})
+	m.MoveDown() // Later
 	m.MoveDown() // Threads
 	m.MoveDown() // onto DM header
 	if name, _ := m.IsSectionHeaderSelected(); name != "Direct Messages" {
@@ -195,6 +197,7 @@ func TestToggleCollapse_PreservesCursorOnHeader(t *testing.T) {
 
 func TestIsThreadsSelected_FalseOnSectionHeader(t *testing.T) {
 	m := New([]ChannelItem{{ID: "D1", Name: "alice", Type: "dm"}})
+	m.MoveDown() // Later
 	m.MoveDown() // Threads
 	m.MoveDown() // DM header
 	if m.IsThreadsSelected() {

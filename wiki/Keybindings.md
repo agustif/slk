@@ -5,11 +5,15 @@
 | `j` / `k` | Normal | Move down/up in channel list or messages |
 | `h` / `l` | Normal | Switch focus between panels |
 | `Tab` / `Shift+Tab` | Normal | Cycle focus |
-| `Enter` | Normal (sidebar) | Open selected channel, Threads, or Activity, or toggle a section header |
+| `Enter` | Normal (sidebar) | Open selected channel, Threads, Activity, or Later, or toggle a section header |
 | `f` / `F` | Normal (Activity) | Next / previous Activity tab (Slack views, including custom Unreads / Reactions / VIP) |
 | `s` | Normal (Activity) | Cycle Activity sort (newest ↔ unreads first) |
 | `u` | Normal (Activity) | Toggle Activity unread-only |
 | `Enter` | Normal (Activity) | Open the selected Activity item in its channel / thread |
+| `Enter` | Normal (Later) | Open the selected saved item in its channel / thread |
+| `w` | Normal (message) | Toggle save-for-later on the selected message |
+| `W` | Normal (message) | Remind me about this — duration menu, then `reminders.add` |
+| `:remind 20m` | Command | Set a reminder on the selected message (`20m` / `1h` / `2d`) |
 | `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |

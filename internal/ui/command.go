@@ -25,12 +25,13 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":   cmdWorkspaceFinder,
-	"sp":   cmdSplit,
-	"vsp":  cmdVSplit,
-	"q":    cmdCloseWindow,
-	"only": cmdOnlyWindow,
-	"on":   cmdOnlyWindow,
+	"ws":     cmdWorkspaceFinder,
+	"sp":     cmdSplit,
+	"vsp":    cmdVSplit,
+	"q":      cmdCloseWindow,
+	"only":   cmdOnlyWindow,
+	"on":     cmdOnlyWindow,
+	"remind": cmdRemind,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
@@ -53,6 +54,17 @@ func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 	a.workspaceFinder.Open()
 	a.SetMode(ModeWorkspaceFinder)
 	return nil
+}
+
+func cmdRemind(a *App, args []string) tea.Cmd {
+	if len(args) == 0 {
+		return a.openRemindDuration()
+	}
+	mins, err := parseRemindDuration(args[0])
+	if err != nil {
+		return toastWithClear(a, "Usage: :remind 20m", 2*time.Second)
+	}
+	return a.remindSelected(mins)
 }
 
 // executeCommand parses and runs one command line (without the

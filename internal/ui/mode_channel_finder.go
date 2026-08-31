@@ -34,6 +34,9 @@ func handleChannelFinderMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if result.Type == "activity" {
 			return func() tea.Msg { return ActivityViewActivatedMsg{} }
 		}
+		if result.Type == "later" {
+			return func() tea.Msg { return LaterViewActivatedMsg{} }
+		}
 		// Already-joined: switch immediately. Not joined: kick off
 		// a join command; ChannelJoinedMsg will fold the channel
 		// into the sidebar and switch to it.

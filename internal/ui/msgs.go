@@ -198,6 +198,25 @@ type (
 		TeamID string
 		Unread int
 	}
+	// LaterViewActivatedMsg is dispatched when the user picks the
+	// synthetic Later sidebar row (or the finder shortcut).
+	LaterViewActivatedMsg struct{}
+	// LaterListLoadedMsg carries a saved.list page. Ignored if
+	// TeamID/Gen don't match the in-flight request.
+	LaterListLoadedMsg struct {
+		TeamID string
+		Items  []slackclient.SavedItem
+		Counts slackclient.SavedCounts
+		Err    error
+		Gen    uint64
+	}
+	// LaterCountsMsg updates the sidebar Later badge from
+	// client.counts saved.uncompleted_count. Ignored if TeamID is
+	// not active.
+	LaterCountsMsg struct {
+		TeamID string
+		Count  int
+	}
 	ConnectionStateMsg struct {
 		State int // 0=connecting, 1=connected, 2=disconnected
 	}
@@ -285,6 +304,7 @@ type (
 		// sidebar reverts to its existing name-keyed buckets).
 		SectionsProvider sidebar.SectionsProvider
 		ActivityUnread   int
+		LaterCount       int
 	}
 	// ReadStateChangedMsg is sent whenever the persistent read state changes,
 	// so panels that read from cache.GetWorkspaceReadState re-render.
@@ -366,6 +386,9 @@ type (
 		// ActivityUnread is client.counts activity_v2 sum, used for
 		// the sidebar Activity-row badge on the initial workspace.
 		ActivityUnread int
+		// LaterCount is client.counts saved.uncompleted_count, used
+		// for the sidebar Later-row badge on the initial workspace.
+		LaterCount int
 	}
 	// CustomEmojisLoadedMsg is sent when a workspace's custom emoji list
 	// finishes loading in the background, after WorkspaceReadyMsg has

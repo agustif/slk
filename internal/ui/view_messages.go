@@ -6,21 +6,23 @@
 // sidebar, MESSAGES, thread). It has two top-level branches
 // depending on a.view:
 //
-//   ViewThreads  -> threads-list panel (no compose, no typing
-//                   line). Whole bordered panel is cached on
-//                   threadsView.Version + layout key.
-//   ViewActivity -> Activity inbox (same chrome as threads:
-//                   no compose). Cached on activityView.Version.
-//   ViewChannels -> message pane + typing row + compose box, with
-//                   a split-cache pattern: bordered top region
-//                   (messages + top edge + sides only, no bottom
-//                   edge) cached on messagepane.Version only;
-//                   bottom region (typing + compose + bottom
-//                   edge + sides) re-rendered fresh each frame.
-//                   The two stack into a continuous bordered
-//                   panel because BorderBottom(false) on the top
-//                   + BorderTop(false) on the bottom lines up the
-//                   border glyphs.
+//	ViewThreads  -> threads-list panel (no compose, no typing
+//	                line). Whole bordered panel is cached on
+//	                threadsView.Version + layout key.
+//	ViewActivity -> Activity inbox (same chrome as threads:
+//	                no compose). Cached on activityView.Version.
+//	ViewLater    -> Later / saved-items list (same chrome as
+//	                Activity). Cached on laterView.Version.
+//	ViewChannels -> message pane + typing row + compose box, with
+//	                a split-cache pattern: bordered top region
+//	                (messages + top edge + sides only, no bottom
+//	                edge) cached on messagepane.Version only;
+//	                bottom region (typing + compose + bottom
+//	                edge + sides) re-rendered fresh each frame.
+//	                The two stack into a continuous bordered
+//	                panel because BorderBottom(false) on the top
+//	                + BorderTop(false) on the bottom lines up the
+//	                border glyphs.
 //
 // PERF (see Phase 2g render-cache discussion + the split-rendering
 // note in the channels branch): caching the entire bordered panel
@@ -92,6 +94,8 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 		viewN = 1
 	case ViewActivity:
 		viewN = 2
+	case ViewLater:
+		viewN = 3
 	}
 	msgLayoutKey := int64(a.focusedWin)<<32 |
 		themeVer<<4 |
@@ -109,6 +113,9 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	}
 	if a.view == ViewActivity {
 		return a.renderActivityViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
+	}
+	if a.view == ViewLater {
+		return a.renderLaterViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
 	}
 	return a.renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight, msgFocused, composeFocused, msgLayoutKey)
 }
@@ -182,6 +189,32 @@ func (a *App) renderActivityViewPanel(msgWidth, msgBorder, contentHeight int, ms
 		msgWidth+msgBorder, contentHeight,
 	)
 	c.store(out, avVersion, msgWidth, contentHeight, msgLayoutKey)
+	return out
+}
+
+func (a *App) renderLaterViewPanel(msgWidth, msgBorder, contentHeight int, msgFocused bool, msgLayoutKey int64) string {
+	a.laterView.SetFocused(msgFocused)
+	lvVersion := a.laterView.Version()
+	c := &a.renderCache.msgPanel
+	if c.hit(lvVersion, msgWidth, contentHeight, msgLayoutKey) {
+		return c.output
+	}
+	msgBorderStyle := styles.UnfocusedBorder.Width(msgWidth)
+	if msgFocused {
+		msgBorderStyle = styles.FocusedBorder.Width(msgWidth)
+	}
+	msgContentHeight := contentHeight - 2
+	a.layout.SetMsgHeight(msgContentHeight)
+	if msgContentHeight < 3 {
+		msgContentHeight = 3
+	}
+	lvView := a.laterView.View(msgContentHeight, msgWidth-2)
+	lvView = messages.ReapplyBgAfterResets(lvView, messages.BgANSI())
+	out := exactSize(
+		msgBorderStyle.Render(lvView),
+		msgWidth+msgBorder, contentHeight,
+	)
+	c.store(out, lvVersion, msgWidth, contentHeight, msgLayoutKey)
 	return out
 }
 

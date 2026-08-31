@@ -17,9 +17,10 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ids"
-	slackclient "github.com/gammons/slk/internal/slack"
 	imgpkg "github.com/gammons/slk/internal/image"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/compose"
+	"github.com/gammons/slk/internal/ui/laterview"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/statusbar"
@@ -716,6 +717,136 @@ func TestApp_ActivityCountsUpdatesBadge(t *testing.T) {
 	_, _ = app.Update(ActivityCountsMsg{TeamID: "T2", Unread: 99})
 	if app.sidebar.ActivityUnreadCount() != 7 {
 		t.Errorf("other-team counts should be ignored; got %d", app.sidebar.ActivityUnreadCount())
+	}
+}
+
+func TestApp_LaterViewActivation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(LaterViewActivatedMsg{})
+	if app.view != ViewLater {
+		t.Fatalf("after activation view = %v, want ViewLater", app.view)
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
+	if app.view != ViewChannels {
+		t.Errorf("after ChannelSelectedMsg view = %v, want ViewChannels", app.view)
+	}
+}
+
+func TestApp_LaterCountsUpdatesBadge(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(LaterCountsMsg{TeamID: "T1", Count: 4})
+	if app.sidebar.LaterUnreadCount() != 4 {
+		t.Errorf("LaterUnreadCount = %d, want 4", app.sidebar.LaterUnreadCount())
+	}
+	_, _ = app.Update(LaterCountsMsg{TeamID: "T2", Count: 99})
+	if app.sidebar.LaterUnreadCount() != 4 {
+		t.Errorf("other-team counts should be ignored; got %d", app.sidebar.LaterUnreadCount())
+	}
+}
+
+func TestApp_HandleEnterOnLaterRowActivatesView(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SelectLaterRow()
+	if !app.sidebar.IsLaterSelected() {
+		t.Fatal("precondition: Later row selected")
+	}
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(LaterViewActivatedMsg); !ok {
+		t.Errorf("expected LaterViewActivatedMsg, got %T", msg)
+	}
+}
+
+func TestApp_SaveForLaterKeyToggles(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.activeChannelID = "C1"
+	app.focusedPanel = PanelMessages
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1.0", UserName: "alice", Text: "hi"},
+	})
+	var added, removed int
+	app.SetLaterService(NewLaterService(LaterServiceFuncs{
+		Add: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+			added++
+			if string(channelID) != "C1" || string(ts) != "1.0" {
+				t.Errorf("Add(%q, %q)", channelID, ts)
+			}
+			return nil
+		},
+		Remove: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+			removed++
+			return nil
+		},
+	}))
+	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	if cmd == nil {
+		t.Fatal("expected cmd from w")
+	}
+	msg := cmd()
+	_, _ = app.Update(msg)
+	if added != 1 {
+		t.Errorf("Add called %d times, want 1", added)
+	}
+	if !strings.Contains(app.statusbar.View(80), "Saved for later") {
+		t.Errorf("toast = %q", app.statusbar.View(80))
+	}
+	cmd = app.handleNormalMode(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	msg = cmd()
+	_, _ = app.Update(msg)
+	if removed != 1 {
+		t.Errorf("Remove called %d times, want 1", removed)
+	}
+}
+
+func TestApp_RemindKeyOpensDurationMenu(t *testing.T) {
+	app := NewApp()
+	app.activeChannelID = "C1"
+	app.focusedPanel = PanelMessages
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1.0", UserName: "alice", Text: "hi"},
+	})
+	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'W', Text: "W"})
+	if cmd != nil {
+		t.Errorf("open overlay should not return a cmd, got %T", cmd)
+	}
+	if app.mode != ModeRemindDuration {
+		t.Fatalf("mode = %v, want ModeRemindDuration", app.mode)
+	}
+	if !app.presenceMenu.IsVisible() {
+		t.Fatal("duration menu should be visible")
+	}
+}
+
+func TestApp_HandleEnterOnLaterViewOpensPermalink(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.view = ViewLater
+	app.focusedPanel = PanelMessages
+	app.laterView.SetItems([]laterview.Item{{
+		SavedItem:   slackclient.SavedItem{Key: "C9\t9.0", ItemID: "C9", ItemType: "message", TS: "9.0"},
+		ChannelName: "later-ch", ChannelType: "channel",
+	}})
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected cmd")
+	}
+	msg := cmd()
+	sel, ok := msg.(ChannelSelectedMsg)
+	if !ok {
+		t.Fatalf("got %T, want ChannelSelectedMsg", msg)
+	}
+	if sel.ID != "C9" {
+		t.Errorf("ID = %q, want C9", sel.ID)
+	}
+	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "9.0" {
+		t.Errorf("pendingLinkNav = %+v", app.pendingLinkNav)
 	}
 }
 

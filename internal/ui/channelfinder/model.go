@@ -26,11 +26,14 @@ const ThreadsViewID = "__slk_view_threads"
 // ActivityViewID is the sentinel ID used for the synthetic "Activity" entry.
 const ActivityViewID = "__slk_view_activity"
 
+// LaterViewID is the sentinel ID used for the synthetic "Later" entry.
+const LaterViewID = "__slk_view_later"
+
 // ChannelResult is returned when the user selects a channel.
 type ChannelResult struct {
 	ID     string
 	Name   string
-	Type   string // channel, dm, group_dm, private, threads, activity
+	Type   string // channel, dm, group_dm, private, threads, activity, later
 	Joined bool   // false => caller should join the channel before opening it
 }
 
@@ -38,7 +41,7 @@ type ChannelResult struct {
 type Item struct {
 	ID       string
 	Name     string
-	Type     string // channel, dm, group_dm, private, threads, activity
+	Type     string // channel, dm, group_dm, private, threads, activity, later
 	Presence string // for DMs: active, away
 	Joined   bool   // true if the user is already a member; false for browseable public channels
 	// LastVisited is the unix timestamp (seconds) of the user's most
@@ -687,6 +690,10 @@ func channelPrefix(item Item) string {
 		// around it. Accent color keeps it visually distinct without
 		// double-width.
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("⚑")
+	case "later":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("◷")
+	case "activity":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("◎")
 	case "private":
 		return lipgloss.NewStyle().Foreground(styles.Warning).Render("◆")
 	case "dm":

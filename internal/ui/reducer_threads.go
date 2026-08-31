@@ -141,6 +141,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		a.view = ViewThreads
 		a.sidebar.SetThreadsActive(true)
 		a.sidebar.SetActivityActive(false)
+		a.sidebar.SetLaterActive(false)
 		a.focusedPanel = PanelMessages
 		var batch []tea.Cmd
 		if a.activeTeamID != "" {

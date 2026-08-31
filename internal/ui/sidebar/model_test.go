@@ -40,7 +40,8 @@ func TestSidebarNavigation(t *testing.T) {
 	// Expand the Channels section so j/k can reach the channel rows.
 	m.ToggleCollapse("Channels")
 
-	// Nav order: Activity → Threads → "Channels" header → C1 → C2 → C3.
+	// Nav order: Activity → Later → Threads → "Channels" header → C1 → C2 → C3.
+	m.MoveDown() // Later
 	m.MoveDown() // Threads
 	m.MoveDown() // onto the "Channels" section header
 	if name, ok := m.IsSectionHeaderSelected(); !ok || name != "Channels" {
@@ -88,10 +89,11 @@ func TestThreadsItem_MoveDownLeavesIt(t *testing.T) {
 		{ID: "C2", Name: "design", Type: "channel"},
 	})
 	m.ToggleCollapse("Channels")
+	m.MoveDown() // Later
 	m.MoveDown() // Threads
 	m.MoveDown() // header
 	m.MoveDown() // first channel
-	if m.IsThreadsSelected() || m.IsActivitySelected() {
+	if m.IsThreadsSelected() || m.IsActivitySelected() || m.IsLaterSelected() {
 		t.Errorf("MoveDown should leave the synthetic rows")
 	}
 	item, ok := m.SelectedItem()
@@ -105,6 +107,7 @@ func TestThreadsItem_MoveUpReturnsToIt(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 	})
 	m.ToggleCollapse("Channels")
+	m.MoveDown() // Later
 	m.MoveDown() // Threads
 	m.MoveDown() // header
 	m.MoveDown() // C1
@@ -114,11 +117,15 @@ func TestThreadsItem_MoveUpReturnsToIt(t *testing.T) {
 	m.MoveUp() // back to header
 	m.MoveUp() // Threads
 	if !m.IsThreadsSelected() {
-		t.Errorf("MoveUp from first channel should land on Threads (under Activity)")
+		t.Errorf("MoveUp from first channel should land on Threads (under Later)")
+	}
+	m.MoveUp() // Later
+	if !m.IsLaterSelected() {
+		t.Errorf("MoveUp from Threads should land on Later")
 	}
 	m.MoveUp() // Activity
 	if !m.IsActivitySelected() {
-		t.Errorf("MoveUp from Threads should land on Activity at the top")
+		t.Errorf("MoveUp from Later should land on Activity at the top")
 	}
 }
 
@@ -195,6 +202,10 @@ func TestThreadsItem_SelectedItemFalseWhenOnThreadsRow(t *testing.T) {
 	if _, ok := m.SelectedItem(); ok {
 		t.Errorf("SelectedItem should return ok=false on the top synthetic row")
 	}
+	m.MoveDown() // Later
+	if _, ok := m.SelectedItem(); ok {
+		t.Errorf("SelectedItem should return ok=false when Later row is selected")
+	}
 	m.MoveDown() // Threads
 	if _, ok := m.SelectedItem(); ok {
 		t.Errorf("SelectedItem should return ok=false when Threads row is selected")
@@ -207,11 +218,74 @@ func TestActivityItem_SitsAboveThreads(t *testing.T) {
 		t.Fatal("Activity should own the top slot")
 	}
 	m.MoveDown()
+	if !m.IsLaterSelected() {
+		t.Error("MoveDown from Activity should land on Later")
+	}
+	m.MoveDown()
 	if !m.IsThreadsSelected() {
-		t.Error("MoveDown from Activity should land on Threads")
+		t.Error("MoveDown from Later should land on Threads")
 	}
 	if _, ok := m.SelectedItem(); ok {
 		t.Error("SelectedItem should be false on the Threads row")
+	}
+}
+
+func TestLaterItem_SitsBetweenActivityAndThreads(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	out := m.View(10, 30)
+	var activityI, laterI, threadsI = -1, -1, -1
+	for i, line := range strings.Split(out, "\n") {
+		if activityI < 0 && strings.Contains(line, "Activity") {
+			activityI = i
+		}
+		if laterI < 0 && strings.Contains(line, "Later") {
+			laterI = i
+		}
+		if threadsI < 0 && strings.Contains(line, "Threads") {
+			threadsI = i
+		}
+	}
+	if activityI < 0 || laterI < 0 || threadsI < 0 {
+		t.Fatalf("missing synthetic rows in view: %q", out)
+	}
+	if !(activityI < laterI && laterI < threadsI) {
+		t.Errorf("want Activity < Later < Threads insertion order; got %d, %d, %d", activityI, laterI, threadsI)
+	}
+}
+
+func TestLaterItem_UnreadBadgeRenders(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SetLaterUnreadCount(5)
+	out := m.View(10, 30)
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "Later") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("no Later line in view: %q", out)
+	}
+	if !strings.Contains(line, "•5") {
+		t.Errorf("Later line should contain badge '•5', got %q", line)
+	}
+}
+
+func TestSetLaterUnreadCount_ZeroOmitsBadge(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SetLaterUnreadCount(2)
+	m.SetLaterUnreadCount(0)
+	out := m.View(10, 30)
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "Later") {
+			line = l
+			break
+		}
+	}
+	if strings.Contains(line, "•") {
+		t.Errorf("zero count should omit badge, got %q", line)
 	}
 }
 

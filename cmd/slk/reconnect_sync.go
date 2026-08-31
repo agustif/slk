@@ -88,6 +88,9 @@ type reconnectSync struct {
 	// context so a later workspace switch still shows the reconnect
 	// value. Optional.
 	onActivity func(unread int)
+	// onLater records saved.uncompleted_count onto the workspace
+	// context. Optional.
+	onLater func(count int)
 }
 
 // run performs one catch-up pass.
@@ -140,8 +143,13 @@ func (r *reconnectSync) refreshUnreadState() {
 	if r.onActivity != nil {
 		r.onActivity(activityUnread)
 	}
+	laterCount := snap.Saved.Badge()
+	if r.onLater != nil {
+		r.onLater(laterCount)
+	}
 	if r.program != nil {
 		r.program.Send(ui.ActivityCountsMsg{TeamID: r.workspaceID, Unread: activityUnread})
+		r.program.Send(ui.LaterCountsMsg{TeamID: r.workspaceID, Count: laterCount})
 	}
 	if len(snap.Unreads) == 0 {
 		return

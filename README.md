@@ -24,6 +24,7 @@
 - Inline images (kitty graphics / sixel / half-block fallback) with full-screen preview
 - Threads side panel + a workspace-wide threads view
 - Activity inbox (Slack's Activity tab: recents, filters, unread badge)
+- Later / Save for later (`w` toggle, `W` remind) synced with Slack's Later tab
 - Smart paste: clipboard images, file paths, or text — multiple attachments + caption in one send
 - Slack-native sidebar sections, kept live; or glob-based config sections
 - Automatic auth from the Slack desktop app — no tokens to copy, no Slack App required
