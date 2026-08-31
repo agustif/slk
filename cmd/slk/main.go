@@ -1848,6 +1848,7 @@ func run() error {
 				}
 			},
 		}))
+		app.SetActivityCache(db)
 
 		app.SetSectionService(ui.NewSectionService(ui.SectionServiceFuncs{
 			Assign: func(channelID ids.ChannelID, sectionID string) tea.Msg {

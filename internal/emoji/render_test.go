@@ -1,6 +1,9 @@
 package emoji
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolveShortcodesInText(t *testing.T) {
 	cases := []struct {
@@ -28,5 +31,28 @@ func TestResolveShortcodesInText(t *testing.T) {
 				t.Errorf("ResolveShortcodesInText(%q) = %q, want %q", c.input, got, c.want)
 			}
 		})
+	}
+}
+
+func TestRenderShortcode_EyesGlyph(t *testing.T) {
+	text, flush, asImage := RenderShortcode("eyes", PlaceContext{}, 2, nil)
+	if asImage {
+		t.Fatal("image mode off: asImage should be false")
+	}
+	if flush != nil {
+		t.Fatal("legacy path should not return a kitty flush")
+	}
+	if !strings.Contains(text, "👀") {
+		t.Errorf("RenderShortcode(eyes) = %q, want eyes glyph", text)
+	}
+}
+
+func TestRenderShortcode_CustomFallback(t *testing.T) {
+	text, _, asImage := RenderShortcode("not-a-real-emoji", PlaceContext{}, 2, nil)
+	if asImage {
+		t.Fatal("unknown shortcode should not be asImage")
+	}
+	if text != ":not-a-real-emoji:" {
+		t.Errorf("RenderShortcode(unknown) = %q, want :not-a-real-emoji:", text)
 	}
 }

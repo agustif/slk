@@ -67,9 +67,15 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   that view's `entry_types` / `unread_only` / `priority_only` onto
   `activity.feed`, matching the official client.
 - Cards follow Slack's copy: "Post in #channel", "Thread in #channel",
-  "Direct Message", "Mentioned you", "Reacted :eyes:", with a `vip`
-  marker when the item is priority. Detailed cards show the actor's
-  4×2 avatar (same kitty / half-block pipeline as the message pane).
+  "Direct Message", "Mentioned you", plus reaction cards that show the
+  real emoji (`Alice · reacted 👀 in #eng`) and a one-line parent quote
+  from the local cache (empty, not a spinner, on a cache miss). Detailed
+  cards show the actor's 4×2 avatar (same kitty / half-block pipeline as
+  the message pane).
+- Click the event emoji to toggle your reaction; click the rest of the
+  card to open the message. `r` (and right-click, when the terminal
+  reports it — Apple Terminal may swallow right-click) opens the
+  existing reaction picker on the selected item.
 - Sort is newest (`chrono_v1`) or unreads-first
   (`priority_reads_and_unreads_v1` + `vip_unreads_first`). The unread
   chip is Slack's Unreads button on the current tab.
@@ -80,7 +86,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   in-app permalink path search results use.
 ## Reactions
 
-- Search-first picker overlay (`r`) with frecent emoji
+- Search-first picker overlay (`r`) with frecent emoji — also from an
+  Activity card via `r` or right-click
 - Quick-toggle nav across existing pills (`R`, then `h/l/Enter`)
 - Pill-style display (green = yours, gray = others)
 - Optimistic UI, deduped against the WebSocket echo

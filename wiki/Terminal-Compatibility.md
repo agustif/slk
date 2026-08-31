@@ -16,6 +16,7 @@ something from the top of the list for the richest experience.
 | **mlterm**            | sixel                | half-block         | partial     | partial          |                                                             |
 | **xterm** (`-ti vt340`) | sixel              | half-block         | yes         | yes              | Detected at startup via DA1; plain `xterm` without the sixel-capable emulation is half-block. |
 | **other sixel terminals** | sixel            | half-block         | varies      | varies           | DomTerm, toyterm, contour, WezTerm and friends are picked up by the startup DA1 probe. |
+| **Apple Terminal**    | half-block           | half-block         | no          | yes              | Right-click is often swallowed for Terminal's own context menu, so Activity's right-click → reaction picker may never fire; use `r`. |
 | **screen**            | half-block           | half-block         | no          | no               | No working OSC 52 path; consider switching to tmux.         |
 
 ## How the image protocol is picked

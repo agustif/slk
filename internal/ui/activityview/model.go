@@ -8,6 +8,7 @@
 package activityview
 
 import (
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/avatar"
 	"github.com/gammons/slk/internal/config"
+	slkemoji "github.com/gammons/slk/internal/emoji"
+	imgpkg "github.com/gammons/slk/internal/image"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -75,6 +78,7 @@ const (
 	ClickNone ClickKind = iota
 	ClickItem
 	ClickControls
+	ClickReaction
 )
 
 type hitKind int
@@ -100,6 +104,32 @@ type Item struct {
 	ChannelName string
 	ChannelType string
 	ActorName   string
+	// ParentText is the cache-first parent message body (raw mrkdwn).
+	// Empty when the cache missed; the card shows a muted empty quote
+	// rather than a spinner.
+	ParentText string
+	// HasReacted is true when the current user already used the event
+	// emoji on the parent. Only meaningful when ReactionsKnown.
+	HasReacted bool
+	// ReactionsKnown is true when GetReactions succeeded (including an
+	// empty list). False means toggle must Add, never blind-Remove.
+	ReactionsKnown bool
+	// OwnReactions is the current user's emoji on the parent (picker ✓).
+	OwnReactions []string
+}
+
+// EmojiContext bundles emoji-image rendering for Activity cards.
+// Mirrors messages.EmojiContext / reactionpicker.EmojiContext.
+type EmojiContext struct {
+	PlaceCtx slkemoji.PlaceContext
+	Cells    int
+	Customs  map[string]string
+}
+
+type reactionHit struct {
+	absLine int
+	x0, x1  int
+	idx     int
 }
 
 // Query is the flattened activity.feed request the next fetch should
@@ -119,14 +149,14 @@ type Model struct {
 	channelNames map[string]string
 	selfUserID   string
 
-	views         []slackclient.ActivityView
-	viewIdx       int
-	filter        string
-	sort          string
-	unreadOnly    bool
-	priorityOnly  bool
-	density       string
-	unreadBadge   int
+	views        []slackclient.ActivityView
+	viewIdx      int
+	filter       string
+	sort         string
+	unreadOnly   bool
+	priorityOnly bool
+	density      string
+	unreadBadge  int
 
 	selected int
 	yOffset  int
@@ -141,7 +171,9 @@ type Model struct {
 	chipHits []hitbox
 	version  int64
 
-	avatarFn messages.AvatarFunc
+	avatarFn     messages.AvatarFunc
+	emojiCtx     EmojiContext
+	reactionHits []reactionHit
 }
 
 // New creates an empty Model seeded from config defaults.
@@ -217,6 +249,57 @@ func (m *Model) avatarFor(userID string) string {
 		return ""
 	}
 	return m.avatarFn(userID)
+}
+
+// SetEmojiContext configures emoji-image rendering. Invalidates the
+// panel cache so the next View() picks up the new PlaceCtx/cells.
+func (m *Model) SetEmojiContext(ctx EmojiContext) {
+	if ctx.Cells != 1 && ctx.Cells != 2 {
+		ctx.Cells = 2
+	}
+	m.emojiCtx = ctx
+	m.dirty()
+}
+
+// SetEmojiCustoms updates the customs map without changing PlaceCtx
+// or Cells. Called from App.SetCustomEmoji.
+func (m *Model) SetEmojiCustoms(customs map[string]string) {
+	m.emojiCtx.Customs = customs
+	m.dirty()
+}
+
+// HandleEmojiImageReady bumps Version so the panel cache does not
+// keep blank cold-cache holes after a kitty emoji fetch lands.
+func (m *Model) HandleEmojiImageReady(_ string) {
+	m.dirty()
+}
+
+// ApplyReaction updates HasReacted / OwnReactions for cards whose
+// parent is (channelID, messageTS). isSelf is the current user.
+func (m *Model) ApplyReaction(channelID, messageTS, emoji string, isSelf, remove bool) {
+	if channelID == "" || messageTS == "" || emoji == "" || !isSelf {
+		return
+	}
+	changed := false
+	for i := range m.items {
+		it := &m.items[i]
+		if it.ChannelID != channelID || it.MessageTS != messageTS {
+			continue
+		}
+		changed = true
+		it.ReactionsKnown = true
+		if it.Reaction == emoji {
+			it.HasReacted = !remove
+		}
+		if remove {
+			it.OwnReactions = removeEmoji(it.OwnReactions, emoji)
+		} else if !containsEmoji(it.OwnReactions, emoji) {
+			it.OwnReactions = append(it.OwnReactions, emoji)
+		}
+	}
+	if changed {
+		m.dirty()
+	}
 }
 
 func (m *Model) SetFocused(f bool) {
@@ -506,14 +589,26 @@ func (m *Model) ScrollDown(n int) {
 
 // ClickAt selects a card or hits a toolbar control. rowY/colX are
 // pane-local content coordinates (border already stripped).
+// activateControls is true for left-click (tabs/chips fire); false
+// for right-click so the toolbar is inert.
 func (m *Model) ClickAt(rowY, colX int) ClickKind {
+	return m.clickAt(rowY, colX, true)
+}
+
+func (m *Model) clickAt(rowY, colX int, activateControls bool) ClickKind {
 	if rowY < 0 {
 		return ClickNone
 	}
 	if rowY == 0 {
+		if !activateControls {
+			return ClickNone
+		}
 		return m.clickHits(m.tabHits, colX)
 	}
 	if rowY == 1 {
+		if !activateControls {
+			return ClickNone
+		}
 		return m.clickHits(m.chipHits, colX)
 	}
 	if rowY < toolbarLines {
@@ -532,7 +627,38 @@ func (m *Model) ClickAt(rowY, colX int) ClickKind {
 		m.selected = idx
 		m.dirty()
 	}
+	if _, ok := m.hitReaction(absLine, colX); ok {
+		return ClickReaction
+	}
 	return ClickItem
+}
+
+// ClickAtCard selects a card without activating toolbar chips.
+// Used by right-click → reaction picker.
+func (m *Model) ClickAtCard(rowY, colX int) ClickKind {
+	return m.clickAt(rowY, colX, false)
+}
+
+// HitTestReaction reports whether (rowY, colX) is on a rendered
+// event-emoji. Coordinate frame matches ClickAt. Does not mutate.
+func (m *Model) HitTestReaction(rowY, colX int) (emoji string, ok bool) {
+	if rowY < toolbarLines {
+		return "", false
+	}
+	absLine := m.yOffset + (rowY - toolbarLines)
+	return m.hitReaction(absLine, colX)
+}
+
+func (m *Model) hitReaction(absLine, colX int) (emoji string, ok bool) {
+	for _, h := range m.reactionHits {
+		if h.absLine == absLine && colX >= h.x0 && colX < h.x1 {
+			if h.idx >= 0 && h.idx < len(m.items) {
+				return m.items[h.idx].Reaction, true
+			}
+			return "", false
+		}
+	}
+	return "", false
 }
 
 func (m *Model) clickHits(hits []hitbox, colX int) ClickKind {
@@ -593,6 +719,7 @@ func (m *Model) View(height, width int) string {
 	if height < 1 {
 		height = 1
 	}
+	m.reactionHits = m.reactionHits[:0]
 
 	toolbar := m.renderToolbar(width)
 	bodyHeight := height - toolbarLines
@@ -600,6 +727,7 @@ func (m *Model) View(height, width int) string {
 		bodyHeight = 0
 	}
 
+	var pendingFlushes []func(io.Writer) error
 	var body string
 	switch {
 	case m.loading && len(m.items) == 0:
@@ -609,7 +737,7 @@ func (m *Model) View(height, width int) string {
 	case len(m.items) == 0:
 		body = placeCenter(width, bodyHeight, mutedStyle().Render("no activity"))
 	default:
-		lines := m.renderRows(width)
+		lines := m.renderRows(width, &pendingFlushes)
 		if !m.hasSnapped || m.snappedSelection != m.selected {
 			m.snapToSelected(bodyHeight, len(lines))
 			m.snappedSelection = m.selected
@@ -640,6 +768,10 @@ func (m *Model) View(height, width int) string {
 			visible = out
 		}
 		body = strings.Join(visible, "\n")
+	}
+
+	for _, fl := range pendingFlushes {
+		_ = fl(imgpkg.KittyOutput)
 	}
 
 	if bodyHeight == 0 {
@@ -682,7 +814,7 @@ func (m *Model) renderToolbar(width int) string {
 	}
 	sep := mutedStyle().Render("  ")
 	chips := unreadStyled + sep + sortStyled + sep + densityStyled
-	hint := mutedStyle().Render("  f/F tab  s sort  u unread  enter")
+	hint := mutedStyle().Render("  f/F tab  s sort  u unread  r react  enter")
 	line1 := chips + hint
 	line1 = clipToWidth(line1, width)
 	if pad := width - lipgloss.Width(line1); pad > 0 {
@@ -760,11 +892,11 @@ func (m *Model) selectedSpan() (start, end int) {
 	return start, start + cardContentLines
 }
 
-func (m *Model) renderRows(width int) []string {
+func (m *Model) renderRows(width int, flushes *[]func(io.Writer) error) []string {
 	if m.density == config.ActivityDensityCompact {
 		lines := make([]string, 0, len(m.items))
 		for i, it := range m.items {
-			lines = append(lines, m.renderCompact(it, width, i == m.selected))
+			lines = append(lines, m.renderCompact(it, width, i == m.selected, i, i, flushes))
 		}
 		return lines
 	}
@@ -774,7 +906,8 @@ func (m *Model) renderRows(width int) []string {
 		if i > 0 {
 			lines = append(lines, separator)
 		}
-		lines = append(lines, m.renderCard(it, width, i == m.selected)...)
+		absHeader := i * cardStride
+		lines = append(lines, m.renderCard(it, width, i == m.selected, i, absHeader, flushes)...)
 	}
 	return lines
 }
@@ -783,17 +916,30 @@ func blankLine(width int) string {
 	return lipgloss.NewStyle().Width(width).Render("")
 }
 
-func (m *Model) renderCompact(it Item, width int, selected bool) string {
+func (m *Model) renderCompact(it Item, width int, selected bool, idx, absLine int, flushes *[]func(io.Writer) error) string {
 	contentWidth := width - 1
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	line := m.headerText(it)
-	line = clipToWidth(line, contentWidth)
-	return m.borderFill(line, contentWidth, selected, false, false)
+	var line string
+	if it.Type == "message_reaction" && it.Reaction != "" {
+		line = m.renderReactionCompact(it, contentWidth, idx, absLine, flushes)
+	} else {
+		line = m.headerText(it)
+		if q := m.renderQuote(it, contentWidth/2, flushes); q != "" {
+			line += "  " + mutedStyle().Render("·") + "  " + q
+		}
+		if !containsKittyPlacement(line) {
+			line = clipToWidth(line, contentWidth)
+		} else if slkemoji.Width(line) > contentWidth {
+			line = m.headerText(it)
+			line = clipToWidth(line, contentWidth)
+		}
+	}
+	return m.borderFill(line, contentWidth, selected, false)
 }
 
-func (m *Model) renderCard(it Item, width int, selected bool) []string {
+func (m *Model) renderCard(it Item, width int, selected bool, idx, absHeader int, flushes *[]func(io.Writer) error) []string {
 	contentWidth := width - 1
 	if contentWidth < 1 {
 		contentWidth = 1
@@ -806,8 +952,13 @@ func (m *Model) renderCard(it Item, width int, selected bool) []string {
 			textWidth = 8
 		}
 	}
-	header := clipToWidth(m.headerText(it), textWidth)
-	preview := clipToWidth("  "+m.previewText(it), textWidth)
+	var header string
+	if it.Type == "message_reaction" && it.Reaction != "" {
+		header = m.renderReactionHeader(it, textWidth, idx, absHeader, flushes)
+	} else {
+		header = clipToWidth(m.headerText(it), textWidth)
+	}
+	preview := m.renderPreview(it, textWidth, flushes)
 	footer := clipToWidth("  "+formatRelTime(it.FeedTS), textWidth)
 	body := header + "\n" + preview + "\n" + footer
 	if avatarStr != "" {
@@ -824,32 +975,26 @@ func (m *Model) renderCard(it Item, width int, selected bool) []string {
 		if i < len(raw) {
 			line = raw[i]
 		}
-		out = append(out, m.borderFill(line, contentWidth, selected, i == cardContentLines-1, avatarStr != ""))
+		out = append(out, m.borderFill(line, contentWidth, selected, i == cardContentLines-1))
 	}
 	return out
 }
 
-func (m *Model) borderFill(text string, contentWidth int, selected, muted, hasAvatar bool) string {
+func (m *Model) borderFill(text string, contentWidth int, selected, muted bool) string {
 	borderStyle := borderInvisStyle()
 	bg := styles.Background
 	if selected {
 		borderStyle = borderSelectStyle(m.focused)
 		bg = styles.SelectionTintColor(m.focused)
 	}
+	// Pad with emoji.Width so kitty placements (emoji and avatars)
+	// are not measured or truncated by lipgloss.Width / clipToWidth.
+	padded := padToCells(text, contentWidth)
 	fill := lipgloss.NewStyle().Background(bg)
 	if muted {
 		fill = fill.Foreground(styles.TextMuted)
 	}
-	// Kitty avatar placeholders must not go through lipgloss Width
-	// truncation. Pad short lines; leave over-wide lines alone.
-	if hasAvatar {
-		if w := lipgloss.Width(text); w < contentWidth {
-			text += lipgloss.NewStyle().Background(bg).Width(contentWidth - w).Render("")
-		}
-		return borderStyle.Render(fill.Render(text))
-	}
-	fill = fill.Width(contentWidth)
-	return borderStyle.Render(fill.Render(text))
+	return borderStyle.Render(fill.Render(padded))
 }
 
 func (m *Model) headerText(it Item) string {
@@ -1033,10 +1178,243 @@ func clipToWidth(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	if containsKittyPlacement(s) {
+		return s
+	}
 	if lipgloss.Width(s) <= width {
 		return s
 	}
 	return truncate.StringWithTail(s, uint(width), "…")
+}
+
+func padToCells(s string, width int) string {
+	w := slkemoji.Width(s)
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+func containsKittyPlacement(s string) bool {
+	return strings.ContainsRune(s, imgpkg.PlaceholderRune)
+}
+
+func (m *Model) renderReactionHeader(it Item, contentWidth, idx, absLine int, flushes *[]func(io.Writer) error) string {
+	emojiStr, flush, asImage := slkemoji.RenderShortcode(it.Reaction, m.emojiCtx.PlaceCtx, m.emojiCells(), m.emojiCtx.Customs)
+	if flush != nil && flushes != nil {
+		*flushes = append(*flushes, flush)
+	}
+	if it.HasReacted && !asImage {
+		emojiStr = lipgloss.NewStyle().Foreground(styles.ReactionPillOwn.GetForeground()).Render(strings.TrimRight(emojiStr, " "))
+	} else if !asImage {
+		emojiStr = strings.TrimRight(emojiStr, " ")
+	}
+	actor := it.ActorName
+	if actor == "" {
+		actor = m.resolveUser(it.ActorID)
+	}
+	left := ""
+	if actor != "" {
+		left = actor + "  " + mutedStyle().Render("·") + "  reacted  "
+	} else {
+		left = "reacted  "
+	}
+	in := m.inLabel(it)
+	right := ""
+	if in != "" {
+		right = "  in  " + in
+	}
+	if it.VIP {
+		right += "  " + chipOnStyle().Render("vip")
+	}
+	if it.Unread {
+		right += "  " + unreadDotStyle().Render("●")
+	}
+	line, x0, x1 := fitLeftFrozenRight(left, emojiStr, right, contentWidth, asImage)
+	m.reactionHits = append(m.reactionHits, reactionHit{
+		absLine: absLine,
+		x0:      1 + x0,
+		x1:      1 + x1,
+		idx:     idx,
+	})
+	return line
+}
+
+func (m *Model) renderReactionCompact(it Item, contentWidth, idx, absLine int, flushes *[]func(io.Writer) error) string {
+	emojiStr, flush, asImage := slkemoji.RenderShortcode(it.Reaction, m.emojiCtx.PlaceCtx, m.emojiCells(), m.emojiCtx.Customs)
+	if flush != nil && flushes != nil {
+		*flushes = append(*flushes, flush)
+	}
+	if it.HasReacted && !asImage {
+		emojiStr = lipgloss.NewStyle().Foreground(styles.ReactionPillOwn.GetForeground()).Render(strings.TrimRight(emojiStr, " "))
+	} else if !asImage {
+		emojiStr = strings.TrimRight(emojiStr, " ")
+	}
+	actor := it.ActorName
+	if actor == "" {
+		actor = m.resolveUser(it.ActorID)
+	}
+	left := ""
+	if actor != "" {
+		left = actor + "  "
+	}
+	in := m.inLabel(it)
+	right := ""
+	if in != "" {
+		right = "  " + in
+	}
+	// Fit actor+emoji+channel first so the quote never clips the placement.
+	core, x0, x1 := fitLeftFrozenRight(left, emojiStr, right, contentWidth, asImage)
+	remain := contentWidth - slkemoji.Width(core)
+	sep := "  " + mutedStyle().Render("·") + "  "
+	sepW := slkemoji.Width(sep)
+	if q := m.renderQuote(it, remain-sepW, flushes); q != "" && remain > sepW {
+		core += sep + q
+		if !asImage && !containsKittyPlacement(core) {
+			core = clipToWidth(core, contentWidth)
+		}
+	}
+	m.reactionHits = append(m.reactionHits, reactionHit{
+		absLine: absLine,
+		x0:      1 + x0,
+		x1:      1 + x1,
+		idx:     idx,
+	})
+	return core
+}
+
+func (m *Model) renderPreview(it Item, contentWidth int, flushes *[]func(io.Writer) error) string {
+	quoteMax := contentWidth - 4
+	if quoteMax < 0 {
+		quoteMax = 0
+	}
+	if it.Type == "message_reaction" {
+		q := m.renderQuote(it, quoteMax, flushes)
+		line := "  " + mutedStyle().Render(">")
+		if q != "" {
+			line += " " + q
+		}
+		if !containsKittyPlacement(line) {
+			line = clipToWidth(line, contentWidth)
+		}
+		return line
+	}
+	if q := m.renderQuote(it, quoteMax, flushes); q != "" {
+		line := "  " + mutedStyle().Render(">") + " " + q
+		if !containsKittyPlacement(line) {
+			line = clipToWidth(line, contentWidth)
+		}
+		return line
+	}
+	return clipToWidth("  "+m.previewText(it), contentWidth)
+}
+
+func (m *Model) renderQuote(it Item, maxWidth int, flushes *[]func(io.Writer) error) string {
+	raw := oneLine(it.ParentText)
+	if raw == "" || maxWidth < 1 {
+		return ""
+	}
+	opts := messages.RenderSlackMarkdownOpts{
+		UserNames:    m.userNames,
+		ChannelNames: m.channelNames,
+		PlaceCtx:     m.emojiCtx.PlaceCtx,
+		EmojiCells:   m.emojiCells(),
+		Customs:      m.emojiCtx.Customs,
+	}
+	var qf []func(io.Writer) error
+	opts.EmojiFlushes = &qf
+	rendered := messages.RenderSlackMarkdownWith(raw, opts)
+	if slkemoji.Width(rendered) > maxWidth {
+		if len(qf) > 0 {
+			opts.PlaceCtx = slkemoji.PlaceContext{}
+			opts.EmojiFlushes = nil
+			rendered = messages.RenderSlackMarkdownWith(raw, opts)
+		}
+		return clipToWidth(rendered, maxWidth)
+	}
+	if flushes != nil && len(qf) > 0 {
+		*flushes = append(*flushes, qf...)
+	}
+	return rendered
+}
+
+func (m *Model) emojiCells() int {
+	if m.emojiCtx.Cells <= 0 {
+		return 2
+	}
+	return m.emojiCtx.Cells
+}
+
+func (m *Model) inLabel(it Item) string {
+	ch := m.channelLabel(it)
+	if it.ChannelType == "dm" || it.ChannelType == "group_dm" {
+		return ch
+	}
+	if ch != "" && !strings.HasPrefix(ch, "#") {
+		return channelNameStyle().Render("#" + ch)
+	}
+	return channelNameStyle().Render(ch)
+}
+
+func fitLeftFrozenRight(left, frozen, right string, width int, frozenOK bool) (line string, x0, x1 int) {
+	fw := slkemoji.Width(frozen)
+	if !frozenOK {
+		line = left + frozen + right
+		if slkemoji.Width(line) > width {
+			line = clipToWidth(line, width)
+		}
+		x0 = slkemoji.Width(left)
+		x1 = x0 + fw
+		if x1 > width {
+			x1 = width
+		}
+		if x0 > width {
+			x0, x1 = 0, 0
+		}
+		return line, x0, x1
+	}
+	if fw > width {
+		return frozen, 0, fw
+	}
+	budget := width - fw
+	lw := slkemoji.Width(left)
+	rw := slkemoji.Width(right)
+	if lw+rw > budget {
+		if lw > budget {
+			left = clipToWidth(left, budget)
+			lw = slkemoji.Width(left)
+			right = ""
+		} else {
+			right = clipToWidth(right, budget-lw)
+		}
+	}
+	return left + frozen + right, lw, lw + fw
+}
+
+func oneLine(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func containsEmoji(list []string, emoji string) bool {
+	for _, e := range list {
+		if e == emoji {
+			return true
+		}
+	}
+	return false
+}
+
+func removeEmoji(list []string, emoji string) []string {
+	out := list[:0]
+	for _, e := range list {
+		if e != emoji {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func stringMapsEqual(a, b map[string]string) bool {

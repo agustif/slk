@@ -294,6 +294,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.Reaction):
 		if a.focusedPanel == PanelMessages {
+			if a.view == ViewActivity {
+				return a.openPickerFromActivity()
+			}
 			return a.openPickerFromMessage()
 		} else if a.focusedPanel == PanelThread {
 			return a.openPickerFromThread()

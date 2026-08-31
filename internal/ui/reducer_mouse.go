@@ -18,7 +18,8 @@
 //	                     / drag begin), thread panel (reaction
 //	                     hit-test / drag begin). Right-click on a
 //	                     message/thread row opens the actions menu
-//	                     without starting a drag.
+//	                     without starting a drag; Activity cards open
+//	                     the reaction picker.
 //
 // Free reducer (not controller-absorbed) because both arms route
 // across multiple sub-models: the sidebar, messagepane, threadPanel,
@@ -189,6 +190,9 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	if m.Button == tea.MouseRight {
+		if a.view == ViewActivity {
+			return reduceActivityRightClick(a, m)
+		}
 		return reduceMouseRightClick(a, m)
 	}
 	if m.Button != tea.MouseLeft {
@@ -280,6 +284,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 				return nil
 			}
 			switch a.activityView.ClickAt(py, px) {
+			case activityview.ClickReaction:
+				it, ok := a.activityView.SelectedItem()
+				if !ok {
+					return nil
+				}
+				return a.toggleActivityReaction(it)
 			case activityview.ClickItem:
 				return a.openSelectedActivityCmd()
 			case activityview.ClickControls:
@@ -363,10 +373,26 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 	return nil
 }
 
+func reduceActivityRightClick(a *App, m tea.MouseClickMsg) tea.Cmd {
+	if a.mode.IsModalOverlay() || a.view != ViewActivity {
+		return nil
+	}
+	panel, px, py, ok := a.panelAt(m.X, m.Y)
+	if !ok || panel != PanelMessages || py < 0 {
+		return nil
+	}
+	kind := a.activityView.ClickAtCard(py, px)
+	if kind == activityview.ClickNone {
+		return nil
+	}
+	return a.openPickerFromActivity()
+}
+
 // reduceMouseRightClick opens the message-actions overlay on a message
 // in the messages pane or thread pane. Left-click behavior (pills,
 // images, drag) is unchanged. Some terminals never report MouseRight;
-// the `x` keybinding is the keyboard path.
+// the `x` keybinding is the keyboard path. Activity right-click is
+// handled first (reaction picker).
 func reduceMouseRightClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 	a.scrollPending = 0
 	if m.Y >= a.height-1 {
