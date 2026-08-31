@@ -75,6 +75,12 @@ type KeyMap struct {
 	ToggleMute          key.Binding
 	MoveSection         key.Binding
 	CreateSection       key.Binding
+	// ContextMenu opens the message-actions overlay. Right-click on a
+	// message does the same when the terminal reports MouseRight;
+	// some terminals steal right-click for paste/their own menu, so
+	// `x` is the keyboard path. Do not bind `g` (gg prefix) or `c`
+	// (permalink with Y).
+	ContextMenu         key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -156,5 +162,6 @@ func DefaultKeyMap() KeyMap {
 		ToggleMute:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute channel")),
 		MoveSection:        key.NewBinding(key.WithHelp(":move", "move channel to section")),
 		CreateSection:      key.NewBinding(key.WithHelp(":section", "create sidebar section")),
+		ContextMenu:        key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "message actions")),
 	}
 }

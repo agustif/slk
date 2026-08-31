@@ -928,15 +928,15 @@ func (m *Model) updateMessageReaction(msg *messages.MessageItem, emojiName, user
 // y returned by App.panelAt — measured from the panel's top border, so
 // y=0..chromeHeight-1 sits inside the chrome (header + separator) and
 // y=chromeHeight onward is the scrolling parent+replies content). Clicks
-// in the chrome are ignored: absoluteLineAt clamps them to the first
-// content line, which would otherwise read as a click on the parent.
-func (m *Model) ClickAt(y int) {
+// in the chrome are ignored. Returns true when the click landed on a
+// parent or reply row.
+func (m *Model) ClickAt(y int) bool {
 	if y < m.chromeHeight {
-		return
+		return false
 	}
 	entry, _, messageTS, ok := m.selectionEntryAt(m.absoluteLineAt(y))
 	if !ok {
-		return
+		return false
 	}
 	selected := entry.replyIdx
 	if messageTS == m.parent.TS {
@@ -947,6 +947,7 @@ func (m *Model) ClickAt(y int) {
 		m.viewCacheValid = false
 		m.dirty()
 	}
+	return true
 }
 
 // BeginSelectionAt anchors a new selection at the given pane-local

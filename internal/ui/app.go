@@ -32,6 +32,7 @@ import (
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/confirmprompt"
+	"github.com/gammons/slk/internal/ui/contextmenu"
 	"github.com/gammons/slk/internal/ui/emojipicker"
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/imgrender"
@@ -116,6 +117,7 @@ type App struct {
 	// schedule overlay (insert or normal).
 	scheduleReturnMode Mode
 	scheduleCustomBuf  string
+	contextMenu        contextmenu.Model
 	help               help.Model
 	threadPanel        *thread.Model
 	threadCompose      compose.Model
@@ -535,6 +537,7 @@ func NewApp() *App {
 		themeSwitcher:         themeswitcher.New(),
 		presenceMenu:          presencemenu.New(),
 		scheduleMenu:          schedulemenu.New(),
+		contextMenu:           contextmenu.New(),
 		help:                  help.New(),
 		threadPanel:           thread.New(),
 		threadCompose:         compose.New("thread"),

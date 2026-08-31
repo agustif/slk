@@ -40,6 +40,8 @@
 | `:move` | Normal | Move the active channel into a Slack sidebar section (picker of existing section names; `:move Engineering` skips the picker) |
 | `:section <name>` | Normal | Create an empty Slack sidebar section |
 | `1`–`9` | Normal | Jump to workspace N |
+| `x` | Normal (message) | Open message actions menu |
+| Right-click | Normal (message) | Open message actions menu (some terminals steal right-click; use `x`) |
 | `r` | Normal (message) | Open reaction picker |
 | `R` | Normal (message) | Quick-toggle existing reactions |
 | `E` | Normal (message) | Edit your own message |
