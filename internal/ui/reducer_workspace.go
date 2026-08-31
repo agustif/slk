@@ -15,8 +15,9 @@
 //	                          threads-list fetch.
 //	WorkspaceSwitchedMsg    - user picked a different workspace.
 //	                          Tear down per-workspace transient
-//	                          state (threads view, edit, selection,
-//	                          compose draft), push new channels/users/
+//	                          state (threads view, edit, selection;
+//	                          compose draft is parked in memory),
+//	                          push new channels/users/
 //	                          emoji, apply theme, restore the last
 //	                          channel viewed for this workspace.
 //	ConversationOpenedMsg   - WS event: a DM/MPIM just opened.
@@ -322,7 +323,10 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// cross-workspace channel. The queued ChannelSelectedMsg for
 	// this workspace re-populates it.
 	a.resetWindowTree()
-	a.compose.Reset()
+	// Park (don't discard) the live compose so the previous channel's
+	// in-memory draft survives a round-trip to another workspace.
+	// ChannelSelectedMsg below SwapDrafts onto the restored channel.
+	a.swapChannelCompose("")
 	a.statusbar.SetSyncing(false) // defensive: don't carry stale sync state across workspaces
 	// resetWindowTree replaced the pane with a fresh empty model;
 	// the queued ChannelSelectedMsg below paints it via the

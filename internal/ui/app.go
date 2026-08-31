@@ -1619,6 +1619,9 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 // by openThreadForSelectedMessage (parent taken from the pane buffer)
 // and openThreadForPermalink (parent reconstructed from cache/stub).
 func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS string) tea.Cmd {
+	// Swap before SetThread so BindDraftKey can still see the previous
+	// thread's identity on the panel.
+	a.swapThreadCompose(channelID, threadTS)
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
@@ -1765,6 +1768,8 @@ func (a *App) ToggleThread() {
 
 func (a *App) CloseThread() {
 	a.clearSelections()
+	// Park the thread draft before Clear() wipes panel identity.
+	a.swapThreadCompose("", "")
 	a.threadVisible = false
 	a.statusbar.SetInThread(false)
 	a.threadPanel.Clear()
@@ -1801,6 +1806,7 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 	}
 	a.lastOpenedChannelID = sum.ChannelID
 	a.lastOpenedThreadTS = sum.ThreadTS
+	a.swapThreadCompose(sum.ChannelID, sum.ThreadTS)
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	parent := messages.MessageItem{
