@@ -7,15 +7,15 @@
 // than the main-tab panels behind it:
 //
 //   - Click OUTSIDE the box        -> dismiss the modal (synthesised Esc,
-//                                     reusing each mode handler's esc path:
-//                                     close + restore mode + any cleanup).
+//     reusing each mode handler's esc path:
+//     close + restore mode + any cleanup).
 //   - Click ON a list row          -> move the modal's selection there and
-//                                     synthesise the modal's activation key
-//                                     (Enter to choose, Space to toggle for
-//                                     the multi-select new-message picker;
-//                                     help has no activation).
+//     synthesise the modal's activation key
+//     (Enter to choose, Space to toggle for
+//     the multi-select new-message picker;
+//     help has no activation).
 //   - Click INSIDE but not a row   -> consumed, no-op (never leaks to the
-//                                     main tab).
+//     main tab).
 //
 // Geometry comes from each modal's BoxSize, mirroring the centering done
 // by overlay.DimmedOverlay so the hit-test lines up with what was drawn.
@@ -76,8 +76,30 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 	case ModeConfirm:
 		// Confirm has no list: outside dismisses, inside is a no-op.
 		return modalClickTarget{a.confirmPrompt, nil, nil}, true
+	case ModeContextMenu:
+		return modalClickTarget{&a.contextMenu, &a.contextMenu, enter}, true
 	}
 	return modalClickTarget{}, false
+}
+
+// originOverlay is an optional boxedOverlay that is not centered.
+type originOverlay interface {
+	BoxOrigin(termWidth, termHeight int) (int, int)
+}
+
+func modalBoxOrigin(a *App, box boxedOverlay, w, h int) (int, int) {
+	if o, ok := box.(originOverlay); ok {
+		return o.BoxOrigin(a.width, a.height)
+	}
+	startX := (a.width - w) / 2
+	startY := (a.height - h) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+	return startX, startY
 }
 
 // reduceModalClick handles a left click while a modal overlay is active.
@@ -92,14 +114,7 @@ func reduceModalClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 	}
 
 	w, h := target.box.BoxSize(a.width, a.height)
-	startX := (a.width - w) / 2
-	startY := (a.height - h) / 2
-	if startX < 0 {
-		startX = 0
-	}
-	if startY < 0 {
-		startY = 0
-	}
+	startX, startY := modalBoxOrigin(a, target.box, w, h)
 
 	// Outside the box -> dismiss.
 	if m.X < startX || m.X >= startX+w || m.Y < startY || m.Y >= startY+h {

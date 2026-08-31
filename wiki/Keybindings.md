@@ -32,6 +32,8 @@
 | `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder |
 | `:ws` | Normal | Workspace picker |
 | `1`–`9` | Normal | Jump to workspace N |
+| `x` | Normal (message) | Open message actions menu |
+| Right-click | Normal (message) | Open message actions menu (some terminals steal right-click; use `x`) |
 | `r` | Normal (message) | Open reaction picker |
 | `R` | Normal (message) | Quick-toggle existing reactions |
 | `E` | Normal (message) | Edit your own message |

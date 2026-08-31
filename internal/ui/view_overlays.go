@@ -61,6 +61,9 @@ func (a *App) applyOverlays(screen string) string {
 	if a.presenceMenu.IsVisible() {
 		screen = a.presenceMenu.ViewOverlay(a.width, a.height, screen)
 	}
+	if a.contextMenu.IsVisible() {
+		screen = a.contextMenu.ViewOverlay(a.width, a.height, screen)
+	}
 	if a.help.IsVisible() {
 		screen = a.help.ViewOverlay(a.width, a.height, screen)
 	}
@@ -92,6 +95,7 @@ func (a *App) overlayActive() bool {
 		a.workspaceFinder.IsVisible() ||
 		a.themeSwitcher.IsVisible() ||
 		a.presenceMenu.IsVisible() ||
+		a.contextMenu.IsVisible() ||
 		a.help.IsVisible() ||
 		a.reactionsView.IsVisible() ||
 		a.linkPicker.IsVisible() ||

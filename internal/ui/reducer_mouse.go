@@ -5,18 +5,20 @@
 // Owns the two remaining mouse Update arms that act as multi-panel
 // routers:
 //
-//   tea.MouseWheelMsg  - viewport scroll for the panel under the
-//                        cursor (sidebar, messages pane / threads
-//                        view, thread panel). Decoupled from j/k
-//                        selection. Triggers maybeFetchOlderHistory
-//                        on the messages pane when the viewport
-//                        hits the top.
-//   tea.MouseClickMsg  - panel-router: workspace rail (switch
-//                        workspace), sidebar (channel select /
-//                        threads view), messages pane (threads
-//                        click / reaction hit-test / image hit-test
-//                        / drag begin), thread panel (reaction
-//                        hit-test / drag begin).
+//	tea.MouseWheelMsg  - viewport scroll for the panel under the
+//	                     cursor (sidebar, messages pane / threads
+//	                     view, thread panel). Decoupled from j/k
+//	                     selection. Triggers maybeFetchOlderHistory
+//	                     on the messages pane when the viewport
+//	                     hits the top.
+//	tea.MouseClickMsg  - panel-router: workspace rail (switch
+//	                     workspace), sidebar (channel select /
+//	                     threads view), messages pane (threads
+//	                     click / reaction hit-test / image hit-test
+//	                     / drag begin), thread panel (reaction
+//	                     hit-test / drag begin). Right-click on a
+//	                     message/thread row opens the actions menu
+//	                     without starting a drag.
 //
 // Free reducer (not controller-absorbed) because both arms route
 // across multiple sub-models: the sidebar, messagepane, threadPanel,
@@ -175,14 +177,22 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 	if a.bootstrap.IsLoading() {
 		return nil
 	}
-	if m.Button != tea.MouseLeft {
-		return nil
-	}
 	// When a modal overlay owns the screen, route the click to the
 	// modal (select a row / dismiss on outside-click) instead of the
-	// main-tab panels behind it. See reducer_modal_click.go.
+	// main-tab panels behind it. See reducer_modal_click.go. Right-click
+	// on an open context menu uses the same path (row = activate,
+	// outside = dismiss).
 	if a.mode.IsModalOverlay() {
-		return reduceModalClick(a, m)
+		if m.Button == tea.MouseLeft || (m.Button == tea.MouseRight && a.mode == ModeContextMenu) {
+			return reduceModalClick(a, m)
+		}
+		return nil
+	}
+	if m.Button == tea.MouseRight {
+		return reduceMouseRightClick(a, m)
+	}
+	if m.Button != tea.MouseLeft {
+		return nil
 	}
 	// A click sets the selection absolutely (ClickAt below), so any
 	// pending held-key scroll moves would be immediately overwritten --
@@ -343,6 +353,51 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		a.threadPanel.BeginSelectionAt(py, px)
 		a.threadPanel.ClickAt(py)
 		return nil
+	}
+	return nil
+}
+
+// reduceMouseRightClick opens the message-actions overlay on a message
+// in the messages pane or thread pane. Left-click behavior (pills,
+// images, drag) is unchanged. Some terminals never report MouseRight;
+// the `x` keybinding is the keyboard path.
+func reduceMouseRightClick(a *App, m tea.MouseClickMsg) tea.Cmd {
+	a.scrollPending = 0
+	if m.Y >= a.height-1 {
+		return nil
+	}
+	x := m.X
+	switch {
+	case x < a.layout.RailWidth():
+		return nil
+	case a.sidebarVisible && x < a.layout.SidebarEnd():
+		return nil
+	case x < a.layout.MsgEnd():
+		if a.wins.Len() > 1 {
+			return nil
+		}
+		if a.view != ViewChannels {
+			return nil
+		}
+		a.focusedPanel = PanelMessages
+		panel, _, py, ok := a.panelAt(m.X, m.Y)
+		if !ok || panel != PanelMessages || py < 0 {
+			return nil
+		}
+		if !a.messagepane.ClickAt(py) {
+			return nil
+		}
+		return a.openMessageContextMenu(true, m.X, m.Y)
+	case a.threadVisible && x < a.layout.ThreadEnd():
+		a.focusedPanel = PanelThread
+		panel, _, py, ok := a.panelAt(m.X, m.Y)
+		if !ok || panel != PanelThread || py < 0 {
+			return nil
+		}
+		if !a.threadPanel.ClickAt(py) {
+			return nil
+		}
+		return a.openMessageContextMenu(true, m.X, m.Y)
 	}
 	return nil
 }

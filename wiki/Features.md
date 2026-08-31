@@ -16,6 +16,7 @@
 - Edited / threaded message indicators
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
+- Message actions menu (`x` or right-click): add reaction, reply in thread, copy permalink, download file, open links, edit/delete own messages, mark unread, list reactions. Some terminals steal right-click; `x` always works.
 
 ## Compose
 

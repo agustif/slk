@@ -66,6 +66,12 @@ type KeyMap struct {
 	ActivityFilterPrev  key.Binding
 	ActivitySort        key.Binding
 	ActivityUnreadOnly  key.Binding
+	// ContextMenu opens the message-actions overlay. Right-click on a
+	// message does the same when the terminal reports MouseRight;
+	// some terminals steal right-click for paste/their own menu, so
+	// `x` is the keyboard path. Do not bind `g` (gg prefix) or `c`
+	// (permalink with Y).
+	ContextMenu key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -129,16 +135,17 @@ func DefaultKeyMap() KeyMap {
 		// binding; the Win* entries are keyless help-only bindings
 		// (same trick as WorkspaceFinder above) — actual dispatch of
 		// the chord key happens in handleWindowChord.
-		WindowPrefix: key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "window commands")),
-		WinSplit:     key.NewBinding(key.WithHelp("ctrl+w s / :sp", "split window")),
-		WinVSplit:    key.NewBinding(key.WithHelp("ctrl+w v / :vsp", "vertical split window")),
-		WinNavigate:  key.NewBinding(key.WithHelp("ctrl+w h/j/k/l", "focus window in direction")),
-		WinCycle:     key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
-		WinClose:     key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
-		WinOnly:      key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
+		WindowPrefix:       key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "window commands")),
+		WinSplit:           key.NewBinding(key.WithHelp("ctrl+w s / :sp", "split window")),
+		WinVSplit:          key.NewBinding(key.WithHelp("ctrl+w v / :vsp", "vertical split window")),
+		WinNavigate:        key.NewBinding(key.WithHelp("ctrl+w h/j/k/l", "focus window in direction")),
+		WinCycle:           key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
+		WinClose:           key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
+		WinOnly:            key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
 		ActivityFilter:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next activity tab")),
 		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev activity tab")),
 		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),
 		ActivityUnreadOnly: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle activity unread-only")),
+		ContextMenu:        key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "message actions")),
 	}
 }

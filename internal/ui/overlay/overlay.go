@@ -30,6 +30,35 @@ var kittyPlaceholderPrefix = string(image.PlaceholderRune)
 // frame re-emits the placeholder cells, re-creating the placement
 // without any image-state plumbing. Issue #18.
 func DimmedOverlay(width, height int, background string, box string, dimPercent float64) string {
+	modalW := lipgloss.Width(box)
+	modalH := lipgloss.Height(box)
+	startX := (width - modalW) / 2
+	startY := (height - modalH) / 2
+	return composeDimmedOverlay(width, height, background, box, dimPercent, startX, startY)
+}
+
+// DimmedOverlayAt is DimmedOverlay with an explicit top-left for the
+// modal box. Coordinates are clamped so the box stays on-screen.
+func DimmedOverlayAt(width, height int, background, box string, dimPercent float64, startX, startY int) string {
+	modalW := lipgloss.Width(box)
+	modalH := lipgloss.Height(box)
+	if startX+modalW > width {
+		startX = width - modalW
+	}
+	if startY+modalH > height {
+		startY = height - modalH
+	}
+	return composeDimmedOverlay(width, height, background, box, dimPercent, startX, startY)
+}
+
+func composeDimmedOverlay(width, height int, background, box string, dimPercent float64, startX, startY int) string {
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+
 	// Step 1: Render background to canvas and dim all cells.
 	//
 	// Wide characters (emoji, CJK) need two pieces of care:
@@ -78,17 +107,9 @@ func DimmedOverlay(width, height int, background string, box string, dimPercent 
 	outCanvas := lipgloss.NewCanvas(width, height)
 	outCanvas.Compose(lipgloss.NewLayer(dimmedStr))
 
-	// Step 3: Render modal to its own canvas, compute centered position
+	// Step 3: Render modal to its own canvas at the given origin.
 	modalW := lipgloss.Width(box)
 	modalH := lipgloss.Height(box)
-	startX := (width - modalW) / 2
-	startY := (height - modalH) / 2
-	if startX < 0 {
-		startX = 0
-	}
-	if startY < 0 {
-		startY = 0
-	}
 
 	modalCanvas := lipgloss.NewCanvas(modalW, modalH)
 	modalCanvas.Compose(lipgloss.NewLayer(box))
