@@ -52,6 +52,7 @@ type KeyMap struct {
 	ThemeSwitcherGlobal key.Binding
 	PresenceMenu        key.Binding
 	ToggleSection       key.Binding
+	ToggleStar          key.Binding
 	NavBack             key.Binding
 	NavForward          key.Binding
 	Help                key.Binding
@@ -125,6 +126,7 @@ func DefaultKeyMap() KeyMap {
 		ThemeSwitcherGlobal: key.NewBinding(key.WithKeys("ctrl+shift+y"), key.WithHelp("ctrl+shift+y", "set default theme")),
 		PresenceMenu:        key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "set status")),
 		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section")),
+		ToggleStar:          key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "star/unstar channel")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		NavForward:          key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "navigate forward")),
 		Help:                key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),

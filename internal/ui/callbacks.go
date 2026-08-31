@@ -23,6 +23,7 @@ import (
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/reactionpicker"
+	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
 // SwitchWorkspaceFunc is called to switch the active workspace.
@@ -108,6 +109,14 @@ type JoinChannelFunc func(channelID ids.ChannelID, channelName string) tea.Msg
 // Returns a tea.Msg describing the result (typically ChannelLeftMsg or
 // ChannelLeaveFailedMsg). Callers must not invoke this for DMs.
 type LeaveChannelFunc func(channelID ids.ChannelID, channelName string) tea.Msg
+
+// StarToggleFunc stars or unstars a channel against Slack's stars
+// section. Implementations update SectionStore via PopulateStars
+// optimistically and return the refreshed sidebar items plus whether
+// the channel is now starred. ok is false when starring is unavailable
+// (no ready SectionStore). The Slack API call runs in the background;
+// failures roll back via SectionsRefreshedMsg + ToastMsg.
+type StarToggleFunc func(channelID string) (nowStarred bool, channels []sidebar.ChannelItem, ok bool)
 
 // ChannelVisitRecorder is invoked from case ChannelSelectedMsg to let
 // main.go persist the visit (SQLite write + in-memory map update on

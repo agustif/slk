@@ -18,6 +18,8 @@
 //     next key is a window chord (s/v split, h/j/k/l focus, w cycle,
 //     q/c close, o only — delegated to handleWindowChord)
 //   - workspace switch: 1-9 number keys (handled in default arm)
+//   - star toggle: * stars/unstars the selected sidebar channel
+//     (or the active channel if messages/thread are focused)
 //   - quit confirm: q (close thread if visible, else no-op),
 //     Q (quit confirm)
 //
@@ -220,6 +222,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 		}
+
+	case key.Matches(msg, a.keys.ToggleStar):
+		return a.toggleStarSelected()
 
 	case key.Matches(msg, a.keys.Top):
 		return a.armPrefix('g')
@@ -439,4 +444,55 @@ func (a *App) jumpToUnread(dir int) tea.Cmd {
 	return func() tea.Msg {
 		return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
 	}
+}
+
+// toggleStarSelected stars or unstars the selected sidebar channel, or
+// the active channel when the message/thread pane is focused. Toasts
+// the result. Optimistic SectionStore update is done by starToggle.
+func (a *App) toggleStarSelected() tea.Cmd {
+	id, name, chType := a.starTarget()
+	if id == "" {
+		return toastWithClear(a, "No channel selected", 2*time.Second)
+	}
+	if a.starToggle == nil {
+		return toastWithClear(a, "Can't star channel", 2*time.Second)
+	}
+	nowStarred, channels, ok := a.starToggle(id)
+	if !ok {
+		return toastWithClear(a, "Can't star channel", 2*time.Second)
+	}
+	if channels != nil {
+		a.SetChannels(channels)
+	}
+	label := name
+	if chType != "dm" && chType != "group_dm" && chType != "app" {
+		label = "#" + name
+	}
+	if nowStarred {
+		return toastWithClear(a, "Starred "+label, 2*time.Second)
+	}
+	return toastWithClear(a, "Unstarred "+label, 2*time.Second)
+}
+
+// starTarget returns the channel the `*` binding should act on:
+// the sidebar selection when that pane is focused, otherwise the
+// currently open channel.
+func (a *App) starTarget() (id, name, chType string) {
+	if a.focusedPanel == PanelSidebar {
+		item, ok := a.sidebar.SelectedItem()
+		if !ok {
+			return "", "", ""
+		}
+		return item.ID, item.Name, item.Type
+	}
+	id = a.activeChannelID
+	if id == "" {
+		return "", "", ""
+	}
+	for _, it := range a.sidebar.Items() {
+		if it.ID == id {
+			return it.ID, it.Name, it.Type
+		}
+	}
+	return id, id, ""
 }

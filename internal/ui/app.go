@@ -385,6 +385,11 @@ type App struct {
 	// Wired by cmd/slk/main.go via SetStatusSetter.
 	setStatusFn func(action presencemenu.Action, snoozeMinutes int)
 
+	// starToggle stars/unstars a channel against Slack's stars section.
+	// Wired by cmd/slk/main.go via SetStarToggler. Nil in tests that
+	// don't exercise starring.
+	starToggle StarToggleFunc
+
 	// typing owns both inbound typing-indicator state (other users
 	// typing in channels) and outbound typing-send throttle. See
 	// internal/ui/typing.go.
@@ -2747,6 +2752,13 @@ func (a *App) SetWidthSaver(fn func(width int)) {
 // Slack API call (typically asynchronously) for the active workspace.
 func (a *App) SetStatusSetter(fn func(action presencemenu.Action, snoozeMinutes int)) {
 	a.setStatusFn = fn
+}
+
+// SetStarToggler wires the callback that stars or unstars a channel.
+// The callback updates SectionStore optimistically and returns the
+// refreshed sidebar items; the Slack API call runs in the background.
+func (a *App) SetStarToggler(fn StarToggleFunc) {
+	a.starToggle = fn
 }
 
 // SetThemeOverrides stores the config theme overrides for applying on switch.

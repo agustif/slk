@@ -11,6 +11,7 @@
 | `u` | Normal (Activity) | Toggle Activity unread-only |
 | `Enter` | Normal (Activity) | Open the selected Activity item in its channel / thread |
 | `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
+| `*` | Normal | Star / unstar the selected sidebar channel (or the active channel if the message pane is focused) |
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |
 | `Esc` | Insert / Command | Return to normal mode |
