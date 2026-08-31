@@ -113,6 +113,7 @@ func (a countsAdapter) Counts(_ context.Context) (bootstrap.Counts, error) {
 			MentionCount: snap.Threads.MentionCount,
 		},
 		ActivityUnread: snap.Activity.Unread(),
+		LaterCount:     snap.Saved.Badge(),
 	}
 	for _, u := range snap.Unreads {
 		out.Unreads = append(out.Unreads, bootstrap.Unread{

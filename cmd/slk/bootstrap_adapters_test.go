@@ -203,7 +203,8 @@ const countsBody = `{
   "channels": [{"id":"C1","has_unreads":true,"mention_count":2,"unread_count_display":5,"last_read":"1.0"}],
   "ims": [{"id":"D1","has_unreads":false,"last_read":"2.0"}],
   "threads": {"has_unreads":true,"unread_count":3,"mention_count":1},
-  "activity_v2": {"channel":30,"dm":2}
+  "activity_v2": {"channel":30,"dm":2},
+  "saved": {"uncompleted_count":4,"uncompleted_overdue_count":1,"archived_count":0,"completed_count":2,"total_count":6}
 }`
 
 func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
@@ -240,6 +241,9 @@ func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
 	}
 	if counts.ActivityUnread != 32 {
 		t.Errorf("ActivityUnread = %d; want 32 (channel+dm)", counts.ActivityUnread)
+	}
+	if counts.LaterCount != 4 {
+		t.Errorf("LaterCount = %d; want 4 (saved.uncompleted_count)", counts.LaterCount)
 	}
 }
 

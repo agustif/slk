@@ -66,6 +66,18 @@ func TestModel_CustomSnoozeAction(t *testing.T) {
 	}
 }
 
+func TestModel_OpenDurations(t *testing.T) {
+	m := New()
+	m.OpenDurations("Remind me")
+	if !m.IsVisible() {
+		t.Fatal("expected visible")
+	}
+	r := m.HandleKey("enter")
+	if r == nil || r.Action != ActionSnooze || r.SnoozeMinutes != 20 {
+		t.Fatalf("expected 20m remind, got %+v", r)
+	}
+}
+
 func TestModel_FilterByQuery(t *testing.T) {
 	m := New()
 	m.OpenWith("Workspace", "active", false, time.Time{})

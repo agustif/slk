@@ -988,12 +988,14 @@ type ThreadsAggregate struct {
 }
 
 // CountsSnapshot is everything one client.counts call learned that slk
-// consumes: per-conversation unreads, the threads rollup, and the
-// Activity-tab badge (activity_v2).
+// consumes: per-conversation unreads, the threads rollup, the
+// Activity-tab badge (activity_v2), and the Later-tab incomplete
+// count (saved.uncompleted_count).
 type CountsSnapshot struct {
 	Unreads  []UnreadInfo
 	Threads  ThreadsAggregate
 	Activity ActivityCounts
+	Saved    SavedCounts
 }
 
 // GetUnreadCounts is the historical two-return wrapper around GetCounts.
@@ -1055,6 +1057,7 @@ func (c *Client) GetCounts() (CountsSnapshot, error) {
 			MentionCount int  `json:"mention_count"`
 		} `json:"threads"`
 		ActivityV2 json.RawMessage `json:"activity_v2"`
+		Saved      json.RawMessage `json:"saved"`
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -1112,6 +1115,7 @@ func (c *Client) GetCounts() (CountsSnapshot, error) {
 		Unreads:  unreads,
 		Threads:  threads,
 		Activity: parseActivityV2(result.ActivityV2),
+		Saved:    parseSavedCounts(result.Saved),
 	}, nil
 }
 

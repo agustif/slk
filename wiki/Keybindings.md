@@ -5,7 +5,7 @@
 | `j` / `k` | Normal | Move down/up in channel list or messages |
 | `h` / `l` | Normal | Switch focus between panels |
 | `Tab` / `Shift+Tab` | Normal | Cycle focus |
-| `Enter` | Normal (sidebar) | Open selected channel, Threads, or Activity, or toggle a section header |
+| `Enter` | Normal (sidebar) | Open selected channel, Threads, Activity, or Later, or toggle a section header |
 | `f` / `F` | Normal (Activity) | Next / previous Activity tab (Slack views, including custom Unreads / Reactions / VIP) |
 | `s` | Normal (Activity) | Cycle Activity sort (newest ↔ unreads first) |
 | `u` | Normal (Activity) | Toggle Activity unread-only |
@@ -14,6 +14,10 @@
 | Click emoji | Activity card | Toggle your reaction on the parent message |
 | Click rest of card | Activity card | Open the message (same as Enter) |
 | Right-click | Activity card | Open reaction picker (terminals that report `MouseRight`; Apple Terminal may swallow right-click into its own menu) |
+| `Enter` | Normal (Later) | Open the selected saved item in its channel / thread |
+| `w` | Normal (message) | Toggle save-for-later on the selected message |
+| `W` | Normal (message) | Remind me about this — duration menu, then `reminders.add` |
+| `:remind 20m` | Command | Set a reminder on the selected message (`20m` / `1h` / `2d`) |
 | `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
 | `*` | Normal | Star / unstar the selected sidebar channel (or the active channel if the message pane is focused) |
 | `Enter` | Normal (message) | Open thread |

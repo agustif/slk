@@ -347,6 +347,62 @@ func (a activityAdapter) FetchFeed(teamID ids.TeamID, q ActivityFeedQuery) tea.M
 	return a.fns.FetchFeed(teamID, q)
 }
 
+// LaterServiceFuncs is the closure bundle for NewLaterService.
+type LaterServiceFuncs struct {
+	List   func(teamID ids.TeamID, gen uint64) tea.Msg
+	Add    func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Remove func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Remind func(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error
+}
+
+// LaterService is Slack's Later / Save-for-later surface (saved.list /
+// saved.add / saved.delete / saved.update + reminders.add). Wired by
+// cmd/slk/main.go.
+type LaterService interface {
+	List(teamID ids.TeamID, gen uint64) tea.Msg
+	Add(channelID ids.ChannelID, ts ids.MessageTS) error
+	Remove(channelID ids.ChannelID, ts ids.MessageTS) error
+	Remind(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error
+}
+
+func NewLaterService(fns LaterServiceFuncs) LaterService {
+	return laterAdapter{fns: fns}
+}
+
+var noopLaterService LaterService = laterAdapter{}
+
+type laterAdapter struct {
+	fns LaterServiceFuncs
+}
+
+func (l laterAdapter) List(teamID ids.TeamID, gen uint64) tea.Msg {
+	if l.fns.List == nil {
+		return LaterListLoadedMsg{TeamID: string(teamID), Gen: gen}
+	}
+	return l.fns.List(teamID, gen)
+}
+
+func (l laterAdapter) Add(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if l.fns.Add == nil {
+		return nil
+	}
+	return l.fns.Add(channelID, ts)
+}
+
+func (l laterAdapter) Remove(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if l.fns.Remove == nil {
+		return nil
+	}
+	return l.fns.Remove(channelID, ts)
+}
+
+func (l laterAdapter) Remind(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error {
+	if l.fns.Remind == nil {
+		return nil
+	}
+	return l.fns.Remind(channelID, ts, text, dueUnix)
+}
+
 // MessageService is the App's interface to Slack's per-message
 // operations: send, schedule, edit, delete, mark-unread, and permalink lookup.
 // Implementations are wired by cmd/slk/main.go.

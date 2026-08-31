@@ -32,6 +32,7 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		a.view = ViewActivity
 		a.sidebar.SetActivityActive(true)
 		a.sidebar.SetThreadsActive(false)
+		a.sidebar.SetLaterActive(false)
 		a.focusedPanel = PanelMessages
 		a.activityView.SetUnreadBadge(a.sidebar.ActivityUnreadCount())
 		var batch []tea.Cmd

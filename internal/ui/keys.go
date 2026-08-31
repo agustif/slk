@@ -86,6 +86,8 @@ type KeyMap struct {
 	Pin                 key.Binding
 	FollowThread        key.Binding
 	BroadcastSend       key.Binding
+	SaveForLater        key.Binding
+	RemindMessage       key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -173,5 +175,7 @@ func DefaultKeyMap() KeyMap {
 		Pin:                key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "pin/unpin message")),
 		FollowThread:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "follow/unfollow thread")),
 		BroadcastSend:      key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "also send reply to channel")),
+		SaveForLater:       key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "save for later")),
+		RemindMessage:      key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "remind me about this")),
 	}
 }

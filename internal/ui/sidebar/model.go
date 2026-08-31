@@ -173,6 +173,7 @@ type navKind int
 const (
 	navThreads navKind = iota
 	navActivity
+	navLater
 	navHeader
 	navChannel
 )
@@ -258,6 +259,8 @@ type Model struct {
 	threadsActive bool
 	// activityActive is the same indicator for the Activity inbox row.
 	activityActive bool
+	// laterActive is the same indicator for the Later / saved-items row.
+	laterActive    bool
 	nowFn          func() time.Time
 
 	// snappedSelection lets View() avoid snapping yOffset back to the
@@ -282,13 +285,14 @@ type Model struct {
 	cacheWidth  int
 	cacheFiller string // pre-rendered empty row for vertical padding
 
-	// Synthetic Activity (inbox) then Threads sit at the top of the
+	// Synthetic Activity, Later, then Threads sit at the top of the
 	// sidebar. They are selectable via j/k like a channel, but they
 	// are NOT channels — when the cursor sits on one, SelectedItem /
 	// SelectedID return zero / empty and the App layer activates the
 	// matching view instead.
 	threadsUnread  int
 	activityUnread int
+	laterUnread    int
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the cursor "▌" glyph dims from Accent to TextMuted (via
@@ -596,6 +600,16 @@ func (m *Model) SetActivityActive(active bool) {
 	m.dirty()
 }
 
+// SetLaterActive marks the synthetic "Later" row as the active
+// destination in the message pane. Mirrors SetThreadsActive.
+func (m *Model) SetLaterActive(active bool) {
+	if m.laterActive == active {
+		return
+	}
+	m.laterActive = active
+	m.dirty()
+}
+
 // Version returns a counter that increments any time the View() output could
 // change. Callers can compare against a previously-seen version to know
 // whether to recompute downstream layout / wrapping.
@@ -680,6 +694,28 @@ func (m *Model) IsActivitySelected() bool {
 func (m *Model) SelectActivityRow() {
 	for i, n := range m.nav {
 		if n.kind == navActivity {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
+// IsLaterSelected reports whether the synthetic "Later" row is the
+// selected entry.
+func (m *Model) IsLaterSelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navLater
+}
+
+// SelectLaterRow moves the cursor to the synthetic Later row.
+func (m *Model) SelectLaterRow() {
+	for i, n := range m.nav {
+		if n.kind == navLater {
 			if m.cursor != i {
 				m.cursor = i
 				m.dirty()
@@ -787,6 +823,23 @@ func (m *Model) SetActivityUnreadCount(n int) {
 
 // ActivityUnreadCount returns the current Activity-row unread badge.
 func (m *Model) ActivityUnreadCount() int { return m.activityUnread }
+
+// SetLaterUnreadCount updates the badge count shown next to the Later
+// row (client.counts saved.uncompleted_count). Invalidates the render
+// cache when the count changes. Zero omits the badge.
+func (m *Model) SetLaterUnreadCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if m.laterUnread != n {
+		m.laterUnread = n
+		m.cacheValid = false
+		m.dirty()
+	}
+}
+
+// LaterUnreadCount returns the current Later-row incomplete badge.
+func (m *Model) LaterUnreadCount() int { return m.laterUnread }
 
 // SetItems replaces the sidebar's channel list. It does NOT reset the
 // cursor to the Threads row — SetItems is called on every routine
@@ -1302,6 +1355,8 @@ func (m *Model) currentCursorKey() (cursorKey, bool) {
 		return cursorKey{kind: navThreads}, true
 	case navActivity:
 		return cursorKey{kind: navActivity}, true
+	case navLater:
+		return cursorKey{kind: navLater}, true
 	case navHeader:
 		return cursorKey{kind: navHeader, header: n.header}, true
 	case navChannel:
@@ -1327,8 +1382,8 @@ func (m *Model) rebuildNav() {
 		bucket[key] = append(bucket[key], fi)
 	}
 
-	nav := make([]navItem, 0, 2+len(sectionOrder))
-	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navThreads})
+	nav := make([]navItem, 0, 3+len(sectionOrder))
+	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navLater}, navItem{kind: navThreads})
 	for _, name := range sectionOrder {
 		nav = append(nav, navItem{kind: navHeader, header: name})
 		if m.IsCollapsed(name) {
@@ -1360,6 +1415,9 @@ func (m *Model) rebuildNavPreserveCursor() {
 			m.cursor = i
 			return
 		case key.kind == navActivity && n.kind == navActivity:
+			m.cursor = i
+			return
+		case key.kind == navLater && n.kind == navLater:
 			m.cursor = i
 			return
 		case key.kind == navHeader && n.kind == navHeader && n.header == key.header:
@@ -1456,6 +1514,8 @@ type renderRow struct {
 	isThreadsRow bool
 	// isActivityRow is the same flag for the Activity inbox row.
 	isActivityRow bool
+	// isLaterRow is the same flag for the Later / saved-items row.
+	isLaterRow bool
 }
 
 // buildCache rebuilds m.cacheRows for the given width. Expensive; runs only
@@ -1500,12 +1560,15 @@ func (m *Model) buildCache(width int) {
 	channelNavIdx := map[int]int{} // filter idx -> nav idx
 	threadsIdx := -1
 	activityIdx := -1
+	laterIdx := -1
 	for i, n := range m.nav {
 		switch n.kind {
 		case navThreads:
 			threadsIdx = i
 		case navActivity:
 			activityIdx = i
+		case navLater:
+			laterIdx = i
 		case navHeader:
 			headerNavIdx[n.header] = i
 		case navChannel:
@@ -1551,10 +1614,11 @@ func (m *Model) buildCache(width int) {
 	appPrefixMuted := "▣ "
 	groupDMPrefix := styles.PresenceAway.Render("● ")
 
-	// Activity sits above Threads so new inbox rows displace Threads
-	// rather than stacking under it. Then a blank, then sections.
-	m.cacheRows = append(m.cacheRows, m.synthRow("◎ Activity", m.activityUnread, activityIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, false, true))
-	m.cacheRows = append(m.cacheRows, m.synthRow("⚑ Threads", m.threadsUnread, threadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, true, false))
+	// OG left-rail order: Activity, Later, Threads, then sections.
+	// Insertion order is load-bearing — do not sort synthetics by name.
+	m.cacheRows = append(m.cacheRows, m.synthRow("◎ Activity", m.activityUnread, activityIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navActivity))
+	m.cacheRows = append(m.cacheRows, m.synthRow("◷ Later", m.laterUnread, laterIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navLater))
+	m.cacheRows = append(m.cacheRows, m.synthRow("⚑ Threads", m.threadsUnread, threadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navThreads))
 	// Blank separator between the synthetic rows and the first section.
 	m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
 
@@ -1948,6 +2012,8 @@ func (m *Model) View(height, width int) string {
 			visible = append(visible, r.active)
 		case r.isActivityRow && m.activityActive && r.active != "":
 			visible = append(visible, r.active)
+		case r.isLaterRow && m.laterActive && r.active != "":
+			visible = append(visible, r.active)
 		case r.normal == "":
 			// Inter-section blank row -- emit a width-sized themed blank so
 			// the panel background remains continuous.
@@ -1986,9 +2052,9 @@ func (m *Model) ClickAt(y int) (ChannelItem, bool) {
 	}
 	n := m.nav[r.navIdx]
 	if n.kind != navChannel {
-		// Threads / Activity row or section header — nothing to
-		// return; caller inspects IsThreadsSelected /
-		// IsActivitySelected / IsSectionHeaderSelected.
+		// Threads / Activity / Later row or section header — nothing
+		// to return; caller inspects IsThreadsSelected /
+		// IsActivitySelected / IsLaterSelected / IsSectionHeaderSelected.
 		return ChannelItem{}, false
 	}
 	if n.fi < 0 || n.fi >= len(m.filtered) {
@@ -1997,9 +2063,9 @@ func (m *Model) ClickAt(y int) (ChannelItem, bool) {
 	return m.items[m.filtered[n.fi]], true
 }
 
-// synthRow renders one synthetic sidebar destination (Threads, Activity)
-// with the same cursor / active / unread-badge treatment as a channel.
-func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected, activeBorder, bgAnsi string, dotStyle lipgloss.Style, isThreads, isActivity bool) renderRow {
+// synthRow renders one synthetic sidebar destination (Threads, Activity,
+// Later) with the same cursor / active / unread-badge treatment as a channel.
+func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected, activeBorder, bgAnsi string, dotStyle lipgloss.Style, kind navKind) renderRow {
 	label := " " + core
 	cursor := cursorSelected + core
 	active := activeBorder + core
@@ -2029,8 +2095,9 @@ func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected,
 		active:        styles.ChannelSelected.Width(width - 2).Render(active),
 		height:        1,
 		navIdx:        navIdx,
-		isThreadsRow:  isThreads,
-		isActivityRow: isActivity,
+		isThreadsRow:  kind == navThreads,
+		isActivityRow: kind == navActivity,
+		isLaterRow:    kind == navLater,
 	}
 }
 

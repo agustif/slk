@@ -66,7 +66,7 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		return modalClickTarget{&a.workspaceFinder, &a.workspaceFinder, enter}, true
 	case ModeThemeSwitcher:
 		return modalClickTarget{&a.themeSwitcher, &a.themeSwitcher, enter}, true
-	case ModePresenceMenu:
+	case ModePresenceMenu, ModeRemindDuration:
 		return modalClickTarget{&a.presenceMenu, &a.presenceMenu, enter}, true
 	case ModeScheduleMenu:
 		return modalClickTarget{&a.scheduleMenu, &a.scheduleMenu, enter}, true

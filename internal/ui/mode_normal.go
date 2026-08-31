@@ -84,7 +84,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// only way to type is into the right-side thread panel's
 		// compose. Force focus there even when the threads list
 		// itself was the focused panel.
-		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity) && a.threadVisible) {
+		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater) && a.threadVisible) {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}
@@ -121,7 +121,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.SearchMode):
 		// Spec scopes `/` to the channel message pane in v1: no-op
 		// while the thread panel has focus.
-		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity {
+		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater {
 			return nil
 		}
 		a.searchInput = ""
@@ -314,6 +314,12 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.UserProfile):
 		return a.openUserProfile()
+
+	case key.Matches(msg, a.keys.SaveForLater):
+		return a.toggleSaveForLater()
+
+	case key.Matches(msg, a.keys.RemindMessage):
+		return a.openRemindDuration()
 
 	case key.Matches(msg, a.keys.SaveThread):
 		return a.saveThreadToFile()

@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/gammons/slk/internal/ui/messages"
 )
 
 func TestExecuteCommand_EmptyIsNoop(t *testing.T) {
@@ -31,6 +33,44 @@ func TestExecuteCommand_WSOpensWorkspaceFinder(t *testing.T) {
 	_ = executeCommand(a, "ws")
 	if a.mode != ModeWorkspaceFinder {
 		t.Fatalf("mode = %v, want ModeWorkspaceFinder", a.mode)
+	}
+}
+
+func TestParseRemindDuration(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"20m", 20},
+		{"1h", 60},
+		{"2d", 2880},
+		{"45", 45},
+	}
+	for _, c := range cases {
+		got, err := parseRemindDuration(c.in)
+		if err != nil {
+			t.Errorf("parseRemindDuration(%q): %v", c.in, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("parseRemindDuration(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+	if _, err := parseRemindDuration("nope"); err == nil {
+		t.Error("want error for nope")
+	}
+}
+
+func TestExecuteCommand_RemindNoArgsOpensMenu(t *testing.T) {
+	a := NewApp()
+	a.activeChannelID = "C1"
+	a.focusedPanel = PanelMessages
+	a.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1.0", UserName: "alice", Text: "hi"},
+	})
+	_ = executeCommand(a, "remind")
+	if a.mode != ModeRemindDuration {
+		t.Fatalf("mode = %v, want ModeRemindDuration", a.mode)
 	}
 }
 

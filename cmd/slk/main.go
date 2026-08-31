@@ -165,6 +165,9 @@ type WorkspaceContext struct {
 	// ActivityUnread is client.counts activity_v2 sum for the
 	// sidebar Activity-row badge. Refreshed on boot and reconnect.
 	ActivityUnread int
+	// LaterCount is client.counts saved.uncompleted_count for the
+	// sidebar Later-row badge. Refreshed on boot and reconnect.
+	LaterCount int
 	// ThreadSubsGate throttles the workspace's
 	// subscriptions.thread.getView fetches to one per
 	// threadSubsSyncInterval. Fired on workspace-ready, on Threads
@@ -1925,6 +1928,59 @@ func run() error {
 			}
 		})
 
+		app.SetLaterService(ui.NewLaterService(ui.LaterServiceFuncs{
+			List: func(teamID ids.TeamID, gen uint64) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.LaterListLoadedMsg{TeamID: team, Gen: gen, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				res, err := wctx.Client.GetSavedList(ctx, slackclient.SavedListOpts{Filter: "saved", Limit: 50})
+				return ui.LaterListLoadedMsg{
+					TeamID: team,
+					Items:  res.Items,
+					Counts: res.Counts,
+					Err:    err,
+					Gen:    gen,
+				}
+			},
+			Add: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.SavedAdd(ctx, string(channelID), string(ts))
+			},
+			Remove: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.SavedDelete(ctx, string(channelID), string(ts))
+			},
+			Remind: func(channelID ids.ChannelID, ts ids.MessageTS, text string, dueUnix int64) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				_ = wctx.Client.SavedAdd(ctx, string(channelID), string(ts))
+				updErr := wctx.Client.SavedUpdateDue(ctx, string(channelID), string(ts), dueUnix)
+				remErr := wctx.Client.AddReminder(ctx, text, strconv.FormatInt(dueUnix, 10), string(channelID))
+				if remErr != nil && updErr != nil {
+					return remErr
+				}
+				return nil
+			},
+		}))
+
 		app.SetActivityService(ui.NewActivityService(ui.ActivityServiceFuncs{
 			FetchViews: func(teamID ids.TeamID) tea.Msg {
 				team := string(teamID)
@@ -2325,6 +2381,7 @@ func run() error {
 			UserStatuses:     wctx.SnapshotUserStatuses(),
 			SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 			ActivityUnread:   wctx.ActivityUnread,
+			LaterCount:       wctx.LaterCount,
 		}
 	})
 
@@ -2522,6 +2579,7 @@ func run() error {
 				InitialActive:    isInitial,
 				LastChannelID:    mostRecentlyVisitedChannel(wctx.LastVisitedByChannel),
 				ActivityUnread:   wctx.ActivityUnread,
+				LaterCount:       wctx.LaterCount,
 			})
 
 			// Fetch workspace custom emojis in the background. When done,
@@ -3013,6 +3071,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	}
 	wctx.ThreadsHasUnreads = res.Counts.Threads.HasUnreads
 	wctx.ActivityUnread = res.Counts.ActivityUnread
+	wctx.LaterCount = res.Counts.LaterCount
 	// Boot applies an authoritative FULL snapshot: reset every channel
 	// in the workspace to read, then set the ones client.counts reports
 	// unread. This runs BEFORE the WebSocket goes live (ConnMgr.Run is
@@ -4920,6 +4979,9 @@ func (h *rtmEventHandler) syncOnReconnect(trigger string) bool {
 		refreshChannel: h.refreshChannel,
 		onActivity: func(n int) {
 			h.wsCtx.ActivityUnread = n
+		},
+		onLater: func(n int) {
+			h.wsCtx.LaterCount = n
 		},
 	}
 	go func() {

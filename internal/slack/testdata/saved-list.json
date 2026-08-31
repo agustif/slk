@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "saved_items": [
+    {
+      "item_id": "C0A95SPDL3B",
+      "item_type": "message",
+      "ts": "1787955901.383689",
+      "state": "in_progress",
+      "date_created": 1787956000,
+      "date_due": 0,
+      "date_completed": 0,
+      "is_archived": false
+    },
+    {
+      "item_id": "D0ARB1GN6Q5",
+      "item_type": "message",
+      "ts": "1788133014.963939",
+      "state": "in_progress",
+      "date_created": 1788133100,
+      "date_due": 1788219500,
+      "date_completed": 0,
+      "is_archived": false
+    },
+    {
+      "item_id": "F012FILE",
+      "item_type": "file",
+      "ts": "",
+      "state": "completed",
+      "date_created": 1787900000,
+      "is_archived": false
+    }
+  ],
+  "counts": {
+    "uncompleted_count": 2,
+    "uncompleted_overdue_count": 1,
+    "archived_count": 1,
+    "completed_count": 3,
+    "total_count": 6
+  },
+  "response_metadata": {
+    "next_cursor": ""
+  }
+}

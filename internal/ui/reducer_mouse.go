@@ -127,6 +127,14 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 			}
 			return nil
 		}
+		if a.view == ViewLater {
+			if up {
+				a.laterView.ScrollUp(wheelLinesPerNotch)
+			} else {
+				a.laterView.ScrollDown(wheelLinesPerNotch)
+			}
+			return nil
+		}
 		if up {
 			a.messagepane.ScrollUp(wheelLinesPerNotch)
 			// Backfill older history when the viewport hits the
@@ -246,6 +254,9 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if a.sidebar.IsActivitySelected() {
 			return func() tea.Msg { return ActivityViewActivatedMsg{} }
 		}
+		if a.sidebar.IsLaterSelected() {
+			return func() tea.Msg { return LaterViewActivatedMsg{} }
+		}
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 		}
@@ -294,6 +305,13 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 				return a.openSelectedActivityCmd()
 			case activityview.ClickControls:
 				return a.fetchActivityCmd()
+			}
+			return nil
+		}
+		if a.view == ViewLater {
+			panel, _, py, ok := a.panelAt(m.X, m.Y)
+			if ok && panel == PanelMessages && py >= 0 && a.laterView.ClickAt(py) {
+				return a.openSelectedLaterCmd()
 			}
 			return nil
 		}

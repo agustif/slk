@@ -35,6 +35,7 @@ var commands = map[string]commandFunc{
 	"schedule": cmdSchedule,
 	"move":     cmdMove,
 	"section":  cmdSection,
+	"remind":   cmdRemind,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
@@ -130,6 +131,17 @@ func cmdSchedule(a *App, args []string) tea.Cmd {
 		return toastWithClear(a, "Invalid schedule: "+strings.Join(args, " ")+" (try 20m, 1h, tomorrow)", 3*time.Second)
 	}
 	return a.confirmSchedule(postAt)
+}
+
+func cmdRemind(a *App, args []string) tea.Cmd {
+	if len(args) == 0 {
+		return a.openRemindDuration()
+	}
+	mins, err := parseRemindDuration(args[0])
+	if err != nil {
+		return toastWithClear(a, "Usage: :remind 20m", 2*time.Second)
+	}
+	return a.remindSelected(mins)
 }
 
 // executeCommand parses and runs one command line (without the

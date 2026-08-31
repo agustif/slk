@@ -170,6 +170,9 @@ type Counts struct {
 	// counts — the Activity-tab badge. Zero when the field is
 	// missing (older snapshots, or a counts body without activity_v2).
 	ActivityUnread int
+	// LaterCount is client.counts saved.uncompleted_count — the
+	// Later-tab incomplete badge. Zero when the field is missing.
+	LaterCount int
 }
 
 // History is what a conversations.history fallback returned — a

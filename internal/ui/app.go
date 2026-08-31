@@ -39,6 +39,7 @@ import (
 	"github.com/gammons/slk/internal/ui/emojipicker"
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/imgrender"
+	"github.com/gammons/slk/internal/ui/laterview"
 	"github.com/gammons/slk/internal/ui/linkpicker"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -81,6 +82,7 @@ const (
 	ViewChannels View = iota
 	ViewThreads
 	ViewActivity
+	ViewLater
 )
 
 const (
@@ -130,6 +132,7 @@ type App struct {
 	threadCompose      compose.Model
 	threadsView        threadsview.Model
 	activityView       activityview.Model
+	laterView          laterview.Model
 
 	// State
 	mode           Mode
@@ -231,12 +234,16 @@ type App struct {
 	threads  ThreadService
 	activity ActivityService
 	sections SectionService
+	later    LaterService
 	// activityCfg is the [activity] config defaults (limit + the
 	// session-start filter/sort/unread_only/density). Live TUI
 	// cycles live on activityView, not here.
 	activityCfg   config.Activity
 	activityGen   uint64
 	activityCache activityMessageCache
+	laterGen      uint64
+	laterSaved    map[string]bool
+	remindTarget  laterRemindTarget
 
 	threadsDirtyDebounce time.Duration
 	// fetchingOlder tracks in-flight older-history backfills per
@@ -564,6 +571,7 @@ func NewApp() *App {
 		threadCompose:         compose.New("thread"),
 		threadsView:           threadsview.New(nil, ""),
 		activityView:          activityview.New(),
+		laterView:             laterview.New(),
 		linkPicker:            linkpicker.New(),
 		sectionPicker:         sectionpicker.New(),
 		reactionPicker:        reactionpicker.New(),
@@ -595,6 +603,8 @@ func NewApp() *App {
 		threads:               noopThreadService,
 		activity:              noopActivityService,
 		sections:              noopSectionService,
+		later:                 noopLaterService,
+		laterSaved:            map[string]bool{},
 		messageSvc:            noopMessageService,
 		channels:              noopChannelService,
 		searchSvc:             noopSearchService,
@@ -629,6 +639,7 @@ func NewApp() *App {
 	app.channelFinder.SetSyntheticItems([]channelfinder.Item{
 		{ID: channelfinder.ThreadsViewID, Name: "Threads", Type: "threads", Joined: true},
 		{ID: channelfinder.ActivityViewID, Name: "Activity", Type: "activity", Joined: true},
+		{ID: channelfinder.LaterViewID, Name: "Later", Type: "later", Joined: true},
 	})
 	// Seed the statusbar hint with the configured help key label so it
 	// stays accurate if the binding is ever changed.
@@ -682,6 +693,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceThreads,
 		reduceActivity,
 		reduceSections,
+		reduceLater,
 		reduceSend,
 		reduceChannels,
 		reduceLinks,
@@ -1422,6 +1434,10 @@ func (a *App) handleDown() tea.Cmd {
 			a.activityView.MoveDown()
 			return nil
 		}
+		if a.view == ViewLater {
+			a.laterView.MoveDown()
+			return nil
+		}
 		return a.coalesceContentScroll(+1)
 	case PanelThread:
 		return a.coalesceContentScroll(+1)
@@ -1441,6 +1457,10 @@ func (a *App) handleUp() tea.Cmd {
 		}
 		if a.view == ViewActivity {
 			a.activityView.MoveUp()
+			return nil
+		}
+		if a.view == ViewLater {
+			a.laterView.MoveUp()
 			return nil
 		}
 		return a.coalesceContentScroll(-1)
@@ -1557,6 +1577,10 @@ func (a *App) handleGoToBottom() tea.Cmd {
 			a.activityView.GoToBottom()
 			return nil
 		}
+		if a.view == ViewLater {
+			a.laterView.GoToBottom()
+			return nil
+		}
 		a.messagepane.GoToBottom()
 	case PanelThread:
 		a.threadPanel.GoToBottom()
@@ -1649,6 +1673,12 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 			} else {
 				a.activityView.ScrollDown(n)
 			}
+		} else if a.view == ViewLater {
+			if delta < 0 {
+				a.laterView.ScrollUp(n)
+			} else {
+				a.laterView.ScrollDown(n)
+			}
 		} else {
 			if delta < 0 {
 				a.messagepane.ScrollUp(n)
@@ -1711,6 +1741,9 @@ func (a *App) handleEnter() tea.Cmd {
 		if a.sidebar.IsActivitySelected() {
 			return func() tea.Msg { return ActivityViewActivatedMsg{} }
 		}
+		if a.sidebar.IsLaterSelected() {
+			return func() tea.Msg { return LaterViewActivatedMsg{} }
+		}
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 		}
@@ -1742,6 +1775,10 @@ func (a *App) handleEnter() tea.Cmd {
 	// the user can keep walking the list.
 	if a.focusedPanel == PanelMessages && a.view == ViewActivity {
 		return a.openSelectedActivityCmd()
+	}
+
+	if a.focusedPanel == PanelMessages && a.view == ViewLater {
+		return a.openSelectedLaterCmd()
 	}
 
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {
@@ -2159,6 +2196,7 @@ func (a *App) SetChannels(items []sidebar.ChannelItem) {
 	a.threadPanel.SetChannelNames(names)
 	a.threadsView.SetChannelNames(names)
 	a.activityView.SetChannelNames(names)
+	a.laterView.SetChannelNames(names)
 }
 
 // SetChannelService wires the App's ChannelService collaborator
@@ -2269,6 +2307,14 @@ func (a *App) SetSectionService(s SectionService) {
 // (tests; cards then show empty quotes).
 func (a *App) SetActivityCache(c activityMessageCache) {
 	a.activityCache = c
+}
+
+// SetLaterService wires the App's Later / saved-items fetcher.
+func (a *App) SetLaterService(s LaterService) {
+	if s == nil {
+		s = noopLaterService
+	}
+	a.later = s
 }
 
 // SetActivityConfig seeds the Activity view from [activity] in

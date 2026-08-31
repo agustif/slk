@@ -52,6 +52,7 @@ type Model struct {
 	query         string
 	selected      int // index into filtered
 	visible       bool
+	title         string
 	workspaceName string
 	currentPres   string // "active" / "away" / ""
 	dndActive     bool
@@ -69,10 +70,37 @@ func (m *Model) OpenWith(workspaceName, presence string, dndEnabled bool, dndEnd
 	m.visible = true
 	m.query = ""
 	m.selected = 0
+	m.title = "Status"
 	m.workspaceName = workspaceName
 	m.currentPres = presence
 	m.dndActive = dndEnabled && (dndEnd.IsZero() || time.Now().Before(dndEnd))
 	m.items = buildItems(presence, m.dndActive)
+	m.filter()
+}
+
+// OpenDurations shows only snooze-style duration rows (no Active/Away),
+// used as the Remind-me overlay. Labels reuse the same minute values
+// as the presence snooze menu.
+func (m *Model) OpenDurations(title string) {
+	if title == "" {
+		title = "Remind me"
+	}
+	m.visible = true
+	m.query = ""
+	m.selected = 0
+	m.title = title
+	m.workspaceName = ""
+	m.currentPres = ""
+	m.dndActive = false
+	m.items = []item{
+		{label: "Remind in 20 minutes", action: ActionSnooze, minutes: 20},
+		{label: "Remind in 1 hour", action: ActionSnooze, minutes: 60},
+		{label: "Remind in 2 hours", action: ActionSnooze, minutes: 120},
+		{label: "Remind in 4 hours", action: ActionSnooze, minutes: 240},
+		{label: "Remind in 8 hours", action: ActionSnooze, minutes: 480},
+		{label: "Remind in 24 hours", action: ActionSnooze, minutes: 1440},
+		{label: "Remind tomorrow morning", action: ActionSnooze, minutes: minutesUntilTomorrowMorning(time.Now())},
+	}
 	m.filter()
 }
 
@@ -256,9 +284,12 @@ func (m Model) renderBox(termWidth int) string {
 	innerWidth := overlayWidth - 4
 	bg := styles.Background
 
-	titleText := "Status"
+	titleText := m.title
+	if titleText == "" {
+		titleText = "Status"
+	}
 	if m.workspaceName != "" {
-		titleText = "Status — " + m.workspaceName
+		titleText = titleText + " — " + m.workspaceName
 	}
 	title := lipgloss.NewStyle().
 		Bold(true).

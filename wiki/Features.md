@@ -86,6 +86,20 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   config is the next-launch default). Click the tabs/chips too.
 - `Enter` on a row opens the message (or thread) through the same
   in-app permalink path search results use.
+
+## Later
+
+- **Later** (`◷ Later` in the sidebar, below Activity and above Threads):
+  Slack's Save for later / Remind me list, synced via `saved.list`.
+  The sidebar badge is `client.counts` `saved.uncompleted_count`
+  (incomplete items). `Enter` on a row opens the message through the
+  same in-app permalink path Activity uses.
+- `w` on a selected message (or thread reply) toggles save-for-later
+  (`saved.add` / `saved.delete`). `W` opens a duration menu (same
+  intervals as snooze) and sets a reminder with `reminders.add` plus
+  `saved.update` `date_due`. `:remind 20m` does the same from command
+  mode.
+
 ## Reactions
 
 - Search-first picker overlay (`r`) with frecent emoji — also from an
