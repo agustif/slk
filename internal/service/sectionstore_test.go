@@ -495,6 +495,56 @@ func TestApplyDelete_RemovesSectionAndChannels(t *testing.T) {
 	}
 }
 
+func TestMembership_IncludesNonRenderable(t *testing.T) {
+	store := NewSectionStore()
+	c := &fakeSectionsClient{sections: []slk.SidebarSection{
+		{ID: "EXT", Type: "slack_connect", Next: "A", LastUpdate: 100, ChannelIDs: []string{"C_EXT"}, ChannelsCount: 1},
+		{ID: "A", Type: "standard", Next: "", LastUpdate: 100, ChannelIDs: []string{"C1"}, ChannelsCount: 1},
+	}}
+	_ = store.Bootstrap(context.Background(), c)
+	if id, ok := store.Membership("C_EXT"); !ok || id != "EXT" {
+		t.Errorf("Membership(C_EXT) = (%q,%v), want (EXT,true)", id, ok)
+	}
+	if _, ok := store.SectionForChannel("C_EXT"); ok {
+		t.Error("SectionForChannel must still hide slack_connect")
+	}
+}
+
+func TestMoveChannel_RelocatesAndUnsections(t *testing.T) {
+	store := NewSectionStore()
+	c := &fakeSectionsClient{sections: []slk.SidebarSection{
+		{ID: "A", Type: "standard", Next: "B", LastUpdate: 100, ChannelIDs: []string{"C1"}, ChannelsCount: 1},
+		{ID: "B", Type: "standard", Next: "", LastUpdate: 100},
+	}}
+	_ = store.Bootstrap(context.Background(), c)
+	store.MoveChannel("C1", "B")
+	if id, _ := store.SectionForChannel("C1"); id != "B" {
+		t.Errorf("after move, C1 in %q, want B", id)
+	}
+	store.MoveChannel("C1", "")
+	if _, ok := store.SectionForChannel("C1"); ok {
+		t.Error("unsectioned channel still mapped")
+	}
+}
+
+func TestAssignableSections_DropsStars(t *testing.T) {
+	store := NewSectionStore()
+	c := &fakeSectionsClient{sections: []slk.SidebarSection{
+		{ID: "STAR", Name: "Starred", Type: "stars", Next: "A", LastUpdate: 100, ChannelIDs: []string{"C9"}, ChannelsCount: 1},
+		{ID: "A", Name: "Eng", Type: "standard", Next: "CH", LastUpdate: 100},
+		{ID: "CH", Name: "Channels", Type: "channels", Next: "", LastUpdate: 100},
+	}}
+	_ = store.Bootstrap(context.Background(), c)
+	got := store.AssignableSections()
+	if len(got) != 2 || got[0].ID != "A" || got[1].ID != "CH" {
+		ids := make([]string, len(got))
+		for i, s := range got {
+			ids[i] = s.ID
+		}
+		t.Errorf("AssignableSections = %v, want [A CH]", ids)
+	}
+}
+
 func TestApplyChannelsAdded_UpdatesIndex(t *testing.T) {
 	store := NewSectionStore()
 	c := &fakeSectionsClient{sections: []slk.SidebarSection{

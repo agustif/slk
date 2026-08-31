@@ -73,6 +73,8 @@ type KeyMap struct {
 	ActivitySort        key.Binding
 	ActivityUnreadOnly  key.Binding
 	ToggleMute          key.Binding
+	MoveSection         key.Binding
+	CreateSection       key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -152,5 +154,7 @@ func DefaultKeyMap() KeyMap {
 		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),
 		ActivityUnreadOnly: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle activity unread-only")),
 		ToggleMute:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute channel")),
+		MoveSection:        key.NewBinding(key.WithHelp(":move", "move channel to section")),
+		CreateSection:      key.NewBinding(key.WithHelp(":section", "create sidebar section")),
 	}
 }

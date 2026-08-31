@@ -256,6 +256,38 @@ func (s *SectionStore) SetStarred(channelID string, starred bool) {
 	s.populateStarsLocked(next)
 }
 
+// Membership returns the section ID currently indexed for channelID,
+// including non-renderable types. Used by section writes so a move
+// can remove the channel from its real source section. Distinct from
+// SectionForChannel, which hides non-renderable types so the sidebar
+// can fall through to type defaults.
+func (s *SectionStore) Membership(channelID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.ready {
+		return "", false
+	}
+	id, ok := s.channelToSection[channelID]
+	return id, ok
+}
+
+// MoveChannel relocates channelID into toSectionID in the local index.
+// An empty toSectionID unsections the channel. Used for optimistic
+// sidebar updates; the matching REST call and WS events confirm.
+func (s *SectionStore) MoveChannel(channelID, toSectionID string) {
+	if channelID == "" {
+		return
+	}
+	if toSectionID == "" {
+		from, ok := s.Membership(channelID)
+		if ok {
+			s.ApplyChannelsRemoved(from, []string{channelID})
+		}
+		return
+	}
+	s.ApplyChannelsAdded(toSectionID, []string{channelID})
+}
+
 // SectionForChannel returns the renderable section ID a channel belongs
 // to. Returns ok=false when the store isn't ready, the channel isn't
 // indexed, OR the indexed section is not renderable in the sidebar
@@ -330,6 +362,21 @@ func (s *SectionStore) OrderedSections() []*slk.SidebarSection {
 			break
 		}
 		cur = s.sectionsByID[cur.Next]
+	}
+	return out
+}
+
+// AssignableSections returns ordered sidebar sections a channel can be
+// moved into: user-created (standard) plus the default Channels and
+// Direct Messages buckets. Stars/apps/hidden types are omitted.
+func (s *SectionStore) AssignableSections() []*slk.SidebarSection {
+	all := s.OrderedSections()
+	out := make([]*slk.SidebarSection, 0, len(all))
+	for _, sec := range all {
+		switch sec.Type {
+		case "standard", "channels", "direct_messages":
+			out = append(out, sec)
+		}
 	}
 	return out
 }

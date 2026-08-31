@@ -21,6 +21,7 @@ const (
 	ModeNewMessage
 	ModeReactionsView
 	ModeLinkPicker
+	ModeSectionPicker
 	ModeWorkspaceSearch
 )
 
@@ -47,6 +48,7 @@ func (m Mode) IsModalOverlay() bool {
 		ModeNewMessage,
 		ModeReactionsView,
 		ModeLinkPicker,
+		ModeSectionPicker,
 		ModeWorkspaceSearch:
 		return true
 	default:
@@ -90,6 +92,8 @@ func (m Mode) String() string {
 		return "REACTIONS"
 	case ModeLinkPicker:
 		return "LINKS"
+	case ModeSectionPicker:
+		return "SECTION"
 	case ModeWorkspaceSearch:
 		return "WS-SEARCH"
 	default:

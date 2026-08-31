@@ -335,6 +335,32 @@ type (
 		TeamID   string
 		Channels []sidebar.ChannelItem
 	}
+	// SectionMovedMsg is the result of :move assigning the active
+	// channel to a Slack sidebar section.
+	SectionMovedMsg struct {
+		ChannelID     string
+		SectionID     string
+		FromSectionID string
+		Name          string
+		Unchanged     bool
+	}
+	// SectionMoveFailedMsg is returned when the assign REST call
+	// fails; FromSectionID is the membership to restore.
+	SectionMoveFailedMsg struct {
+		ChannelID     string
+		SectionID     string
+		FromSectionID string
+		Err           string
+	}
+	// SectionCreatedMsg is the result of :section <name>.
+	SectionCreatedMsg struct {
+		ID   string
+		Name string
+	}
+	SectionCreateFailedMsg struct {
+		Name string
+		Err  string
+	}
 	// ChannelMembershipMsg is published by membership.Manager when a
 	// channel's member set has been loaded, updated by a delta event, or
 	// refreshed after a TTL miss / reconnect. MemberIDs is the full member

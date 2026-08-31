@@ -33,6 +33,8 @@ var commands = map[string]commandFunc{
 	"on":       cmdOnlyWindow,
 	"leave":    cmdLeave,
 	"schedule": cmdSchedule,
+	"move":     cmdMove,
+	"section":  cmdSection,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
