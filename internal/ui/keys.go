@@ -54,6 +54,7 @@ type KeyMap struct {
 	// Insert-mode schedule overlay. Ctrl+Enter is intentionally unbound
 	// (reserved for also-send on another branch).
 	ScheduleMessage     key.Binding
+	UserProfile         key.Binding
 	ToggleSection       key.Binding
 	ToggleStar          key.Binding
 	NavBack             key.Binding
@@ -138,6 +139,7 @@ func DefaultKeyMap() KeyMap {
 		ThemeSwitcherGlobal: key.NewBinding(key.WithKeys("ctrl+shift+y"), key.WithHelp("ctrl+shift+y", "set default theme")),
 		PresenceMenu:        key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "set status")),
 		ScheduleMessage:     key.NewBinding(key.WithKeys("ctrl+g"), key.WithHelp("ctrl+g / :schedule", "schedule message")),
+		UserProfile:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "user profile")),
 		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section")),
 		ToggleStar:          key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "star/unstar channel")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),

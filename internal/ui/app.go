@@ -26,6 +26,7 @@ import (
 	"github.com/gammons/slk/internal/filedl"
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/activityview"
 	"github.com/gammons/slk/internal/ui/channelfinder"
@@ -53,6 +54,7 @@ import (
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 	"github.com/gammons/slk/internal/ui/thread"
 	"github.com/gammons/slk/internal/ui/threadsview"
+	"github.com/gammons/slk/internal/ui/userprofile"
 	"github.com/gammons/slk/internal/ui/wintree"
 	"github.com/gammons/slk/internal/ui/workspace"
 	"github.com/gammons/slk/internal/ui/workspacefinder"
@@ -120,6 +122,8 @@ type App struct {
 	scheduleReturnMode Mode
 	scheduleCustomBuf  string
 	contextMenu        contextmenu.Model
+	statusInput        presencemenu.SetStatusModel
+	userProfile        userprofile.Model
 	help               help.Model
 	threadPanel        *thread.Model
 	threadCompose      compose.Model
@@ -410,6 +414,11 @@ type App struct {
 	// menu action; it runs the Slack API call for the active workspace.
 	// Wired by cmd/slk/main.go via SetStatusSetter.
 	setStatusFn func(action presencemenu.Action, snoozeMinutes int)
+	// setCustomStatusFn sets or clears the authenticated user's Slack
+	// custom status via users.profile.set.
+	setCustomStatusFn func(st slackclient.UserStatus)
+	// profileFetchFn loads a user's profile for the `p` overlay.
+	profileFetchFn func(userID string) tea.Cmd
 
 	// starToggle stars/unstars a channel against Slack's stars section.
 	// Wired by cmd/slk/main.go via SetStarToggler. Nil in tests that
@@ -547,6 +556,8 @@ func NewApp() *App {
 		presenceMenu:          presencemenu.New(),
 		scheduleMenu:          schedulemenu.New(),
 		contextMenu:           contextmenu.New(),
+		statusInput:           presencemenu.NewSetStatus(),
+		userProfile:           userprofile.New(),
 		help:                  help.New(),
 		threadPanel:           thread.New(),
 		threadCompose:         compose.New("thread"),
@@ -676,6 +687,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceFiles,
 		reduceSearch,
 		reduceWorkspace,
+		reduceProfile,
 		reduceNewMessagePicker,
 		reduceIO,
 		reduceMouse,
@@ -2349,6 +2361,7 @@ func (a *App) SetEmojiContext(ctx messages.EmojiContext) {
 		Cells:    ctx.Cells,
 		Customs:  ctx.Customs,
 	})
+	a.sidebar.SetEmojiContext(ctx.PlaceCtx, ctx.Customs)
 }
 
 // SetImageFetcher records the image fetcher so the preview overlay can
@@ -2806,6 +2819,7 @@ func (a *App) SetCustomEmoji(customs map[string]string) {
 	a.compose.SetEmojiCustoms(customs)
 	a.threadCompose.SetEmojiCustoms(customs)
 	a.activityView.SetEmojiCustoms(customs)
+	a.sidebar.SetEmojiCustoms(customs)
 }
 
 // SetInitialChannel sets the active channel and its messages before the TUI starts.
@@ -2930,6 +2944,17 @@ func (a *App) SetStatusSetter(fn func(action presencemenu.Action, snoozeMinutes 
 // refreshed sidebar items; the Slack API call runs in the background.
 func (a *App) SetStarToggler(fn StarToggleFunc) {
 	a.starToggle = fn
+}
+
+// SetCustomStatusSetter registers the users.profile.set callback for
+// "Set status..." / "Clear status" in the presence menu.
+func (a *App) SetCustomStatusSetter(fn func(st slackclient.UserStatus)) {
+	a.setCustomStatusFn = fn
+}
+
+// SetProfileFetcher registers the GetUserProfile callback for the `p` overlay.
+func (a *App) SetProfileFetcher(fn func(userID string) tea.Cmd) {
+	a.profileFetchFn = fn
 }
 
 // SetThemeOverrides stores the config theme overrides for applying on switch.

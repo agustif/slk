@@ -23,12 +23,18 @@ const (
 	ActionSnooze       // SnoozeMinutes is set
 	ActionCustomSnooze // open the custom-snooze input
 	ActionEndDND
+	ActionSetStatus   // open the custom-status input
+	ActionClearStatus // empty text/emoji/expiration
 )
 
 // Result is returned when the user commits a selection.
 type Result struct {
 	Action        Action
 	SnoozeMinutes int // populated when Action == ActionSnooze
+	// Custom status fields, populated when Action is ActionSetStatus.
+	StatusText       string
+	StatusEmoji      string
+	StatusExpiration int64
 }
 
 // item is a single row in the menu.
@@ -102,6 +108,10 @@ func buildItems(presence string, dndActive bool) []item {
 	if dndActive {
 		rows = append(rows, item{label: "End snooze / DND", action: ActionEndDND})
 	}
+	rows = append(rows,
+		item{label: "Set status...", action: ActionSetStatus},
+		item{label: "Clear status", action: ActionClearStatus},
+	)
 	return rows
 }
 

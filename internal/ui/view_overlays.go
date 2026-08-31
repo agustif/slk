@@ -73,6 +73,12 @@ func (a *App) applyOverlays(screen string) string {
 	if a.contextMenu.IsVisible() {
 		screen = a.contextMenu.ViewOverlay(a.width, a.height, screen)
 	}
+	if a.statusInput.IsVisible() {
+		screen = a.statusInput.ViewOverlay(a.width, a.height, screen)
+	}
+	if a.userProfile.IsVisible() {
+		screen = a.userProfile.ViewOverlay(a.width, a.height, screen)
+	}
 	if a.help.IsVisible() {
 		screen = a.help.ViewOverlay(a.width, a.height, screen)
 	}
@@ -111,6 +117,8 @@ func (a *App) overlayActive() bool {
 		a.scheduleMenu.IsVisible() ||
 		a.mode == ModeScheduleCustom ||
 		a.contextMenu.IsVisible() ||
+		a.statusInput.IsVisible() ||
+		a.userProfile.IsVisible() ||
 		a.help.IsVisible() ||
 		a.reactionsView.IsVisible() ||
 		a.linkPicker.IsVisible() ||

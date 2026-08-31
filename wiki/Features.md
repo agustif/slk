@@ -121,6 +121,9 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 ## Status & DND
 
 - Set self presence (Active / Away) and DND/snooze from `Ctrl+S`
+- Set a custom Slack status (`:emoji:` + text, optional 30m / 1h / 4h / today / don't-clear) or clear it from the same menu
+- DM sidebar rows show a muted status emoji (or truncated text) after the name when the counterpart's status is not expired
+- `p` on a selected message opens a profile overlay (name, title, status, local time, presence) with a Message action that opens their DM
 - Standard snooze durations (20m / 1h / 2h / 4h / 8h / 24h / until tomorrow morning) plus custom minutes
 - Live status segment in the status bar with snooze countdown
 - Reflects external state changes — set from the official Slack client or via your own API scripts — in real time over the WebSocket

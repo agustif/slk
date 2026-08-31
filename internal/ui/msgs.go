@@ -24,6 +24,7 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/searchresults"
 	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/gammons/slk/internal/ui/userprofile"
 )
 
 // EmojiImageReadyMsg re-exports emoji.EmojiImageReadyMsg so reducers
@@ -283,6 +284,11 @@ type (
 		UserID      string
 		DisplayName string
 		IsBot       bool
+		// Status is the user's custom status from users.info. HasStatus
+		// is false for the edge users/info path, which does not carry
+		// status fields — applying a zero value would wipe a boot status.
+		Status    slackclient.UserStatus
+		HasStatus bool
 	}
 	// UserExternalMsg flags a single user as external (Slack Connect /
 	// shared-channel guest). Emitted by the user-resolution path when a
@@ -291,6 +297,14 @@ type (
 	UserExternalMsg struct {
 		UserID     string
 		IsExternal bool
+	}
+	// UserProfileLoadedMsg is the result of GetUserProfile for the `p`
+	// overlay. Ignored when the overlay has closed or is showing a
+	// different user.
+	UserProfileLoadedMsg struct {
+		UserID  string
+		Profile userprofile.Profile
+		Err     error
 	}
 	WorkspaceSwitchedMsg struct {
 		TeamID   string
@@ -314,6 +328,8 @@ type (
 		UserID        string
 		CustomEmoji   map[string]string
 		UserGroups    map[string]string
+		// UserStatuses is userID -> custom Slack status from boot/view.
+		UserStatuses map[string]slackclient.UserStatus
 		// SectionsProvider supplies Slack-native sidebar sections for this
 		// workspace. Nil means "use config-glob behavior" (the App's
 		// sidebar reverts to its existing name-keyed buckets).
@@ -406,6 +422,8 @@ type (
 		UserID        string
 		CustomEmoji   map[string]string
 		UserGroups    map[string]string
+		// UserStatuses is userID -> custom Slack status from boot/view.
+		UserStatuses map[string]slackclient.UserStatus
 		// SectionsProvider supplies Slack-native sidebar sections for this
 		// workspace. Nil means "use config-glob behavior" (the App's
 		// sidebar reverts to its existing name-keyed buckets).

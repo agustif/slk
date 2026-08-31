@@ -15,6 +15,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/presencemenu"
 )
 
@@ -40,6 +41,19 @@ func handlePresenceMenuMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if result.Action == presencemenu.ActionCustomSnooze {
 			a.presence.ClearSnoozeBuf()
 			a.SetMode(ModePresenceCustomSnooze)
+			return nil
+		}
+		if result.Action == presencemenu.ActionSetStatus {
+			a.statusInput.Open()
+			a.SetMode(ModePresenceSetStatus)
+			return nil
+		}
+		if result.Action == presencemenu.ActionClearStatus {
+			a.SetMode(ModeNormal)
+			a.applyOwnCustomStatus(slackclient.UserStatus{})
+			if a.setCustomStatusFn != nil {
+				a.setCustomStatusFn(slackclient.UserStatus{})
+			}
 			return nil
 		}
 		a.SetMode(ModeNormal)

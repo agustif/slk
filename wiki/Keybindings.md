@@ -68,7 +68,8 @@
 | `l` / `→` | Preview | Next image (when message has multiple) |
 | Click | Any (on image) | Open full-screen preview |
 | `Ctrl+y` | Any | Switch theme |
-| `Ctrl+s` | Any | Set status (Active / Away / DND snooze) |
+| `Ctrl+s` | Any | Set status (Active / Away / DND snooze / custom status) |
+| `p` | Normal (message) | Open the selected author's profile |
 | `q` | Normal | Quit (with confirmation) |
 | `Q` | Normal | Quit immediately |
 | `Ctrl+c` | Any | Quit (with confirmation) |

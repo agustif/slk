@@ -70,6 +70,10 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		return modalClickTarget{&a.presenceMenu, &a.presenceMenu, enter}, true
 	case ModeScheduleMenu:
 		return modalClickTarget{&a.scheduleMenu, &a.scheduleMenu, enter}, true
+	case ModePresenceSetStatus:
+		return modalClickTarget{&a.statusInput, &a.statusInput, enter}, true
+	case ModeUserProfile:
+		return modalClickTarget{&a.userProfile, &a.userProfile, enter}, true
 	case ModeReactionPicker:
 		return modalClickTarget{a.reactionPicker, a.reactionPicker, enter}, true
 	case ModeNewMessage:

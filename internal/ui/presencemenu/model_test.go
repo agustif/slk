@@ -89,3 +89,27 @@ func TestModel_EscapeCloses(t *testing.T) {
 		t.Error("expected closed after esc")
 	}
 }
+
+func TestModel_SetAndClearStatusActions(t *testing.T) {
+	m := New()
+	m.OpenWith("Workspace", "active", false, time.Time{})
+	m.HandleKey("s")
+	m.HandleKey("e")
+	m.HandleKey("t")
+	r := m.HandleKey("enter")
+	if r == nil || r.Action != ActionSetStatus {
+		t.Fatalf("filter 'set' expected ActionSetStatus, got %+v", r)
+	}
+
+	m2 := New()
+	m2.OpenWith("Workspace", "active", false, time.Time{})
+	m2.HandleKey("c")
+	m2.HandleKey("l")
+	m2.HandleKey("e")
+	m2.HandleKey("a")
+	m2.HandleKey("r")
+	r2 := m2.HandleKey("enter")
+	if r2 == nil || r2.Action != ActionClearStatus {
+		t.Fatalf("filter 'clear' expected ActionClearStatus, got %+v", r2)
+	}
+}

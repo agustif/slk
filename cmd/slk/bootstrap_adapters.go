@@ -374,6 +374,18 @@ func applyBootUsers(wctx *WorkspaceContext, res *bootstrap.Result) {
 		if u.Profile.ImageOriginal != "" {
 			wctx.AvatarURLs.Store(u.ID, u.Profile.ImageOriginal)
 		}
+		wctx.StoreUserStatus(u.ID, slackclient.UserStatus{
+			Text:       u.Profile.StatusText,
+			Emoji:      u.Profile.StatusEmoji,
+			Expiration: u.Profile.StatusExpiration,
+		})
+	}
+	if res.Self.ID != "" {
+		wctx.StoreUserStatus(res.Self.ID, slackclient.UserStatus{
+			Text:       res.Self.Profile.StatusText,
+			Emoji:      res.Self.Profile.StatusEmoji,
+			Expiration: res.Self.Profile.StatusExpiration,
+		})
 	}
 }
 

@@ -25,6 +25,8 @@ const (
 	ModeWorkspaceSearch
 	ModeContextMenu
 	ModeChannelMembers
+	ModePresenceSetStatus
+	ModeUserProfile
 )
 
 // IsModalOverlay reports whether the mode is a full-screen modal
@@ -53,7 +55,9 @@ func (m Mode) IsModalOverlay() bool {
 		ModeSectionPicker,
 		ModeWorkspaceSearch,
 		ModeContextMenu,
-		ModeChannelMembers:
+		ModeChannelMembers,
+		ModePresenceSetStatus,
+		ModeUserProfile:
 		return true
 	default:
 		return false
@@ -104,6 +108,10 @@ func (m Mode) String() string {
 		return "ACTIONS"
 	case ModeChannelMembers:
 		return "MEMBERS"
+	case ModePresenceSetStatus:
+		return "SET-STATUS"
+	case ModeUserProfile:
+		return "PROFILE"
 	default:
 		return "UNKNOWN"
 	}
