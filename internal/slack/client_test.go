@@ -133,6 +133,73 @@ func TestSendMessage_EmptyTextSendsNoBlocks(t *testing.T) {
 	}
 }
 
+func TestScheduleMessage_PostsUnixPostAt(t *testing.T) {
+	var lastForm url.Values
+	var lastPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		lastForm = r.Form
+		lastPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"ok":true,"channel":"C1","scheduled_message_id":"Q123","post_at":1700000060}`)
+	}))
+	defer srv.Close()
+	c := &Client{api: slack.New("xoxc-test", slack.OptionAPIURL(srv.URL+"/"))}
+
+	postAt := time.Unix(1700000060, 0).UTC()
+	id, sentMrkdwn, err := c.ScheduleMessage(context.Background(), "C1", "**hello** world", postAt, "")
+	if err != nil {
+		t.Fatalf("ScheduleMessage: %v", err)
+	}
+	if id != "Q123" {
+		t.Errorf("scheduled id = %q, want Q123", id)
+	}
+	if sentMrkdwn != "*hello* world" {
+		t.Errorf("sentMrkdwn = %q, want %q", sentMrkdwn, "*hello* world")
+	}
+	if !strings.Contains(lastPath, "chat.scheduleMessage") {
+		t.Errorf("path = %q, want chat.scheduleMessage", lastPath)
+	}
+	if got := lastForm.Get("channel"); got != "C1" {
+		t.Errorf("channel = %q, want C1", got)
+	}
+	if got := lastForm.Get("post_at"); got != "1700000060" {
+		t.Errorf("post_at = %q, want unix 1700000060", got)
+	}
+	if got := lastForm.Get("text"); got != "*hello* world" {
+		t.Errorf("wire text = %q, want %q", got, "*hello* world")
+	}
+	if lastForm.Get("blocks") == "" {
+		t.Fatal("blocks form value is empty; expected serialised rich_text block")
+	}
+	if lastForm.Get("thread_ts") != "" {
+		t.Errorf("thread_ts = %q, want empty", lastForm.Get("thread_ts"))
+	}
+}
+
+func TestScheduleMessage_ThreadTS(t *testing.T) {
+	api, getForm, closeFn := newTestSlackAPI(t, `{"ok":true,"channel":"C1","scheduled_message_id":"Q456"}`)
+	defer closeFn()
+	c := &Client{api: api}
+
+	postAt := time.Unix(1700000120, 0).UTC()
+	_, _, err := c.ScheduleMessage(context.Background(), "C1", "later", postAt, "1700000000.000100")
+	if err != nil {
+		t.Fatalf("ScheduleMessage: %v", err)
+	}
+	form := getForm()
+	if form.Get("post_at") != "1700000120" {
+		t.Errorf("post_at = %q, want unix 1700000120", form.Get("post_at"))
+	}
+	if form.Get("thread_ts") != "1700000000.000100" {
+		t.Errorf("thread_ts = %q, want parent ts", form.Get("thread_ts"))
+	}
+}
+
 // mockSlackAPI implements SlackAPI for testing.
 // Function fields allow tests to override default behavior.
 type mockSlackAPI struct {
@@ -153,6 +220,7 @@ type mockSlackAPI struct {
 	searchMessagesFn                func(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, error)
 	getUserGroupsContextFn          func(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
 	leaveConversationFn             func(channelID string) (bool, error)
+	scheduleMessageContextFn        func(ctx context.Context, channelID, postAt string, options ...slack.MsgOption) (string, string, error)
 }
 
 func (m *mockSlackAPI) GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
@@ -206,6 +274,13 @@ func (m *mockSlackAPI) GetEmoji() (map[string]string, error) {
 }
 
 func (m *mockSlackAPI) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
+	return "", "", nil
+}
+
+func (m *mockSlackAPI) ScheduleMessageContext(ctx context.Context, channelID, postAt string, options ...slack.MsgOption) (string, string, error) {
+	if m.scheduleMessageContextFn != nil {
+		return m.scheduleMessageContextFn(ctx, channelID, postAt, options...)
+	}
 	return "", "", nil
 }
 

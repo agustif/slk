@@ -1638,6 +1638,21 @@ func run() error {
 					},
 				}
 			},
+			Schedule: func(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, postAt time.Time) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil {
+					return ui.MessageScheduleFailedMsg{ChannelID: chIDStr, Reason: "no active workspace"}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_, _, err := wctx.Client.ScheduleMessage(ctx, chIDStr, text, postAt, string(threadTS))
+				if err != nil {
+					log.Printf("Warning: failed to schedule message: %v", err)
+					return ui.MessageScheduleFailedMsg{ChannelID: chIDStr, Reason: err.Error()}
+				}
+				return ui.MessageScheduledMsg{ChannelID: chIDStr, PostAt: postAt}
+			},
 			Edit: func(channelID ids.ChannelID, ts ids.MessageTS, text string) tea.Msg {
 				chIDStr, tsStr := string(channelID), string(ts)
 				wctx := router.Active()

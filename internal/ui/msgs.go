@@ -126,6 +126,20 @@ type (
 		ChannelID string
 		Text      string
 	}
+	ScheduleMessageMsg struct {
+		ChannelID string
+		ThreadTS  string
+		Text      string
+		PostAt    time.Time
+	}
+	MessageScheduledMsg struct {
+		ChannelID string
+		PostAt    time.Time
+	}
+	MessageScheduleFailedMsg struct {
+		ChannelID string
+		Reason    string
+	}
 	ThreadOpenedMsg struct {
 		ChannelID string
 		ThreadTS  string

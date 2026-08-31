@@ -15,6 +15,7 @@ package ui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"golang.design/x/clipboard"
@@ -44,6 +45,9 @@ type OlderMessagesFetchFunc func(channelID ids.ChannelID, oldestTS ids.MessageTS
 
 // MessageSendFunc is called when the user sends a message. Returns a tea.Msg with the result.
 type MessageSendFunc func(channelID ids.ChannelID, text string) tea.Msg
+
+// MessageScheduleFunc queues a message via chat.scheduleMessage.
+type MessageScheduleFunc func(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, postAt time.Time) tea.Msg
 
 // UploadFunc performs an upload of one or more files to a channel
 // (with optional thread). It returns a tea.Cmd whose terminal

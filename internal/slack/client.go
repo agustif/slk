@@ -39,6 +39,7 @@ type SlackAPI interface {
 	GetBotInfoContext(ctx context.Context, parameters slack.GetBotInfoParameters) (*slack.Bot, error)
 	GetEmoji() (map[string]string, error)
 	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
+	ScheduleMessageContext(ctx context.Context, channelID, postAt string, options ...slack.MsgOption) (string, string, error)
 	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
 	DeleteMessage(channelID, timestamp string) (string, string, error)
 	AddReaction(name string, item slack.ItemRef) error
@@ -870,6 +871,26 @@ func (c *Client) SendMessage(ctx context.Context, channelID, text string) (strin
 		return "", "", fmt.Errorf("sending message: %w", err)
 	}
 	return ts, mr, nil
+}
+
+// ScheduleMessage queues text via chat.scheduleMessage to post at postAt.
+// threadTS is optional: empty sends a channel message, non-empty a threaded
+// reply. postAt is sent as a unix-seconds string. Returns the scheduled
+// message id and the converted mrkdwn actually queued.
+func (c *Client) ScheduleMessage(ctx context.Context, channelID, text string, postAt time.Time, threadTS string) (string, string, error) {
+	mr, block := mrkdwn.Convert(text)
+	opts := []slack.MsgOption{slack.MsgOptionText(mr, false)}
+	if block != nil {
+		opts = append(opts, slack.MsgOptionBlocks(block))
+	}
+	if threadTS != "" {
+		opts = append(opts, slack.MsgOptionTS(threadTS))
+	}
+	_, scheduledID, err := c.api.ScheduleMessageContext(ctx, channelID, strconv.FormatInt(postAt.Unix(), 10), opts...)
+	if err != nil {
+		return "", "", fmt.Errorf("scheduling message: %w", err)
+	}
+	return scheduledID, mr, nil
 }
 
 // OpenConversation opens (or returns) a direct message channel (1 user)

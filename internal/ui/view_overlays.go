@@ -31,6 +31,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/slk/internal/ui/presencemenu"
+	"github.com/gammons/slk/internal/ui/schedulemenu"
 	"github.com/gammons/slk/internal/ui/styles"
 )
 
@@ -60,6 +61,11 @@ func (a *App) applyOverlays(screen string) string {
 	}
 	if a.presenceMenu.IsVisible() {
 		screen = a.presenceMenu.ViewOverlay(a.width, a.height, screen)
+	}
+	if a.mode == ModeScheduleCustom {
+		screen = schedulemenu.CustomDurationView(a.width, a.height, screen, a.scheduleCustomBuf)
+	} else if a.scheduleMenu.IsVisible() {
+		screen = a.scheduleMenu.ViewOverlay(a.width, a.height, screen)
 	}
 	if a.help.IsVisible() {
 		screen = a.help.ViewOverlay(a.width, a.height, screen)
@@ -92,6 +98,8 @@ func (a *App) overlayActive() bool {
 		a.workspaceFinder.IsVisible() ||
 		a.themeSwitcher.IsVisible() ||
 		a.presenceMenu.IsVisible() ||
+		a.scheduleMenu.IsVisible() ||
+		a.mode == ModeScheduleCustom ||
 		a.help.IsVisible() ||
 		a.reactionsView.IsVisible() ||
 		a.linkPicker.IsVisible() ||

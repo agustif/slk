@@ -6,34 +6,37 @@
 // message lifecycle for channel messages (thread-reply lifecycle
 // lives in reducer_threads.go):
 //
-//   NewMessageMsg            - inbound WS event for any channel:
-//                              edit-echo update, self-send dedup
-//                              (recorded + early-arrival in-flight
-//                              guards), append-to-pane or
-//                              mark-channel-unread, and threads-list
-//                              dirty-bump for replies.
-//   SendMessageMsg           - user send: optimistic placeholder +
-//                              chat.postMessage call.
-//   MessageSentMsg           - send landed: swap placeholder for
-//                              authoritative message.
-//   MessageSendFailedMsg     - send failed: roll back placeholder
-//                              + fire SendFailed toast.
-//   EditMessageMsg           - user edit: chat.update call.
-//   MessageEditedMsg         - edit result: leave edit mode + on
-//                              failure fire EditFailed toast.
-//   DeleteMessageMsg         - user delete: chat.delete call.
-//   MessageDeletedMsg        - delete result: on failure fire
-//                              DeleteFailed toast.
-//   MarkUnreadMsg            - user mark-unread: subscriptions
-//                              mark call.
-//   MessageMarkedUnreadMsg   - mark-unread result: apply local
-//                              read-state mark + fire success or
-//                              failure toast.
-//   WSMessageDeletedMsg      - inbound WS delete echo: remove from
-//                              both panes, cancel any in-flight
-//                              edit of this message, close the
-//                              thread panel if the deleted message
-//                              is the open thread's parent.
+//	NewMessageMsg            - inbound WS event for any channel:
+//	                           edit-echo update, self-send dedup
+//	                           (recorded + early-arrival in-flight
+//	                           guards), append-to-pane or
+//	                           mark-channel-unread, and threads-list
+//	                           dirty-bump for replies.
+//	SendMessageMsg           - user send: optimistic placeholder +
+//	                           chat.postMessage call.
+//	ScheduleMessageMsg       - user schedule: chat.scheduleMessage call.
+//	MessageScheduledMsg      - schedule landed: toast local post time.
+//	MessageScheduleFailedMsg - schedule failed: toast the reason.
+//	MessageSentMsg           - send landed: swap placeholder for
+//	                           authoritative message.
+//	MessageSendFailedMsg     - send failed: roll back placeholder
+//	                           + fire SendFailed toast.
+//	EditMessageMsg           - user edit: chat.update call.
+//	MessageEditedMsg         - edit result: leave edit mode + on
+//	                           failure fire EditFailed toast.
+//	DeleteMessageMsg         - user delete: chat.delete call.
+//	MessageDeletedMsg        - delete result: on failure fire
+//	                           DeleteFailed toast.
+//	MarkUnreadMsg            - user mark-unread: subscriptions
+//	                           mark call.
+//	MessageMarkedUnreadMsg   - mark-unread result: apply local
+//	                           read-state mark + fire success or
+//	                           failure toast.
+//	WSMessageDeletedMsg      - inbound WS delete echo: remove from
+//	                           both panes, cancel any in-flight
+//	                           edit of this message, close the
+//	                           thread panel if the deleted message
+//	                           is the open thread's parent.
 //
 // Free reducer (not controller-absorbed): these arms cooperate on
 // the messagepane, threadPanel, selfSend, editController, sidebar
@@ -46,6 +49,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/debuglog"
@@ -62,6 +67,15 @@ var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case SendMessageMsg:
 		return reduceSendMessage(a, m), true
+
+	case ScheduleMessageMsg:
+		return reduceScheduleMessage(a, m), true
+
+	case MessageScheduledMsg:
+		return toastWithClear(a, "Scheduled for "+m.PostAt.Format("3:04 PM"), 3*time.Second), true
+
+	case MessageScheduleFailedMsg:
+		return toastWithClear(a, "Schedule failed: "+truncateReason(m.Reason, 40), 3*time.Second), true
 
 	case MessageSentMsg:
 		// The chat.postMessage HTTP response landed. If a
@@ -389,5 +403,13 @@ func reduceSendMessage(a *App, m SendMessageMsg) tea.Cmd {
 			return r
 		}
 		return result
+	}
+}
+
+func reduceScheduleMessage(a *App, m ScheduleMessageMsg) tea.Cmd {
+	messageSvc := a.messageSvc
+	chID, threadTS, text, postAt := ids.ChannelID(m.ChannelID), ids.ThreadTS(m.ThreadTS), m.Text, m.PostAt
+	return func() tea.Msg {
+		return messageSvc.Schedule(chID, threadTS, text, postAt)
 	}
 }

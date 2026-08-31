@@ -42,6 +42,7 @@ import (
 	"github.com/gammons/slk/internal/ui/presencemenu"
 	"github.com/gammons/slk/internal/ui/reactionpicker"
 	"github.com/gammons/slk/internal/ui/reactionsview"
+	"github.com/gammons/slk/internal/ui/schedulemenu"
 	"github.com/gammons/slk/internal/ui/searchresults"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/statusbar"
@@ -109,11 +110,16 @@ type App struct {
 	workspaceFinder  workspacefinder.Model
 	themeSwitcher    themeswitcher.Model
 	presenceMenu     presencemenu.Model
-	help             help.Model
-	threadPanel      *thread.Model
-	threadCompose    compose.Model
-	threadsView      threadsview.Model
-	activityView     activityview.Model
+	scheduleMenu     schedulemenu.Model
+	// scheduleReturnMode is the mode to restore if the user cancels the
+	// schedule overlay (insert or normal).
+	scheduleReturnMode Mode
+	scheduleCustomBuf  string
+	help               help.Model
+	threadPanel        *thread.Model
+	threadCompose      compose.Model
+	threadsView        threadsview.Model
+	activityView       activityview.Model
 
 	// State
 	mode           Mode
@@ -518,6 +524,7 @@ func NewApp() *App {
 		workspaceFinder:       workspacefinder.New(),
 		themeSwitcher:         themeswitcher.New(),
 		presenceMenu:          presencemenu.New(),
+		scheduleMenu:          schedulemenu.New(),
 		help:                  help.New(),
 		threadPanel:           thread.New(),
 		threadCompose:         compose.New("thread"),
@@ -2080,7 +2087,7 @@ func (a *App) clearActiveSearch() {
 }
 
 // SetMessageService wires the App's MessageService collaborator
-// (send / edit / delete / mark-unread / permalink). Build one via
+// (send / schedule / edit / delete / mark-unread / permalink). Build one via
 // NewMessageService from a MessageServiceFuncs bundle.
 func (a *App) SetMessageService(s MessageService) {
 	if s == nil {

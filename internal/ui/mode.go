@@ -14,6 +14,8 @@ const (
 	ModeThemeSwitcher
 	ModePresenceMenu
 	ModePresenceCustomSnooze
+	ModeScheduleMenu
+	ModeScheduleCustom
 	ModeConfirm
 	ModeHelp
 	ModeNewMessage
@@ -38,6 +40,8 @@ func (m Mode) IsModalOverlay() bool {
 		ModeThemeSwitcher,
 		ModePresenceMenu,
 		ModePresenceCustomSnooze,
+		ModeScheduleMenu,
+		ModeScheduleCustom,
 		ModeConfirm,
 		ModeHelp,
 		ModeNewMessage,
@@ -72,6 +76,10 @@ func (m Mode) String() string {
 		return "STATUS"
 	case ModePresenceCustomSnooze:
 		return "STATUS-INPUT"
+	case ModeScheduleMenu:
+		return "SCHEDULE"
+	case ModeScheduleCustom:
+		return "SCHEDULE-INPUT"
 	case ModeConfirm:
 		return "CONFIRM"
 	case ModeHelp:
