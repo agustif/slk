@@ -19,7 +19,11 @@ type ActionID string
 const (
 	ActionAddReaction   ActionID = "add_reaction"
 	ActionReplyInThread ActionID = "reply_in_thread"
+	ActionSaveForLater  ActionID = "save_for_later"
+	ActionRemind        ActionID = "remind"
 	ActionCopyPermalink ActionID = "copy_permalink"
+	ActionPin           ActionID = "pin"
+	ActionFollowThread  ActionID = "follow_thread"
 	ActionDownloadFile  ActionID = "download_file"
 	ActionOpenLinks     ActionID = "open_links"
 	ActionEdit          ActionID = "edit"

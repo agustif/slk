@@ -12,6 +12,9 @@ import (
 func openContextMenuOnMessage(t *testing.T) *App {
 	t.Helper()
 	a := newTestAppWithMessages(t)
+	// openPickerFor no-ops without a channel; the fixture must look like
+	// a real open conversation so Add reaction can hand off to the picker.
+	a.activeChannelID = "C1"
 	a.focusedPanel = PanelMessages
 	pressX := a.layout.sidebarEnd + 2
 	pressY := 4
@@ -37,6 +40,30 @@ func TestMessageContextMenu_EscCloses(t *testing.T) {
 	}
 	if a.contextMenu.IsVisible() {
 		t.Error("context menu should close on Esc")
+	}
+}
+
+func TestMessageContextMenu_IncludesLaterPinFollow(t *testing.T) {
+	a := openContextMenuOnMessage(t)
+	got := map[contextmenu.ActionID]contextmenu.Item{}
+	for _, it := range a.contextMenu.Items() {
+		got[it.Action] = it
+	}
+	for _, want := range []contextmenu.ActionID{
+		contextmenu.ActionSaveForLater,
+		contextmenu.ActionRemind,
+		contextmenu.ActionPin,
+		contextmenu.ActionFollowThread,
+	} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("missing action %q", want)
+		}
+	}
+	if it := got[contextmenu.ActionFollowThread]; it.Enabled {
+		t.Error("Follow thread should be disabled in the channel pane")
+	}
+	if it := got[contextmenu.ActionSaveForLater]; it.Label != "Save for later" {
+		t.Errorf("later label = %q, want Save for later", it.Label)
 	}
 }
 
@@ -90,6 +117,15 @@ func TestMessageContextMenu_XKeyFromThreadPane(t *testing.T) {
 	}
 	if !a.contextMenu.IsVisible() {
 		t.Error("context menu should open from the thread pane")
+	}
+	var followEnabled bool
+	for _, it := range a.contextMenu.Items() {
+		if it.Action == contextmenu.ActionFollowThread {
+			followEnabled = it.Enabled
+		}
+	}
+	if !followEnabled {
+		t.Error("Follow thread should be enabled in the thread pane")
 	}
 }
 

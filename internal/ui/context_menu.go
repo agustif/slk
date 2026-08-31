@@ -42,10 +42,32 @@ func (a *App) contextMenuItems() ([]contextmenu.Item, bool) {
 	hasLinks := len(messages.ExtractLinks(msg.Text)) > 0
 	hasReactions := len(msg.Reactions) > 0
 
+	channelID := a.activeChannelID
+	if a.focusedPanel == PanelThread {
+		channelID = a.threadPanel.ChannelID()
+	}
+	laterLabel := "Save for later"
+	if a.laterSaved[laterKey(channelID, msg.TS)] {
+		laterLabel = "Remove from Later"
+	}
+	pinLabel := "Pin message"
+	if msg.Pinned {
+		pinLabel = "Unpin message"
+	}
+	followEnabled := a.focusedPanel == PanelThread && a.threadVisible
+	followLabel := "Follow thread"
+	if followEnabled && a.threadPanel.Following() {
+		followLabel = "Unfollow thread"
+	}
+
 	return []contextmenu.Item{
 		{Label: "Add reaction", Action: contextmenu.ActionAddReaction, Enabled: true},
 		{Label: "Reply in thread", Action: contextmenu.ActionReplyInThread, Enabled: true},
+		{Label: laterLabel, Action: contextmenu.ActionSaveForLater, Enabled: true},
+		{Label: "Remind me", Action: contextmenu.ActionRemind, Enabled: true},
 		{Label: "Copy permalink", Action: contextmenu.ActionCopyPermalink, Enabled: true},
+		{Label: pinLabel, Action: contextmenu.ActionPin, Enabled: true},
+		{Label: followLabel, Action: contextmenu.ActionFollowThread, Enabled: followEnabled},
 		{Label: "Download file", Action: contextmenu.ActionDownloadFile, Enabled: hasFile},
 		{Label: "Open links", Action: contextmenu.ActionOpenLinks, Enabled: hasLinks},
 		{Label: "Edit message", Action: contextmenu.ActionEdit, Enabled: own},
@@ -80,6 +102,14 @@ func (a *App) dispatchContextMenuAction(action contextmenu.ActionID) tea.Cmd {
 			return a.openPickerFromThread()
 		}
 		return a.openPickerFromMessage()
+	case contextmenu.ActionSaveForLater:
+		return a.toggleSaveForLater()
+	case contextmenu.ActionRemind:
+		return a.openRemindDuration()
+	case contextmenu.ActionPin:
+		return a.togglePinOfSelected()
+	case contextmenu.ActionFollowThread:
+		return a.toggleFollowOfOpenThread()
 	case contextmenu.ActionReplyInThread:
 		if a.focusedPanel == PanelThread {
 			a.SetMode(ModeInsert)
