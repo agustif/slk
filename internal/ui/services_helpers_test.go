@@ -100,4 +100,8 @@ func (a *App) setChannelMembershipFetcherForTest(fn func(channelID ids.ChannelID
 	a.SetChannelService(NewChannelService(fns))
 }
 
-
+func (a *App) setChannelChromeFetcherForTest(fn func(channelID ids.ChannelID) tea.Msg) {
+	fns := channelFuncsForTest(a)
+	fns.FetchChrome = fn
+	a.SetChannelService(NewChannelService(fns))
+}

@@ -410,7 +410,7 @@ func (m messageAdapter) Permalink(ctx context.Context, channelID ids.ChannelID, 
 //
 // Largest service in the App. Mixes three concerns that happen to
 // share the channel-as-domain-object boundary:
-//   - Slack API: Fetch, FetchOlder, MarkRead, Join.
+//   - Slack API: Fetch, FetchOlder, FetchChrome, MarkRead, Join.
 //   - Local cache: ReadCache, SyncedAt.
 //   - Session bookkeeping: Lookup, RecordVisit, MembershipFetch.
 //
@@ -487,6 +487,12 @@ type ChannelService interface {
 	// the finder showing local matches only, which is what it showed
 	// before this existed.
 	SearchRemote(query string) []channelfinder.Item
+
+	// FetchChrome loads bookmarks and pins for the channel header
+	// extras row. Fired in parallel with Fetch on channel select
+	// (must not sequence after the messages load). Returns a tea.Msg
+	// (typically ChannelChromeMsg); nil is a no-op.
+	FetchChrome(channelID ids.ChannelID) tea.Msg
 }
 
 // ChannelServiceFuncs is the closure bundle accepted by
@@ -505,6 +511,7 @@ type ChannelServiceFuncs struct {
 	MembershipFetch  func(channelID ids.ChannelID)
 	OpenConversation func(userIDs []string, requestID uint64) tea.Cmd
 	SearchRemote     func(query string) []channelfinder.Item
+	FetchChrome      func(channelID ids.ChannelID) tea.Msg
 }
 
 // NewChannelService builds a ChannelService from a
@@ -603,6 +610,13 @@ func (c channelAdapter) OpenConversation(userIDs []string, requestID uint64) tea
 		return nil
 	}
 	return c.fns.OpenConversation(userIDs, requestID)
+}
+
+func (c channelAdapter) FetchChrome(channelID ids.ChannelID) tea.Msg {
+	if c.fns.FetchChrome == nil {
+		return nil
+	}
+	return c.fns.FetchChrome(channelID)
 }
 
 // SearchService runs message searches. SearchChannel queries the local

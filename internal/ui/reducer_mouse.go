@@ -5,18 +5,18 @@
 // Owns the two remaining mouse Update arms that act as multi-panel
 // routers:
 //
-//   tea.MouseWheelMsg  - viewport scroll for the panel under the
-//                        cursor (sidebar, messages pane / threads
-//                        view, thread panel). Decoupled from j/k
-//                        selection. Triggers maybeFetchOlderHistory
-//                        on the messages pane when the viewport
-//                        hits the top.
-//   tea.MouseClickMsg  - panel-router: workspace rail (switch
-//                        workspace), sidebar (channel select /
-//                        threads view), messages pane (threads
-//                        click / reaction hit-test / image hit-test
-//                        / drag begin), thread panel (reaction
-//                        hit-test / drag begin).
+//	tea.MouseWheelMsg  - viewport scroll for the panel under the
+//	                     cursor (sidebar, messages pane / threads
+//	                     view, thread panel). Decoupled from j/k
+//	                     selection. Triggers maybeFetchOlderHistory
+//	                     on the messages pane when the viewport
+//	                     hits the top.
+//	tea.MouseClickMsg  - panel-router: workspace rail (switch
+//	                     workspace), sidebar (channel select /
+//	                     threads view), messages pane (threads
+//	                     click / reaction hit-test / image hit-test
+//	                     / drag begin), thread panel (reaction
+//	                     hit-test / drag begin).
 //
 // Free reducer (not controller-absorbed) because both arms route
 // across multiple sub-models: the sidebar, messagepane, threadPanel,
@@ -279,6 +279,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		}
 		panel, px, py, ok := a.panelAt(m.X, m.Y)
 		if !ok || panel != PanelMessages || py < 0 {
+			return nil
+		}
+		if py < a.messagepane.ChromeHeight() {
+			if hit, hitOK := a.messagepane.HitTestChrome(py, px); hitOK {
+				return a.handleHeaderChromeHit(hit)
+			}
 			return nil
 		}
 		// Hit-test reactions and inline images first: a click

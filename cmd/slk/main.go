@@ -1520,6 +1520,39 @@ func run() error {
 				}
 				return ui.ChannelJoinedMsg{ID: chIDStr, Name: channelName}
 			},
+			FetchChrome: func(channelID ids.ChannelID) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return nil
+				}
+				ch := string(channelID)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				var bookmarks []messages.Bookmark
+				if raw, err := wctx.Client.GetBookmarks(ctx, ch); err != nil {
+					debuglog.Cache("bookmarks.list %s: %v", ch, err)
+				} else {
+					bookmarks = make([]messages.Bookmark, 0, len(raw))
+					for _, b := range raw {
+						bookmarks = append(bookmarks, messages.Bookmark{Title: b.Title, URL: b.Link})
+					}
+				}
+				var pins []messages.Pin
+				if raw, err := wctx.Client.GetPins(ctx, ch); err != nil {
+					debuglog.Cache("pins.list %s: %v", ch, err)
+				} else {
+					pins = make([]messages.Pin, 0, len(raw))
+					for _, p := range raw {
+						pins = append(pins, messages.Pin{
+							TS:        p.MessageTS,
+							Text:      p.Text,
+							Permalink: p.Permalink,
+							Created:   p.Created,
+						})
+					}
+				}
+				return ui.ChannelChromeMsg{ChannelID: ch, Bookmarks: bookmarks, Pins: pins}
+			},
 		}))
 
 		app.SetSearchService(ui.NewSearchService(ui.SearchServiceFuncs{

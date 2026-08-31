@@ -240,6 +240,8 @@ type Model struct {
 	channelName  string
 	channelTopic string
 	channelType  string // "channel", "private", "dm", "group_dm" -- drives header glyph
+	bookmarks    []Bookmark
+	pins         []Pin
 	loading      bool
 	spinnerFrame int               // braille-spinner frame index for "Loading messages..." animation
 	avatarFn     AvatarFunc        // optional: returns half-block avatar for a userID
@@ -260,8 +262,9 @@ type Model struct {
 	cacheSpacer    string // pre-rendered blank spacer line (1 row, full width, themed background)
 	cacheMoreBelow string // pre-rendered "-- more below --" line
 
-	// Chrome cache: header line(s). Depends on width, channelName, and
-	// channelTopic only -- never on selection or scroll position.
+	// Chrome cache: header line(s). Depends on width, channelName,
+	// channelTopic, bookmarks, and pins -- never on selection or
+	// scroll position.
 	chromeCache       string
 	chromeHeight      int
 	chromeWidth       int
@@ -269,6 +272,8 @@ type Model struct {
 	chromeTopic       string
 	chromeChannelType string
 	chromeCacheValid  bool
+	chromeHits        []chromeHit
+	chromeExtrasRow   int // -1 = no extras row
 
 	// Cumulative line offsets, computed in buildCache (only when content
 	// changes). entryOffsets[i] is the line index where entry i starts in the
@@ -600,10 +605,11 @@ func New(msgs []MessageItem, channelName string) Model {
 		selected = len(msgs) - 1
 	}
 	return Model{
-		messages:    msgs,
-		selected:    selected,
-		channelName: channelName,
-		imgRenderer: imgrender.NewRenderer(),
+		messages:        msgs,
+		selected:        selected,
+		channelName:     channelName,
+		imgRenderer:     imgrender.NewRenderer(),
+		chromeExtrasRow: -1,
 	}
 }
 
@@ -625,6 +631,12 @@ func (m *Model) SetChannel(name, topic string) {
 		if m.channelName != name && m.imgRenderer != nil {
 			m.imgRenderer.ResetFailed()
 		}
+	}
+	if m.channelName != name {
+		m.bookmarks = nil
+		m.pins = nil
+		m.chromeHits = nil
+		m.chromeExtrasRow = -1
 	}
 	m.channelName = name
 	m.channelTopic = topic
@@ -2853,6 +2865,13 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 			// grapheme re-measurement). See ui.borderedTopPane.
 			topicStyle := styles.Timestamp.Width(width).Background(styles.Background)
 			header += "\n" + topicStyle.Render(WordWrap(m.channelTopic, width))
+		}
+		m.chromeHits = nil
+		m.chromeExtrasRow = -1
+		if extras, hits, ok := renderHeaderExtras(m.bookmarks, m.pins, width); ok {
+			m.chromeExtrasRow = lipgloss.Height(header)
+			header += "\n" + extras
+			m.chromeHits = hits
 		}
 		m.chromeCache = header
 		m.chromeHeight = lipgloss.Height(m.chromeCache)

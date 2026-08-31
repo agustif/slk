@@ -83,6 +83,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 ## Channels & Workspaces
 
 - Three-panel layout: workspace rail, channel sidebar, message pane
+- Channel header extras: bookmark titles (clickable, OSC-8) and a pin count (`📌 N`) on one row under the channel name; empty channels omit the row. Clicking a pin jumps to the most recent pinned message
 - Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DM channels
 - **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. Reorder, rename, create, or delete sections in any other Slack client; slk catches up within a couple seconds. Read-only: section editing still happens in the official client. Falls back to glob-based config sections when disabled or if the API is unavailable.
 - Collapsible sections — `Enter`/`Space` on a section header toggles it. The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
