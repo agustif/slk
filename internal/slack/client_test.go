@@ -2845,7 +2845,7 @@ func TestSearchMessages_PassesQueryVerbatim(t *testing.T) {
 	}
 	c := &Client{api: mock}
 
-	res, err := c.SearchMessages(context.Background(), "from:@grant in:#general deploy", 50)
+	res, err := c.SearchMessages(context.Background(), "from:@grant in:#general deploy", 50, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2868,7 +2868,7 @@ func TestSearchMessages_WrapsError(t *testing.T) {
 		},
 	}
 	c := &Client{api: mock}
-	_, err := c.SearchMessages(context.Background(), "x", 50)
+	_, err := c.SearchMessages(context.Background(), "x", 50, 1)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -2887,7 +2887,7 @@ func TestSearchMessages_NonPositiveCountKeepsDefault(t *testing.T) {
 	}
 	c := &Client{api: mock}
 
-	if _, err := c.SearchMessages(context.Background(), "x", 0); err != nil {
+	if _, err := c.SearchMessages(context.Background(), "x", 0, 1); err != nil {
 		t.Fatal(err)
 	}
 	want := slack.NewSearchParameters().Count

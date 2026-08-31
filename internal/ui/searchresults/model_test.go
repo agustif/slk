@@ -171,6 +171,9 @@ func TestViewSmoke(t *testing.T) {
 	if !strings.Contains(out, "general") || !strings.Contains(out, "grant") {
 		t.Fatal("results View must show channel and author")
 	}
+	if !strings.Contains(out, "Messages") || !strings.Contains(out, "Files") {
+		t.Fatal("results View must show Messages | Files tabs")
+	}
 	if !strings.Contains(out, "showing 2 of 5") {
 		t.Fatal("results View must show footer when total > len(items)")
 	}
@@ -609,14 +612,154 @@ func TestSeventyPercentSizing(t *testing.T) {
 	if w != 140 {
 		t.Errorf("BoxSize width = %d, want 140", w)
 	}
-	// Height budget is 42 (70% of 60); chrome is 8 (incl. footer), so
-	// 8 rows of rowLines(4) lines fit: 8*4 + 8 = 40.
-	if h != 40 {
-		t.Errorf("BoxSize height = %d, want 40 (fills the 70%% budget)", h)
+	// Height budget is 42 (70% of 60); chrome is 9 (tabs + footer), so
+	// 8 rows of rowLines(4) lines fit: 8*4 + 1 footer + chromeBase 8 = 41.
+	if h != 41 {
+		t.Errorf("BoxSize height = %d, want 41 (fills the 70%% budget)", h)
 	}
 	box := m.renderBox(200, 60)
 	if gw, gh := lipgloss.Width(box), lipgloss.Height(box); gw != w || gh != h {
 		t.Errorf("rendered %dx%d, BoxSize %dx%d", gw, gh, w, h)
+	}
+}
+
+func TestTabsSwitchKindAndSubmitUncached(t *testing.T) {
+	m := New()
+	m.Open()
+	if m.Kind() != KindMessages {
+		t.Fatalf("kind = %v, want Messages", m.Kind())
+	}
+	submitQuery(&m, "deploy")
+	m.SetResults(items(), 2)
+
+	if act := m.HandleKey("tab"); act != ActionSubmit {
+		t.Fatalf("tab to Files = %v, want ActionSubmit", act)
+	}
+	if m.Kind() != KindFiles {
+		t.Fatalf("kind = %v, want Files", m.Kind())
+	}
+	if !m.Loading() {
+		t.Fatal("uncached Files tab should load")
+	}
+
+	m.SetResults([]Item{{FileName: "a.pdf", Text: "a.pdf", ChannelName: "ops"}}, 1)
+	if act := m.HandleKey("tab"); act != ActionNone {
+		t.Fatalf("tab back to cached Messages = %v, want ActionNone", act)
+	}
+	if m.Kind() != KindMessages {
+		t.Fatalf("kind = %v, want Messages", m.Kind())
+	}
+	sel, ok := m.Selected()
+	if !ok || sel.ChannelID != "C1" {
+		t.Fatalf("cached Messages not restored: %+v ok=%v", sel, ok)
+	}
+}
+
+func TestShiftTabCyclesBack(t *testing.T) {
+	m := New()
+	m.Open()
+	if act := m.HandleKey("shift+tab"); act != ActionNone {
+		t.Fatalf("shift+tab on empty query = %v", act)
+	}
+	if m.Kind() != KindFiles {
+		t.Fatalf("kind = %v, want Files", m.Kind())
+	}
+}
+
+func TestLoadMoreEnterIncrementsGen(t *testing.T) {
+	m := New()
+	m.Open()
+	submitQuery(&m, "deploy")
+	genAfterSubmit := m.Gen()
+	m.SetResults(manyItems(2), 5)
+	if !m.HasMore() {
+		t.Fatal("want HasMore")
+	}
+	// 2 items + Load more: walk to the extra row.
+	m.HandleKey("down")
+	m.HandleKey("down")
+	if !m.LoadMoreSelected() {
+		t.Fatalf("selected = %d, want Load more (idx=2)", m.selected)
+	}
+	if act := m.HandleKey("enter"); act != ActionLoadMore {
+		t.Fatalf("enter on Load more = %v", act)
+	}
+	if m.Gen() != genAfterSubmit+1 {
+		t.Fatalf("gen = %d, want %d", m.Gen(), genAfterSubmit+1)
+	}
+	if act := m.HandleKey("enter"); act != ActionNone {
+		t.Fatalf("re-enter while paging = %v", act)
+	}
+}
+
+func TestAppendResultsIgnoredWhenNotPaging(t *testing.T) {
+	m := New()
+	m.Open()
+	submitQuery(&m, "deploy")
+	m.SetResults(items(), 2)
+	m.AppendResults(manyItems(3), 5)
+	if len(m.items) != 2 {
+		t.Fatalf("stale AppendResults applied: len=%d", len(m.items))
+	}
+}
+
+func TestAppendResultsExtendsList(t *testing.T) {
+	m := New()
+	m.Open()
+	submitQuery(&m, "deploy")
+	m.SetResults(manyItems(2), 4)
+	m.HandleKey("down")
+	m.HandleKey("down")
+	if act := m.HandleKey("enter"); act != ActionLoadMore {
+		t.Fatal(act)
+	}
+	m.AppendResults([]Item{
+		{ChannelID: "C2", ChannelName: "ops", TS: "2.0", Text: "page2"},
+		{ChannelID: "C3", ChannelName: "eng", TS: "3.0", Text: "page2b"},
+	}, 4)
+	if len(m.items) != 4 {
+		t.Fatalf("len=%d, want 4", len(m.items))
+	}
+	if m.HasMore() {
+		t.Fatal("exhausted total should clear HasMore")
+	}
+	if m.Page() != 2 {
+		t.Fatalf("page = %d, want 2", m.Page())
+	}
+}
+
+func TestQueryEditInvalidatesTabCache(t *testing.T) {
+	m := New()
+	m.Open()
+	submitQuery(&m, "deploy")
+	m.SetResults(items(), 2)
+	m.HandleKey("x")
+	if m.Kind() != KindMessages {
+		t.Fatal("typing should keep tab")
+	}
+	if _, ok := m.Selected(); ok {
+		t.Fatal("query edit should drop results")
+	}
+	// Retype-submit and switch to Files: must fetch, not restore.
+	m.HandleKey("enter")
+	m.SetResults(items(), 2)
+	if act := m.HandleKey("tab"); act != ActionSubmit {
+		t.Fatalf("Files cache should have been invalidated, got %v", act)
+	}
+}
+
+func TestLoadMoreVisibleInView(t *testing.T) {
+	m := New()
+	m.Open()
+	submitQuery(&m, "deploy")
+	m.SetResults(manyItems(2), 20)
+	// Walk onto the Load more row so it is inside the scroll window.
+	for i := 0; i < 5; i++ {
+		m.HandleKey("down")
+	}
+	plain := ansi.Strip(m.View(80, 30))
+	if !strings.Contains(plain, "Load more") {
+		t.Fatalf("missing Load more row:\n%s", plain)
 	}
 }
 

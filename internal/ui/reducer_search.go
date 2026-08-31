@@ -7,8 +7,9 @@
 // Message family:
 //
 //	ChannelSearchResultsMsg   - FTS match list for the active channel
-//	WorkspaceSearchResultsMsg - server-side search.messages results
-//	                            for the ctrl+f modal
+//	WorkspaceSearchResultsMsg - server-side search.messages / search.files
+//	                            results for the ctrl+f modal (Kind/Page/Gen
+//	                            drop a stale page)
 //
 // Stale results (the user switched channels while the query ran) are
 // dropped. An error clears search state and toasts; an empty result
@@ -48,8 +49,15 @@ var reduceSearch reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if !a.searchResults.IsVisible() || a.searchResults.Query() != m.Query {
 			return nil, true // stale: modal closed or query changed
 		}
+		if m.Gen != a.searchResults.Gen() || m.Kind != a.searchResults.Kind() {
+			return nil, true // stale: superseded generation or other tab
+		}
 		if m.Err != nil {
 			a.searchResults.SetError("Search failed: " + m.Err.Error())
+			return nil, true
+		}
+		if m.Page > 1 {
+			a.searchResults.AppendResults(m.Items, m.Total)
 			return nil, true
 		}
 		a.searchResults.SetHighlightTerms(workspaceHighlightTerms(m.Query))

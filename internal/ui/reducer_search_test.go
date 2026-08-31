@@ -302,9 +302,9 @@ func TestWorkspaceSearchSubmitAndResults(t *testing.T) {
 	app := searchTestApp(t)
 	var gotQuery string
 	app.SetSearchService(NewSearchService(SearchServiceFuncs{
-		SearchWorkspace: func(query string) tea.Msg {
-			gotQuery = query
-			return WorkspaceSearchResultsMsg{Query: query, Items: []searchresults.Item{
+		SearchWorkspace: func(req WorkspaceSearchRequest) tea.Msg {
+			gotQuery = req.Query
+			return WorkspaceSearchResultsMsg{Query: req.Query, Kind: req.Kind, Page: req.Page, Gen: req.Gen, Items: []searchresults.Item{
 				{ChannelID: "C2", ChannelName: "ops", TS: "2.0", Text: "hit"},
 			}, Total: 1}
 		},
@@ -448,7 +448,7 @@ func TestWorkspaceSearchResultsInstallHighlightTerms(t *testing.T) {
 		app.searchResults.HandleKey(string(r))
 	}
 	app.searchResults.HandleKey("enter")
-	app.Update(WorkspaceSearchResultsMsg{Query: query, Items: []searchresults.Item{
+	app.Update(WorkspaceSearchResultsMsg{Query: query, Kind: app.searchResults.Kind(), Gen: app.searchResults.Gen(), Items: []searchresults.Item{
 		{ChannelID: "C2", ChannelName: "ops", UserName: "sam", TS: "2.0",
 			Text: "deploy to general"},
 	}, Total: 1})
@@ -467,17 +467,162 @@ func TestWorkspaceSearchErrorShownInModal(t *testing.T) {
 	app.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	app.searchResults.HandleKey("q")
 	app.searchResults.HandleKey("enter")
-	app.Update(WorkspaceSearchResultsMsg{Query: "q", Err: errors.New("rate limited")})
+	app.Update(WorkspaceSearchResultsMsg{Query: "q", Kind: app.searchResults.Kind(), Gen: app.searchResults.Gen(), Err: errors.New("rate limited")})
 	if !app.searchResults.IsVisible() || app.searchResults.Query() != "q" {
 		t.Fatal("error must keep modal open with query intact")
+	}
+}
+
+func TestWorkspaceSearchLoadMoreStaleGenDropped(t *testing.T) {
+	app := searchTestApp(t)
+	var reqs []WorkspaceSearchRequest
+	app.SetSearchService(NewSearchService(SearchServiceFuncs{
+		SearchWorkspace: func(req WorkspaceSearchRequest) tea.Msg {
+			reqs = append(reqs, req)
+			return WorkspaceSearchResultsMsg{
+				Query: req.Query, Kind: req.Kind, Page: req.Page, Gen: req.Gen,
+				Items: []searchresults.Item{
+					{ChannelID: "C2", ChannelName: "ops", TS: "1.0", Text: "hit"},
+				},
+				Total: 4,
+			}
+		},
+	}))
+	app.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	app.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	for _, m := range drainCmd(cmd) {
+		app.Update(m)
+	}
+	if !app.searchResults.HasMore() {
+		t.Fatal("want HasMore after page 1 of 4")
+	}
+	// Highlight Load more (1 item + load more row).
+	app.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, loadCmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	loadGen := app.searchResults.Gen()
+	// New query while page 2 is in flight: gen advances, page 2 is stale.
+	app.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	_, cmd2 := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	newGen := app.searchResults.Gen()
+	if newGen == loadGen {
+		t.Fatal("new submit must bump gen")
+	}
+	for _, m := range drainCmd(loadCmd) {
+		app.Update(m)
+	}
+	if app.searchResults.Page() == 2 {
+		t.Fatal("stale page 2 applied after gen bump")
+	}
+	if _, ok := app.searchResults.Selected(); ok {
+		t.Fatal("stale page must not install results onto the new query")
+	}
+	for _, m := range drainCmd(cmd2) {
+		app.Update(m)
+	}
+	sel, ok := app.searchResults.Selected()
+	if !ok || sel.Text != "hit" {
+		t.Fatalf("current gen not applied: %+v ok=%v", sel, ok)
+	}
+	if app.searchResults.Gen() != newGen {
+		t.Fatalf("gen = %d, want %d", app.searchResults.Gen(), newGen)
+	}
+}
+
+func TestWorkspaceSearchTabDispatchesFiles(t *testing.T) {
+	app := searchTestApp(t)
+	var kinds []searchresults.Kind
+	app.SetSearchService(NewSearchService(SearchServiceFuncs{
+		SearchWorkspace: func(req WorkspaceSearchRequest) tea.Msg {
+			kinds = append(kinds, req.Kind)
+			item := searchresults.Item{ChannelID: "C2", ChannelName: "ops", Text: "msg"}
+			if req.Kind == searchresults.KindFiles {
+				item = searchresults.Item{Kind: searchresults.KindFiles, FileName: "a.pdf", Text: "a.pdf", FileURL: "https://files.slack.com/a.pdf"}
+			}
+			return WorkspaceSearchResultsMsg{Query: req.Query, Kind: req.Kind, Page: req.Page, Gen: req.Gen, Items: []searchresults.Item{item}, Total: 1}
+		},
+	}))
+	app.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	app.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	for _, m := range drainCmd(cmd) {
+		app.Update(m)
+	}
+	_, cmd = app.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	for _, m := range drainCmd(cmd) {
+		app.Update(m)
+	}
+	if len(kinds) != 2 || kinds[0] != searchresults.KindMessages || kinds[1] != searchresults.KindFiles {
+		t.Fatalf("kinds = %v, want [Messages Files]", kinds)
+	}
+	if app.searchResults.Kind() != searchresults.KindFiles {
+		t.Fatal("active tab should be Files")
+	}
+	sel, ok := app.searchResults.Selected()
+	if !ok || sel.FileName != "a.pdf" {
+		t.Fatalf("files result = %+v ok=%v", sel, ok)
+	}
+}
+
+func TestWorkspaceSearchFileSelectDownloads(t *testing.T) {
+	app := searchTestApp(t)
+	app.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	app.searchResults.HandleKey("tab")
+	app.searchResults.HandleKey("q")
+	app.searchResults.HandleKey("enter")
+	app.searchResults.SetResults([]searchresults.Item{{
+		Kind: searchresults.KindFiles, FileName: "a.csv", Text: "a.csv",
+		FileURL: "https://files.slack.com/a.csv", FileID: "F1",
+	}}, 1)
+
+	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msgs := drainCmd(cmd)
+	var dl *DownloadFileMsg
+	for _, m := range msgs {
+		if d, ok := m.(DownloadFileMsg); ok {
+			dl = &d
+		}
+	}
+	if dl == nil {
+		t.Fatalf("expected DownloadFileMsg, got %v", msgs)
+	}
+	if dl.Attachment.Name != "a.csv" || dl.Attachment.DownloadURL != "https://files.slack.com/a.csv" {
+		t.Errorf("attachment = %+v", dl.Attachment)
+	}
+	if app.mode != ModeNormal || app.searchResults.IsVisible() {
+		t.Fatal("modal not closed")
+	}
+}
+
+func TestWorkspaceSearchFileSelectOpensPermalink(t *testing.T) {
+	app := searchTestApp(t)
+	app.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	app.searchResults.HandleKey("tab")
+	app.searchResults.HandleKey("q")
+	app.searchResults.HandleKey("enter")
+	app.searchResults.SetResults([]searchresults.Item{{
+		Kind: searchresults.KindFiles, FileName: "a.csv", Text: "a.csv",
+		Permalink: "https://team.slack.com/files/U/F1/a.csv",
+	}}, 1)
+
+	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msgs := drainCmd(cmd)
+	var open *OpenLinkMsg
+	for _, m := range msgs {
+		if o, ok := m.(OpenLinkMsg); ok {
+			open = &o
+		}
+	}
+	if open == nil || open.URL != "https://team.slack.com/files/U/F1/a.csv" {
+		t.Fatalf("expected OpenLinkMsg permalink, got %v", msgs)
 	}
 }
 
 func TestWorkspaceSearchEscWhilePendingDropsLateResult(t *testing.T) {
 	app := searchTestApp(t)
 	app.SetSearchService(NewSearchService(SearchServiceFuncs{
-		SearchWorkspace: func(query string) tea.Msg {
-			return WorkspaceSearchResultsMsg{Query: query, Items: []searchresults.Item{
+		SearchWorkspace: func(req WorkspaceSearchRequest) tea.Msg {
+			return WorkspaceSearchResultsMsg{Query: req.Query, Kind: req.Kind, Page: req.Page, Gen: req.Gen, Items: []searchresults.Item{
 				{ChannelID: "C2", ChannelName: "ops", TS: "2.0", Text: "hit"},
 			}, Total: 1}
 		},

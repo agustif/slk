@@ -722,12 +722,17 @@ func (c *Client) GetHistoryAround(ctx context.Context, channelID, ts string, lim
 // search.messages endpoint. The query string is passed through
 // verbatim, so Slack-side modifiers (from:, in:, before:, ...) work
 // unmodified. Results are relevance-sorted (Slack's default).
-func (c *Client) SearchMessages(ctx context.Context, query string, count int) (*slack.SearchMessages, error) {
+// count <= 0 keeps slack-go's default (20). page <= 1 keeps Slack's
+// default first page.
+func (c *Client) SearchMessages(ctx context.Context, query string, count, page int) (*slack.SearchMessages, error) {
 	params := slack.NewSearchParameters()
 	// Non-positive counts would be forwarded to Slack as count=0;
 	// keep slack-go's default (20) instead.
 	if count > 0 {
 		params.Count = count
+	}
+	if page > 1 {
+		params.Page = page
 	}
 	res, err := c.api.SearchMessagesContext(ctx, query, params)
 	if err != nil {
