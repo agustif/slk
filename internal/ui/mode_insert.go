@@ -149,8 +149,11 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 	// Plain Enter sends; Shift+Enter (and Ctrl+J as a fallback
 	// for terminals that don't disambiguate modifiers) inserts a
-	// newline.
-	isSend := code == tea.KeyEnter && !mod.Contains(tea.ModShift)
+	// newline. Ctrl+Enter in the thread compose also-sends to the
+	// parent channel (reply_broadcast).
+	isBroadcastSend := code == tea.KeyEnter && mod.Contains(tea.ModCtrl) &&
+		a.focusedPanel == PanelThread && a.threadVisible
+	isSend := code == tea.KeyEnter && !mod.Contains(tea.ModShift) && !isBroadcastSend
 	isNewline := (code == tea.KeyEnter && mod.Contains(tea.ModShift)) ||
 		(code == 'j' && mod == tea.ModCtrl)
 
@@ -170,7 +173,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.threadCompose, cmd = a.threadCompose.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			return cmd
 		}
-		if isSend {
+		if isSend || isBroadcastSend {
 			if len(a.threadCompose.Attachments()) > 0 {
 				cmd := a.submitWithAttachments(&a.threadCompose)
 				if a.threadCompose.Uploading() {
@@ -187,12 +190,14 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				a.threadCompose.Reset()
 				threadTS := a.threadPanel.ThreadTS()
 				channelID := a.threadPanel.ChannelID()
+				broadcast := isBroadcastSend
 				a.exitInsertAfterSend()
 				return func() tea.Msg {
 					return SendThreadReplyMsg{
 						ChannelID: channelID,
 						ThreadTS:  threadTS,
 						Text:      text,
+						Broadcast: broadcast,
 					}
 				}
 			}

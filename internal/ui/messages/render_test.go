@@ -460,6 +460,31 @@ func TestThreadBroadcastLabel(t *testing.T) {
 	})
 }
 
+func TestPinnedMarker(t *testing.T) {
+	m := New([]MessageItem{{
+		TS:        "1.0",
+		UserName:  "alice",
+		Text:      "keep this",
+		Timestamp: "3:04 PM",
+		Pinned:    true,
+	}}, "general")
+	out := ansi.Strip(m.View(20, 60))
+	if !strings.Contains(out, "📌 pinned") {
+		t.Errorf("expected pinned marker, got:\n%s", out)
+	}
+
+	m = New([]MessageItem{{
+		TS:        "1.0",
+		UserName:  "alice",
+		Text:      "keep this",
+		Timestamp: "3:04 PM",
+	}}, "general")
+	out = ansi.Strip(m.View(20, 60))
+	if strings.Contains(out, "📌 pinned") {
+		t.Errorf("unpinned message should not show marker, got:\n%s", out)
+	}
+}
+
 // TestEscapedAngleBracketsNotMistakenForMention asserts that escaped
 // angle brackets (user-typed text) don't get re-interpreted as Slack
 // markup after decoding.
@@ -783,12 +808,13 @@ func TestBgFgANSIForBasicColorOutOfRange(t *testing.T) {
 
 // TestSubstituteBgSGR exercises the grammar-aware bg-parameter
 // substitution. The helper must:
-//   (1) substitute the param when it stands alone (\x1b[40m)
-//   (2) substitute the param within a bundled SGR (\x1b[1;31;40m)
-//   (3) NOT corrupt literal digits in non-SGR content
-//   (4) NOT match the param value inside a 256-color sub-argument
-//       (\x1b[38;5;40m is an FG index 40, not a bg basic 40)
-//   (5) leave the string unchanged when from == to
+//
+//	(1) substitute the param when it stands alone (\x1b[40m)
+//	(2) substitute the param within a bundled SGR (\x1b[1;31;40m)
+//	(3) NOT corrupt literal digits in non-SGR content
+//	(4) NOT match the param value inside a 256-color sub-argument
+//	    (\x1b[38;5;40m is an FG index 40, not a bg basic 40)
+//	(5) leave the string unchanged when from == to
 func TestSubstituteBgSGR(t *testing.T) {
 	const to = "48;2;100;100;200"
 

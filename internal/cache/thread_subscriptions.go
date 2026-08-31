@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -65,6 +66,27 @@ func (db *DB) DeleteThreadSubscription(workspaceID, channelID, threadTS string) 
 		return fmt.Errorf("deleting thread_subscriptions: %w", err)
 	}
 	return nil
+}
+
+// IsThreadSubscribed reports whether (channelID, threadTS) is an
+// active subscription in workspaceID. Missing or tombstoned rows are
+// false, not an error.
+func (db *DB) IsThreadSubscribed(workspaceID, channelID, threadTS string) (bool, error) {
+	if workspaceID == "" || channelID == "" || threadTS == "" {
+		return false, nil
+	}
+	const q = `
+SELECT active FROM thread_subscriptions
+WHERE workspace_id=? AND channel_id=? AND thread_ts=?`
+	var activeInt int
+	err := db.conn.QueryRow(q, workspaceID, channelID, threadTS).Scan(&activeInt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("IsThreadSubscribed: %w", err)
+	}
+	return activeInt == 1, nil
 }
 
 // ListActiveThreadSubscriptions returns every active subscription in

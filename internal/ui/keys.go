@@ -83,6 +83,9 @@ type KeyMap struct {
 	// `x` is the keyboard path. Do not bind `g` (gg prefix) or `c`
 	// (permalink with Y).
 	ContextMenu         key.Binding
+	Pin                 key.Binding
+	FollowThread        key.Binding
+	BroadcastSend       key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -167,5 +170,8 @@ func DefaultKeyMap() KeyMap {
 		MoveSection:        key.NewBinding(key.WithHelp(":move", "move channel to section")),
 		CreateSection:      key.NewBinding(key.WithHelp(":section", "create sidebar section")),
 		ContextMenu:        key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "message actions")),
+		Pin:                key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "pin/unpin message")),
+		FollowThread:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "follow/unfollow thread")),
+		BroadcastSend:      key.NewBinding(key.WithKeys("ctrl+enter"), key.WithHelp("ctrl+enter", "also send reply to channel")),
 	}
 }

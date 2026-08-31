@@ -155,6 +155,26 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		_ = m
 		return toastWithClear(a, "Can only delete your own messages", 2*time.Second), true
 
+	case PinToggledMsg:
+		if m.Err != nil {
+			action := "Pin"
+			if !m.Pinned {
+				action = "Unpin"
+			}
+			return toastWithClear(a, action+" failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		for _, mm := range a.modelsForChannel(m.ChannelID) {
+			mm.SetPinned(m.TS, m.Pinned)
+		}
+		if a.threadVisible && a.threadPanel.ChannelID() == m.ChannelID {
+			a.threadPanel.SetPinned(m.TS, m.Pinned)
+		}
+		text := "Pinned"
+		if !m.Pinned {
+			text = "Unpinned"
+		}
+		return toastWithClear(a, text, 2*time.Second), true
+
 	case ToastMsg:
 		return toastWithClear(a, m.Text, 3*time.Second), true
 

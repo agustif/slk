@@ -221,6 +221,9 @@ type mockSlackAPI struct {
 	getUserGroupsContextFn          func(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
 	leaveConversationFn             func(channelID string) (bool, error)
 	scheduleMessageContextFn        func(ctx context.Context, channelID, postAt string, options ...slack.MsgOption) (string, string, error)
+	addPinContextFn                 func(ctx context.Context, channel string, item slack.ItemRef) error
+	removePinContextFn              func(ctx context.Context, channel string, item slack.ItemRef) error
+	listPinsContextFn               func(ctx context.Context, channel string) ([]slack.Item, *slack.Paging, error)
 }
 
 func (m *mockSlackAPI) GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
@@ -298,6 +301,27 @@ func (m *mockSlackAPI) AddReaction(name string, item slack.ItemRef) error {
 
 func (m *mockSlackAPI) RemoveReaction(name string, item slack.ItemRef) error {
 	return nil
+}
+
+func (m *mockSlackAPI) AddPinContext(ctx context.Context, channel string, item slack.ItemRef) error {
+	if m.addPinContextFn != nil {
+		return m.addPinContextFn(ctx, channel, item)
+	}
+	return nil
+}
+
+func (m *mockSlackAPI) RemovePinContext(ctx context.Context, channel string, item slack.ItemRef) error {
+	if m.removePinContextFn != nil {
+		return m.removePinContextFn(ctx, channel, item)
+	}
+	return nil
+}
+
+func (m *mockSlackAPI) ListPinsContext(ctx context.Context, channel string) ([]slack.Item, *slack.Paging, error) {
+	if m.listPinsContextFn != nil {
+		return m.listPinsContextFn(ctx, channel)
+	}
+	return nil, nil, nil
 }
 
 func (m *mockSlackAPI) AuthTest() (*slack.AuthTestResponse, error) {
@@ -1994,6 +2018,172 @@ func TestSendReply_BuildsRichTextBlock(t *testing.T) {
 	}
 	if form.Get("thread_ts") != "1700000000.000100" {
 		t.Errorf("thread_ts = %q, want parent ts", form.Get("thread_ts"))
+	}
+	if form.Get("reply_broadcast") != "" {
+		t.Errorf("reply_broadcast = %q, want empty for a normal reply", form.Get("reply_broadcast"))
+	}
+}
+
+func TestSendReplyBroadcast_SetsReplyBroadcast(t *testing.T) {
+	api, getForm, closeFn := newTestSlackAPI(t, `{"ok":true,"ts":"1700000000.000200","channel":"C1"}`)
+	defer closeFn()
+	c := &Client{api: api}
+
+	ts, sentMrkdwn, err := c.SendReplyBroadcast(context.Background(), "C1", "1700000000.000100", "also to channel")
+	if err != nil {
+		t.Fatalf("SendReplyBroadcast: %v", err)
+	}
+	if ts != "1700000000.000200" {
+		t.Errorf("ts = %q", ts)
+	}
+	if sentMrkdwn != "also to channel" {
+		t.Errorf("sentMrkdwn = %q", sentMrkdwn)
+	}
+	form := getForm()
+	if form.Get("thread_ts") != "1700000000.000100" {
+		t.Errorf("thread_ts = %q, want parent ts", form.Get("thread_ts"))
+	}
+	if form.Get("reply_broadcast") != "true" {
+		t.Errorf("reply_broadcast = %q, want true", form.Get("reply_broadcast"))
+	}
+}
+
+func TestAddPin_PostsChannelAndTimestamp(t *testing.T) {
+	api, getForm, closeFn := newTestSlackAPI(t, `{"ok":true}`)
+	defer closeFn()
+	c := &Client{api: api}
+
+	if err := c.AddPin(context.Background(), "C1", "1700000000.000100"); err != nil {
+		t.Fatalf("AddPin: %v", err)
+	}
+	form := getForm()
+	if form.Get("channel") != "C1" {
+		t.Errorf("channel = %q, want C1", form.Get("channel"))
+	}
+	if form.Get("timestamp") != "1700000000.000100" {
+		t.Errorf("timestamp = %q", form.Get("timestamp"))
+	}
+}
+
+func TestRemovePin_PostsChannelAndTimestamp(t *testing.T) {
+	api, getForm, closeFn := newTestSlackAPI(t, `{"ok":true}`)
+	defer closeFn()
+	c := &Client{api: api}
+
+	if err := c.RemovePin(context.Background(), "C1", "1700000000.000100"); err != nil {
+		t.Fatalf("RemovePin: %v", err)
+	}
+	form := getForm()
+	if form.Get("channel") != "C1" {
+		t.Errorf("channel = %q, want C1", form.Get("channel"))
+	}
+	if form.Get("timestamp") != "1700000000.000100" {
+		t.Errorf("timestamp = %q", form.Get("timestamp"))
+	}
+}
+
+func TestAddPin_AlreadyPinnedIsSuccess(t *testing.T) {
+	api, _, closeFn := newTestSlackAPI(t, `{"ok":false,"error":"already_pinned"}`)
+	defer closeFn()
+	c := &Client{api: api}
+	if err := c.AddPin(context.Background(), "C1", "1.0"); err != nil {
+		t.Fatalf("already_pinned should be success, got %v", err)
+	}
+}
+
+func TestListPins_ReturnsMessageItems(t *testing.T) {
+	api, getForm, closeFn := newTestSlackAPI(t, `{"ok":true,"items":[{"type":"message","channel":"C1","message":{"type":"message","ts":"1700000000.000100","pinned_to":["C1"]}}],"paging":{"count":1,"total":1,"page":1,"pages":1}}`)
+	defer closeFn()
+	c := &Client{api: api}
+
+	items, err := c.ListPins(context.Background(), "C1")
+	if err != nil {
+		t.Fatalf("ListPins: %v", err)
+	}
+	if getForm().Get("channel") != "C1" {
+		t.Errorf("channel = %q", getForm().Get("channel"))
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Type != "message" {
+		t.Errorf("type = %q, want message", items[0].Type)
+	}
+	if items[0].Message == nil || items[0].Message.Timestamp != "1700000000.000100" {
+		t.Errorf("message = %+v", items[0].Message)
+	}
+}
+
+func TestSubscribeThread_PostsChannelAndThreadTS(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.SubscribeThread(context.Background(), "C1", "1700000000.000100"); err != nil {
+		t.Fatalf("SubscribeThread: %v", err)
+	}
+	if !strings.HasSuffix(gotPath, "/subscriptions.thread.add") {
+		t.Errorf("path = %q, want suffix /subscriptions.thread.add", gotPath)
+	}
+	form, _ := url.ParseQuery(gotBody)
+	if form.Get("channel") != "C1" {
+		t.Errorf("channel = %q", form.Get("channel"))
+	}
+	if form.Get("thread_ts") != "1700000000.000100" {
+		t.Errorf("thread_ts = %q", form.Get("thread_ts"))
+	}
+}
+
+func TestUnsubscribeThread_PostsChannelAndThreadTS(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.UnsubscribeThread(context.Background(), "C1", "1700000000.000100"); err != nil {
+		t.Fatalf("UnsubscribeThread: %v", err)
+	}
+	if !strings.HasSuffix(gotPath, "/subscriptions.thread.remove") {
+		t.Errorf("path = %q, want suffix /subscriptions.thread.remove", gotPath)
+	}
+}
+
+func TestSubscribeThread_AlreadySubscribedIsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"already_subscribed"}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SubscribeThread(context.Background(), "C1", "1.0"); err != nil {
+		t.Fatalf("already_subscribed should be success, got %v", err)
+	}
+}
+
+func TestSubscribeThread_OtherError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"invalid_auth"}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	err := c.SubscribeThread(context.Background(), "C1", "1.0")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid_auth") {
+		t.Errorf("error = %v, want invalid_auth", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"log"
@@ -1800,6 +1801,7 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.threadPanel.SetThread(parent, nil, channelID, threadTS)
 	a.threadCompose.SetChannel("thread")
 	a.applyThreadUnreadBoundary(channelID)
+	a.applyThreadFollowing(channelID, threadTS)
 
 	threads := a.threads
 	chID := ids.ChannelID(channelID)
@@ -1840,6 +1842,20 @@ func (a *App) SetMode(mode Mode) {
 	}
 	a.mode = mode
 	a.statusbar.SetMode(mode)
+	a.refreshHelpHint()
+}
+
+const threadBroadcastHint = "enter reply · ctrl+enter also send to channel"
+
+func (a *App) refreshHelpHint() {
+	if a.pendingWinCmd {
+		return
+	}
+	if a.mode == ModeInsert && a.focusedPanel == PanelThread && a.threadVisible {
+		a.statusbar.SetHelpHint(threadBroadcastHint)
+		return
+	}
+	a.statusbar.SetHelpHint(a.defaultHelpHint())
 }
 
 // exitInsertAfterSend mirrors the Esc-from-insert handler so that
@@ -1880,6 +1896,7 @@ func (a *App) FocusNext() {
 				a.focusedPanel = PanelMessages
 			}
 		}
+		a.refreshHelpHint()
 		return
 	}
 	switch a.focusedPanel {
@@ -1894,6 +1911,7 @@ func (a *App) FocusNext() {
 	case PanelThread:
 		a.focusedPanel = PanelSidebar
 	}
+	a.refreshHelpHint()
 }
 
 func (a *App) FocusPrev() {
@@ -1907,6 +1925,7 @@ func (a *App) FocusPrev() {
 				a.focusedPanel = PanelThread
 			}
 		}
+		a.refreshHelpHint()
 		return
 	}
 	switch a.focusedPanel {
@@ -1921,6 +1940,7 @@ func (a *App) FocusPrev() {
 	case PanelThread:
 		a.focusedPanel = PanelMessages
 	}
+	a.refreshHelpHint()
 }
 
 func (a *App) ToggleSidebar() {
@@ -1991,6 +2011,7 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 	}
 	a.threadPanel.SetThread(parent, nil, sum.ChannelID, sum.ThreadTS)
 	a.threadCompose.SetChannel("thread")
+	a.applyThreadFollowing(sum.ChannelID, sum.ThreadTS)
 	// Snapshot the parent channel's last_read_ts BEFORE the local mark-
 	// read flips below, so the "── new ──" landmark in the thread panel
 	// reflects what the user had actually seen prior to opening this
@@ -3630,6 +3651,84 @@ func (a *App) markUnreadOfSelected() tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (a *App) applyThreadFollowing(channelID, threadTS string) {
+	if channelID == "" || threadTS == "" {
+		a.threadPanel.SetFollowing(false)
+		return
+	}
+	a.threadPanel.SetFollowing(a.threads.IsSubscribed(ids.ChannelID(channelID), ids.ThreadTS(threadTS)))
+}
+
+// togglePinOfSelected pins or unpins the selected message in the
+// focused pane. Silent no-op when nothing is selected.
+func (a *App) togglePinOfSelected() tea.Cmd {
+	if a.focusedPanel == PanelMessages && a.view != ViewChannels {
+		return nil
+	}
+	channelID, ts, _, _, panel, ok := a.selectedMessageContext()
+	if !ok || channelID == "" || ts == "" {
+		return nil
+	}
+	pinned := false
+	switch panel {
+	case PanelMessages:
+		if msg, sel := a.messagepane.SelectedMessage(); sel {
+			pinned = msg.Pinned
+		}
+	case PanelThread:
+		if reply := a.threadPanel.SelectedReply(); reply != nil {
+			pinned = reply.Pinned
+		}
+	}
+	messageSvc := a.messageSvc
+	chID := ids.ChannelID(channelID)
+	mTS := ids.MessageTS(ts)
+	wantPinned := !pinned
+	return func() tea.Msg {
+		var err error
+		if wantPinned {
+			err = messageSvc.Pin(chID, mTS)
+		} else {
+			err = messageSvc.Unpin(chID, mTS)
+		}
+		if errors.Is(err, errServiceNoop) {
+			return nil
+		}
+		return PinToggledMsg{ChannelID: channelID, TS: ts, Pinned: wantPinned, Err: err}
+	}
+}
+
+// toggleFollowOfOpenThread follows or unfollows the thread shown in
+// the thread panel. Only bound while the thread panel is focused so
+// it does not steal Activity's f/F tab keys.
+func (a *App) toggleFollowOfOpenThread() tea.Cmd {
+	if a.focusedPanel != PanelThread || !a.threadVisible {
+		return nil
+	}
+	channelID := a.threadPanel.ChannelID()
+	threadTS := a.threadPanel.ThreadTS()
+	if channelID == "" || threadTS == "" {
+		return nil
+	}
+	following := a.threadPanel.Following() || a.threads.IsSubscribed(ids.ChannelID(channelID), ids.ThreadTS(threadTS))
+	threads := a.threads
+	chID := ids.ChannelID(channelID)
+	tTS := ids.ThreadTS(threadTS)
+	wantFollow := !following
+	return func() tea.Msg {
+		var err error
+		if wantFollow {
+			err = threads.Subscribe(chID, tTS)
+		} else {
+			err = threads.Unsubscribe(chID, tTS)
+		}
+		if errors.Is(err, errServiceNoop) {
+			return nil
+		}
+		return FollowToggledMsg{ChannelID: channelID, ThreadTS: threadTS, Following: wantFollow, Err: err}
+	}
 }
 
 // openImagePreviewOfSelected dispatches OpenImagePreviewMsg for the

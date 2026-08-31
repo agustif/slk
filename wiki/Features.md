@@ -13,6 +13,7 @@
 - New-message landmark (red `── new ──` line at the unread boundary)
 - Mark-as-read synced to Slack on channel entry
 - Mark-as-unread (`U`) — rolls the read watermark backward to the selected message; thread replies supported. Inbound `channel_marked` / `thread_marked` events from other Slack clients are reflected live.
+- Pin / unpin (`P`) — toggles Slack's pin on the selected message; pinned rows show a muted 📌 marker
 - Edited / threaded message indicators
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
@@ -21,6 +22,7 @@
 ## Compose
 
 - Multi-line input, `Shift+Enter` for newlines
+- In a thread, `Ctrl+Enter` sends the reply and also posts it to the channel (`thread_broadcast`)
 - Inline `@mention` autocomplete (resolves to `<@UserID>` on send)
 - Special mentions: `@here`, `@channel`, `@everyone`
 - Bracketed paste — paste multi-line text from the system clipboard without it being interpreted as keystrokes
@@ -46,15 +48,15 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 ## Threads
 
 - Side panel (35% width), opened with `Enter`, toggled with `Ctrl+]`
+- Follow / unfollow the open thread (`t` with the thread panel focused); the Threads view is the followed set
 - Live thread reply routing, real-time updates
 - Auto-closes on channel switch or narrow terminals
-- **Threads view** (`⚑ Threads` at top of sidebar): scrollable list of every
-  thread you authored, replied to, or were @-mentioned in for the active
-  workspace. Unread first, then newest activity. Cards show the parent
-  author's avatar. Selecting a thread opens
-  it in the side panel; the list re-ranks live as new replies arrive.
-  v1 is computed from the local SQLite cache, so threads from channels
-  you have not yet opened in slk will not appear until they are seen.
+- **Threads view** (`⚑ Threads` at top of sidebar): scrollable list of
+  threads you follow (Slack `subscriptions.thread`). Unread first, then
+  newest activity. Cards show the parent author's avatar. Selecting a
+  thread opens it in the side panel; the list re-ranks live as new
+  replies arrive. Follow with `t` in the thread panel; unfollow
+  removes the row.
 
 ## Activity
 
