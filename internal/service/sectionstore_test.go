@@ -258,6 +258,103 @@ func TestSectionStore_PopulateStars_ReplacesPreviousStarList(t *testing.T) {
 	}
 }
 
+// SetStarred is the optimistic path used by the TUI `*` toggle: add a
+// channel, the stars section becomes renderable; remove the last one,
+// includeInSidebar hides it again.
+func TestSectionStore_SetStarred_ShowsAndHidesStarsSection(t *testing.T) {
+	sections := []slk.SidebarSection{
+		{ID: "ST", Type: "stars", Name: "", Next: "U", LastUpdate: 1},
+		{ID: "U", Type: "standard", Name: "Mine", Next: "", LastUpdate: 1},
+	}
+	c := &fakeSectionsClient{sections: sections}
+	store := NewSectionStore()
+	_ = store.Bootstrap(context.Background(), c)
+
+	if store.IsStarred("C1") {
+		t.Fatal("IsStarred(C1)=true before starring")
+	}
+	got := store.OrderedSections()
+	if len(got) != 1 || got[0].ID != "U" {
+		t.Fatalf("before star: OrderedSections = %+v, want [U]", got)
+	}
+
+	store.SetStarred("C1", true)
+	if !store.IsStarred("C1") {
+		t.Fatal("IsStarred(C1)=false after SetStarred(true)")
+	}
+	got = store.OrderedSections()
+	if len(got) != 2 || got[0].ID != "ST" {
+		t.Fatalf("after star: OrderedSections = %+v, want [ST, U]", got)
+	}
+	if id, ok := store.SectionForChannel("C1"); !ok || id != "ST" {
+		t.Errorf("SectionForChannel(C1) = (%q,%v), want (ST,true)", id, ok)
+	}
+	ids := store.StarredChannelIDs()
+	if len(ids) != 1 || ids[0] != "C1" {
+		t.Errorf("StarredChannelIDs = %v, want [C1]", ids)
+	}
+
+	store.SetStarred("C1", false)
+	if store.IsStarred("C1") {
+		t.Fatal("IsStarred(C1)=true after SetStarred(false)")
+	}
+	got = store.OrderedSections()
+	if len(got) != 1 || got[0].ID != "U" {
+		t.Fatalf("after unstar: OrderedSections = %+v, want [U] (empty stars hidden)", got)
+	}
+	if _, ok := store.SectionForChannel("C1"); ok {
+		t.Error("C1 still claimed after last unstar")
+	}
+}
+
+// Unstarring a channel that still lives in another section's ChannelIDs
+// restores that mapping so it doesn't fall through to the type-default
+// bucket until the next bootstrap.
+func TestSectionStore_SetStarred_UnstarRestoresOriginalSection(t *testing.T) {
+	sections := []slk.SidebarSection{
+		{ID: "ST", Type: "stars", Name: "", Next: "U", LastUpdate: 1},
+		{ID: "U", Type: "standard", Name: "Mine", Next: "", LastUpdate: 1,
+			ChannelIDs: []string{"C1"}, ChannelsCount: 1},
+	}
+	c := &fakeSectionsClient{sections: sections}
+	store := NewSectionStore()
+	_ = store.Bootstrap(context.Background(), c)
+
+	store.SetStarred("C1", true)
+	if id, ok := store.SectionForChannel("C1"); !ok || id != "ST" {
+		t.Fatalf("after star: SectionForChannel(C1) = (%q,%v), want (ST,true)", id, ok)
+	}
+	store.SetStarred("C1", false)
+	if id, ok := store.SectionForChannel("C1"); !ok || id != "U" {
+		t.Errorf("after unstar: SectionForChannel(C1) = (%q,%v), want (U,true) (restored)", id, ok)
+	}
+}
+
+func TestSectionStore_SetStarred_IdempotentAndNoOpWithoutStarsSection(t *testing.T) {
+	sections := []slk.SidebarSection{
+		{ID: "U", Type: "standard", Name: "Mine", Next: "", LastUpdate: 1},
+	}
+	c := &fakeSectionsClient{sections: sections}
+	store := NewSectionStore()
+	_ = store.Bootstrap(context.Background(), c)
+	store.SetStarred("C1", true)
+	if store.IsStarred("C1") {
+		t.Error("SetStarred must not synthesize a stars section")
+	}
+
+	withStars := []slk.SidebarSection{
+		{ID: "ST", Type: "stars", Name: "", Next: "U", LastUpdate: 1},
+		{ID: "U", Type: "standard", Name: "Mine", Next: "", LastUpdate: 1},
+	}
+	store2 := NewSectionStore()
+	_ = store2.Bootstrap(context.Background(), &fakeSectionsClient{sections: withStars})
+	store2.SetStarred("C1", true)
+	store2.SetStarred("C1", true)
+	if ids := store2.StarredChannelIDs(); len(ids) != 1 || ids[0] != "C1" {
+		t.Errorf("duplicate star should be a no-op, got %v", ids)
+	}
+}
+
 // TestBootstrap_PopulatesStars regresses a bug where the Starred header
 // disappeared after a WebSocket reconnect. Bootstrap atomically replaces
 // store state; channelSections.list returns the stars section with an

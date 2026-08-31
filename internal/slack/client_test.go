@@ -1117,6 +1117,123 @@ func TestGetStarredChannels_APIError(t *testing.T) {
 	}
 }
 
+func TestStarChannel_PostsChannelItem(t *testing.T) {
+	var gotPath, gotChannel, gotTS, gotItem string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotPath = r.URL.Path
+		gotChannel = r.PostForm.Get("channel")
+		gotTS = r.PostForm.Get("timestamp")
+		gotItem = r.PostForm.Get("item")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.StarChannel(context.Background(), "C123"); err != nil {
+		t.Fatalf("StarChannel: %v", err)
+	}
+	if gotPath != "/api/stars.add" {
+		t.Errorf("path = %q, want /api/stars.add", gotPath)
+	}
+	if gotChannel != "C123" {
+		t.Errorf("channel = %q, want C123", gotChannel)
+	}
+	if gotTS != "" {
+		t.Errorf("timestamp = %q, want empty (channel item, not a message star)", gotTS)
+	}
+	if gotItem != "" {
+		t.Errorf("item = %q, want empty (public API uses channel=, not item=)", gotItem)
+	}
+}
+
+func TestUnstarChannel_PostsChannelItem(t *testing.T) {
+	var gotPath, gotChannel, gotTS string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotPath = r.URL.Path
+		gotChannel = r.PostForm.Get("channel")
+		gotTS = r.PostForm.Get("timestamp")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.UnstarChannel(context.Background(), "C123"); err != nil {
+		t.Fatalf("UnstarChannel: %v", err)
+	}
+	if gotPath != "/api/stars.remove" {
+		t.Errorf("path = %q, want /api/stars.remove", gotPath)
+	}
+	if gotChannel != "C123" {
+		t.Errorf("channel = %q, want C123", gotChannel)
+	}
+	if gotTS != "" {
+		t.Errorf("timestamp = %q, want empty (channel item, not a message star)", gotTS)
+	}
+}
+
+func TestStarChannel_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"channel_not_found"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.StarChannel(context.Background(), "C123"); err == nil {
+		t.Fatal("expected error on ok=false response")
+	}
+}
+
+func TestUnstarChannel_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"channel_not_found"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.UnstarChannel(context.Background(), "C123"); err == nil {
+		t.Fatal("expected error on ok=false response")
+	}
+}
+
+func TestStarChannel_AlreadyStarredIsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"already_starred"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.StarChannel(context.Background(), "C123"); err != nil {
+		t.Fatalf("already_starred should be idempotent success: %v", err)
+	}
+}
+
+func TestUnstarChannel_NoStarIsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"no_star"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.UnstarChannel(context.Background(), "C123"); err != nil {
+		t.Fatalf("no_star should be idempotent success: %v", err)
+	}
+}
+
+func TestStarChannel_EmptyChannelID(t *testing.T) {
+	c := &Client{token: "xoxc-test", apiBaseURL: "http://127.0.0.1:1/api/"}
+	if err := c.StarChannel(context.Background(), ""); err == nil {
+		t.Fatal("expected error on empty channel ID")
+	}
+}
+
 // TestHandRolledEndpoints_FormBodyTokenNoBearer verifies that every
 // undocumented endpoint slk calls directly sends the xoxc token in the
 // form body (the browser-client convention) rather than as Authorization:
@@ -1183,6 +1300,24 @@ func TestHandRolledEndpoints_FormBodyTokenNoBearer(t *testing.T) {
 			call: func(t *testing.T, c *Client) {
 				if _, err := c.GetChannelSections(context.Background()); err != nil {
 					t.Fatalf("GetChannelSections: %v", err)
+				}
+			},
+		},
+		{
+			name:     "StarChannel",
+			respBody: `{"ok":true}`,
+			call: func(t *testing.T, c *Client) {
+				if err := c.StarChannel(context.Background(), "C1"); err != nil {
+					t.Fatalf("StarChannel: %v", err)
+				}
+			},
+		},
+		{
+			name:     "UnstarChannel",
+			respBody: `{"ok":true}`,
+			call: func(t *testing.T, c *Client) {
+				if err := c.UnstarChannel(context.Background(), "C1"); err != nil {
+					t.Fatalf("UnstarChannel: %v", err)
 				}
 			},
 		},
@@ -3029,6 +3164,24 @@ func TestHandRolledEndpoints_RouteThroughSharedClient(t *testing.T) {
 			call: func(t *testing.T, c *Client) {
 				if _, err := c.GetStarredChannels(context.Background()); err != nil {
 					t.Fatalf("GetStarredChannels: %v", err)
+				}
+			},
+		},
+		{
+			name:     "StarChannel",
+			respBody: `{"ok":true}`,
+			call: func(t *testing.T, c *Client) {
+				if err := c.StarChannel(context.Background(), "C1"); err != nil {
+					t.Fatalf("StarChannel: %v", err)
+				}
+			},
+		},
+		{
+			name:     "UnstarChannel",
+			respBody: `{"ok":true}`,
+			call: func(t *testing.T, c *Client) {
+				if err := c.UnstarChannel(context.Background(), "C1"); err != nil {
+					t.Fatalf("UnstarChannel: %v", err)
 				}
 			},
 		},

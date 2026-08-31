@@ -1911,6 +1911,46 @@ func run() error {
 			_ = wctx.Client.SendTyping(channelID)
 		})
 
+		app.SetStarToggler(func(channelID string) (bool, []sidebar.ChannelItem, bool) {
+			wctx := router.Active()
+			if wctx == nil || wctx.SectionStore == nil || !wctx.SectionStore.Ready() {
+				return false, nil, false
+			}
+			store := wctx.SectionStore
+			nowStarred := !store.IsStarred(channelID)
+			store.SetStarred(channelID, nowStarred)
+			applySectionFields(wctx)
+			channels := copyWorkspaceChannels(wctx)
+			client := wctx.Client
+			teamID := wctx.TeamID
+			go func() {
+				if client == nil {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				var err error
+				if nowStarred {
+					err = client.StarChannel(ctx, channelID)
+				} else {
+					err = client.UnstarChannel(ctx, channelID)
+				}
+				if err == nil {
+					return
+				}
+				store.SetStarred(channelID, !nowStarred)
+				applySectionFields(wctx)
+				if p != nil {
+					p.Send(ui.SectionsRefreshedMsg{
+						TeamID:   teamID,
+						Channels: copyWorkspaceChannels(wctx),
+					})
+					p.Send(ui.ToastMsg{Text: "Star failed: " + err.Error()})
+				}
+			}()
+			return nowStarred, channels, true
+		})
+
 	}
 
 	// Bind all callbacks once. They read router.Active() at invocation.
@@ -4695,21 +4735,13 @@ func (h *rtmEventHandler) OnConversationOpened(ch slack.Channel) {
 //
 // Called from the four channel-section WS event handlers after they've
 // already applied their delta to the store.
-func (h *rtmEventHandler) refreshSectionsForActive() {
-	if h.wsCtx == nil || h.wsCtx.SectionStore == nil {
+func applySectionFields(wctx *WorkspaceContext) {
+	if wctx == nil || wctx.SectionStore == nil || !wctx.SectionStore.Ready() {
 		return
 	}
-	store := h.wsCtx.SectionStore
-	if !store.Ready() {
-		return
-	}
-	// Update Section field on every channel in the workspace context
-	// based on current store state. Channels not claimed by any
-	// section have Section reset to "" — letting the sidebar's Slack
-	// mode bucket them via type-default fallback (Task 8) or the
-	// config-glob path if Slack mode isn't active.
-	for i := range h.wsCtx.Channels {
-		item := &h.wsCtx.Channels[i]
+	store := wctx.SectionStore
+	for i := range wctx.Channels {
+		item := &wctx.Channels[i]
 		if id, ok := store.SectionForChannel(item.ID); ok {
 			item.Section = id
 		} else {
@@ -4719,6 +4751,27 @@ func (h *rtmEventHandler) refreshSectionsForActive() {
 		// comes from the provider); reset to 0 for consistency.
 		item.SectionOrder = 0
 	}
+}
+
+func copyWorkspaceChannels(wctx *WorkspaceContext) []sidebar.ChannelItem {
+	out := make([]sidebar.ChannelItem, len(wctx.Channels))
+	copy(out, wctx.Channels)
+	return out
+}
+
+func (h *rtmEventHandler) refreshSectionsForActive() {
+	if h.wsCtx == nil || h.wsCtx.SectionStore == nil {
+		return
+	}
+	if !h.wsCtx.SectionStore.Ready() {
+		return
+	}
+	// Update Section field on every channel in the workspace context
+	// based on current store state. Channels not claimed by any
+	// section have Section reset to "" — letting the sidebar's Slack
+	// mode bucket them via type-default fallback (Task 8) or the
+	// config-glob path if Slack mode isn't active.
+	applySectionFields(h.wsCtx)
 	if h.program == nil {
 		return
 	}
@@ -4727,11 +4780,9 @@ func (h *rtmEventHandler) refreshSectionsForActive() {
 	}
 	// Send a copy so the App can mutate without racing the workspace's
 	// mutator path.
-	channelsCopy := make([]sidebar.ChannelItem, len(h.wsCtx.Channels))
-	copy(channelsCopy, h.wsCtx.Channels)
 	h.program.Send(ui.SectionsRefreshedMsg{
 		TeamID:   h.workspaceID,
-		Channels: channelsCopy,
+		Channels: copyWorkspaceChannels(h.wsCtx),
 	})
 }
 

@@ -119,11 +119,17 @@ func (s *SectionStore) Bootstrap(ctx context.Context, client SectionsClient) err
 // this call the stars section stays empty and includeInSidebar hides it.
 //
 // Safe to call repeatedly — each call replaces the previous star list
-// and remaps the channelToSection index accordingly. No-op when the
-// workspace has no stars section (won't synthesize one).
+// and remaps the channelToSection index accordingly. Channels dropped
+// from the star list are restored to another section that still lists
+// them (so unstar doesn't dump them into the type-default bucket).
+// No-op when the workspace has no stars section (won't synthesize one).
 func (s *SectionStore) PopulateStars(channelIDs []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.populateStarsLocked(channelIDs)
+}
+
+func (s *SectionStore) populateStarsLocked(channelIDs []string) {
 	if !s.ready {
 		return
 	}
@@ -139,17 +145,115 @@ func (s *SectionStore) PopulateStars(channelIDs []string) {
 	if stars == nil {
 		return
 	}
+	prev := stars.ChannelIDs
+	newSet := make(map[string]bool, len(channelIDs))
+	next := make([]string, 0, len(channelIDs))
+	for _, cid := range channelIDs {
+		if cid == "" || newSet[cid] {
+			continue
+		}
+		newSet[cid] = true
+		next = append(next, cid)
+	}
 	// Drop the old stars→channel index entries.
-	for _, cid := range stars.ChannelIDs {
+	for _, cid := range prev {
 		if existing, ok := s.channelToSection[cid]; ok && existing == starsSectionID {
 			delete(s.channelToSection, cid)
 		}
 	}
-	stars.ChannelIDs = append([]string(nil), channelIDs...)
-	stars.ChannelsCount = len(channelIDs)
-	for _, cid := range channelIDs {
+	stars.ChannelIDs = next
+	stars.ChannelsCount = len(next)
+	for _, cid := range next {
 		s.channelToSection[cid] = starsSectionID
 	}
+	// Restore unstarred channels to another section that still lists them.
+	for _, cid := range prev {
+		if newSet[cid] {
+			continue
+		}
+		if _, ok := s.channelToSection[cid]; ok {
+			continue
+		}
+		for otherID, other := range s.sectionsByID {
+			if otherID == starsSectionID {
+				continue
+			}
+			for _, x := range other.ChannelIDs {
+				if x == cid {
+					s.channelToSection[cid] = otherID
+					break
+				}
+			}
+			if _, ok := s.channelToSection[cid]; ok {
+				break
+			}
+		}
+	}
+}
+
+// StarredChannelIDs returns a copy of the stars section's channel list.
+// Empty when the store isn't ready or has no stars section.
+func (s *SectionStore) StarredChannelIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.starredChannelIDsLocked()
+}
+
+func (s *SectionStore) starredChannelIDsLocked() []string {
+	for _, sec := range s.sectionsByID {
+		if sec.Type == "stars" {
+			out := make([]string, len(sec.ChannelIDs))
+			copy(out, sec.ChannelIDs)
+			return out
+		}
+	}
+	return nil
+}
+
+// IsStarred reports whether channelID is currently in the stars section.
+func (s *SectionStore) IsStarred(channelID string) bool {
+	if channelID == "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, id := range s.starredChannelIDsLocked() {
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
+// SetStarred optimistically adds or removes channelID from the stars
+// section via PopulateStars. No-op when the store isn't ready, has no
+// stars section, or channelID is empty.
+func (s *SectionStore) SetStarred(channelID string, starred bool) {
+	if channelID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.ready {
+		return
+	}
+	current := s.starredChannelIDsLocked()
+	next := make([]string, 0, len(current)+1)
+	found := false
+	for _, id := range current {
+		if id == channelID {
+			found = true
+			if starred {
+				next = append(next, id)
+			}
+			continue
+		}
+		next = append(next, id)
+	}
+	if starred && !found {
+		next = append(next, channelID)
+	}
+	s.populateStarsLocked(next)
 }
 
 // SectionForChannel returns the renderable section ID a channel belongs

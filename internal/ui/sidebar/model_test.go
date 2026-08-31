@@ -683,6 +683,67 @@ func TestSectionHeader_RendersEmojiPrefix(t *testing.T) {
 	}
 }
 
+// An empty stars section must not render a header, matching
+// SectionStore.includeInSidebar (type stars is only shown when it has
+// at least one channel).
+func TestStarsSection_HiddenWhenEmpty(t *testing.T) {
+	items := []ChannelItem{{ID: "C1", Name: "ch1", Type: "channel", Section: "U"}}
+	provider := &fakeProvider{
+		ready: true,
+		sections: []SectionMeta{
+			{ID: "ST", Name: "", Type: "stars"},
+			{ID: "U", Name: "Mine", Type: "standard"},
+		},
+	}
+	m := New(items)
+	m.SetSectionsProvider(provider)
+	got := slackModeNavHeaders(&m)
+	if len(got) != 1 || got[0] != "U" {
+		t.Fatalf("got %v, want [U] (empty stars hidden)", got)
+	}
+}
+
+func TestStarsSection_ShownWhenChannelStarred(t *testing.T) {
+	items := []ChannelItem{{ID: "C1", Name: "ch1", Type: "channel", Section: "ST"}}
+	provider := &fakeProvider{
+		ready: true,
+		sections: []SectionMeta{
+			{ID: "ST", Name: "", Type: "stars"},
+			{ID: "U", Name: "Mine", Type: "standard"},
+		},
+	}
+	m := New(items)
+	m.SetSectionsProvider(provider)
+	got := slackModeNavHeaders(&m)
+	if len(got) != 2 || got[0] != "ST" || got[1] != "U" {
+		t.Fatalf("got %v, want [ST U]", got)
+	}
+}
+
+func TestStarsSection_HidesAfterLastUnstar(t *testing.T) {
+	items := []ChannelItem{{ID: "C1", Name: "ch1", Type: "channel", Section: "ST"}}
+	provider := &fakeProvider{
+		ready: true,
+		sections: []SectionMeta{
+			{ID: "ST", Name: "", Type: "stars"},
+			{ID: "U", Name: "Mine", Type: "standard"},
+		},
+	}
+	m := New(items)
+	m.SetSectionsProvider(provider)
+	// Unstar: channel returns to the default bucket; provider drops
+	// the now-empty stars section the way includeInSidebar does.
+	m.SetItems([]ChannelItem{{ID: "C1", Name: "ch1", Type: "channel"}})
+	provider.sections = []SectionMeta{{ID: "U", Name: "Mine", Type: "standard"}}
+	m.SetSectionsProvider(provider)
+	got := slackModeNavHeaders(&m)
+	for _, h := range got {
+		if h == "ST" {
+			t.Fatalf("stars header still present after last unstar: %v", got)
+		}
+	}
+}
+
 // Slack sends the stars section with name="" (it's a built-in section,
 // not user-named). The sidebar must fall back to a friendly header
 // ("Starred") rather than rendering "(unnamed)".

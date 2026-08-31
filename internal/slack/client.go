@@ -1662,6 +1662,43 @@ func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+// StarChannel stars a conversation (public/private channel, or DM)
+// via stars.add. Only the channel-item form is sent — no timestamp —
+// so this never stars a message.
+func (c *Client) StarChannel(ctx context.Context, channelID string) error {
+	return c.starChannelOp(ctx, "stars.add", channelID, "already_starred")
+}
+
+// UnstarChannel removes a channel-item star via stars.remove. Same
+// channel-item form as StarChannel (no timestamp).
+func (c *Client) UnstarChannel(ctx context.Context, channelID string) error {
+	return c.starChannelOp(ctx, "stars.remove", channelID, "no_star")
+}
+
+func (c *Client) starChannelOp(ctx context.Context, method, channelID, idempotentErr string) error {
+	if channelID == "" {
+		return fmt.Errorf("%s: empty channel ID", method)
+	}
+	raw, err := c.postForm(ctx, method, url.Values{"channel": {channelID}})
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("parsing %s response: %w (body=%q)", method, err, truncateForLog(raw))
+	}
+	if !resp.OK {
+		if resp.Error == idempotentErr {
+			return nil
+		}
+		return fmt.Errorf("%s API error: %s", method, resp.Error)
+	}
+	return nil
+}
+
 // GetChannelSections calls users.channelSections.list and returns the
 // fully-paginated section list. Loops on the top-level cursor until the
 // server reports no more sections. Per-section channel_ids_page pagination
