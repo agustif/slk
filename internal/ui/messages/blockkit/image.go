@@ -1,6 +1,7 @@
 // Package blockkit image.go: rendering of full-size ImageBlock and
 // the shared fetch+render pipeline used by section image accessories
-// (Task 11) and legacy attachment image_url (Task 13). The flow:
+// (Task 11), legacy attachment image_url / unfurl thumb_url (Task 13),
+// and nested Block Kit image blocks inside unfurl cards. The flow:
 //
 //  1. If we lack the means to render images at all (no Fetcher, or
 //     ProtoOff, or no cell metrics), the caller falls back to a plain
@@ -107,7 +108,7 @@ func computeBlockImageTarget(b ImageBlock, ctx Context, width int) image.Point {
 
 // fetchOrPlaceholder is the core fetch+render flow shared by image
 // blocks (Task 10), section image accessories (Task 11), and legacy
-// attachment image_url (Task 13).
+// attachment image_url / unfurl thumb_url (Task 13).
 //
 // Returns rendered lines + flushes + (currently always-nil) sixelRows
 // + the hit rect for click handling; ok is true if the function did

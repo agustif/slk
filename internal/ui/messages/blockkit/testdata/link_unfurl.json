@@ -1,0 +1,16 @@
+{
+  "attachments": [{
+    "from_url": "https://example.com/blog/hello-world",
+    "original_url": "https://example.com/blog/hello-world",
+    "fallback": "Example: Hello World",
+    "service_name": "example.com",
+    "title": "Hello World",
+    "title_link": "https://example.com/blog/hello-world",
+    "text": "A short post about greeting the planet.",
+    "image_url": "https://cdn.example.com/og/hello-world.png",
+    "image_width": 1200,
+    "image_height": 630,
+    "image_bytes": 84211,
+    "color": "#2eb886"
+  }]
+}

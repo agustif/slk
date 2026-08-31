@@ -129,3 +129,68 @@ func TestFixture_HeaderDividerSection(t *testing.T) {
 		}
 	}
 }
+
+// TestFixture_LinkUnfurlImageRequestsFetcher covers Slack's classic
+// link-unfurl attachment (from_url + image_url, as produced after
+// link_shared). Card text still renders; the og:image must go through
+// the shared Fetcher pipeline rather than a text fallback.
+func TestFixture_LinkUnfurlImageRequestsFetcher(t *testing.T) {
+	p := loadFixture(t, "link_unfurl.json")
+	atts := ParseAttachments(p.Attachments)
+	if len(atts) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(atts))
+	}
+	if atts[0].ImageURL != "https://cdn.example.com/og/hello-world.png" {
+		t.Fatalf("ImageURL = %q", atts[0].ImageURL)
+	}
+	if atts[0].ImageWidth != 1200 || atts[0].ImageHeight != 630 {
+		t.Fatalf("ImageWidth/Height = %d/%d", atts[0].ImageWidth, atts[0].ImageHeight)
+	}
+
+	srv, fetcher := imagePipeline(t)
+	atts[0].ImageURL = srv.URL + "/og/hello-world.png"
+	const maxRows = 8
+	r := RenderLegacy(atts, imagePipelineCtx(fetcher, maxRows), 80)
+
+	plain := ansi.Strip(strings.Join(r.Lines, "\n"))
+	if !strings.Contains(plain, "Hello World") {
+		t.Errorf("missing unfurl title: %q", plain)
+	}
+	if !strings.Contains(plain, "greeting the planet") {
+		t.Errorf("missing unfurl text: %q", plain)
+	}
+	if !strings.Contains(plain, "loading") {
+		t.Errorf("expected image-pipeline placeholder, got %q", plain)
+	}
+	if strings.Contains(plain, "[image]") {
+		t.Errorf("unfurl image fell back to a text link: %q", plain)
+	}
+	if len(r.Hits) != 1 {
+		t.Fatalf("Hits = %d, want 1 (click footprint for the unfurl image)", len(r.Hits))
+	}
+	gotRows := r.Hits[0].RowEnd - r.Hits[0].RowStart
+	if gotRows > maxRows {
+		t.Errorf("unfurl image rows = %d, exceeds max_image_rows %d", gotRows, maxRows)
+	}
+	waitFetched(t, srv, "/og/hello-world.png")
+}
+
+func TestFixture_LinkUnfurlWithoutImageUnchanged(t *testing.T) {
+	p := loadFixture(t, "link_unfurl.json")
+	atts := ParseAttachments(p.Attachments)
+	atts[0].ImageURL = ""
+	atts[0].ThumbURL = ""
+	atts[0].ImageWidth = 0
+	atts[0].ImageHeight = 0
+	r := RenderLegacy(atts, makeCtx(), 80)
+	plain := ansi.Strip(strings.Join(r.Lines, "\n"))
+	if !strings.Contains(plain, "Hello World") {
+		t.Errorf("missing title: %q", plain)
+	}
+	if strings.Contains(plain, "[image]") || strings.Contains(plain, "loading") {
+		t.Errorf("unfurl with no image should be text-only: %q", plain)
+	}
+	if len(r.Hits) != 0 {
+		t.Errorf("Hits = %d, want 0", len(r.Hits))
+	}
+}

@@ -36,9 +36,10 @@ func parseOne(b slack.Block) Block {
 		}
 		// slack-go v0.23.0's ImageBlock does not expose pixel
 		// dimensions, so Width/Height stay 0 and the renderer must
-		// fall back to its own size heuristics.
+		// fall back to its own size heuristics. SlackFile.URL is
+		// the Block Kit alternative to image_url (hosted files).
 		return ImageBlock{
-			URL:   v.ImageURL,
+			URL:   slackFileImageURL(v.ImageURL, v.SlackFile),
 			Title: title,
 			Alt:   v.AltText,
 		}
@@ -72,11 +73,10 @@ func parseContext(c *slack.ContextBlock) ContextBlock {
 		case *slack.TextBlockObject:
 			out.Elements = append(out.Elements, ContextElement{Text: v.Text})
 		case *slack.ImageBlockElement:
-			url := ""
-			if v.ImageURL != nil {
-				url = *v.ImageURL
-			}
-			out.Elements = append(out.Elements, ContextElement{ImageURL: url, AltText: v.AltText})
+			out.Elements = append(out.Elements, ContextElement{
+				ImageURL: imageBlockElementURL(v),
+				AltText:  v.AltText,
+			})
 		}
 	}
 	return out
@@ -96,11 +96,10 @@ func parseActions(a *slack.ActionBlock) ActionsBlock {
 func parseAccessory(a *slack.Accessory) AccessoryElement {
 	switch {
 	case a.ImageElement != nil:
-		url := ""
-		if a.ImageElement.ImageURL != nil {
-			url = *a.ImageElement.ImageURL
+		return ImageAccessory{
+			URL:     imageBlockElementURL(a.ImageElement),
+			AltText: a.ImageElement.AltText,
 		}
-		return ImageAccessory{URL: url, AltText: a.ImageElement.AltText}
 	case a.ButtonElement != nil:
 		return LabelAccessory{Kind: "button", Label: textOf(a.ButtonElement.Text)}
 	case a.OverflowElement != nil:
@@ -157,6 +156,31 @@ func textOf(t *slack.TextBlockObject) string {
 	return t.Text
 }
 
+// slackFileImageURL prefers a public image_url and falls back to a
+// Block Kit slack_file URL (hosted files on files.slack.com).
+func slackFileImageURL(imageURL string, file *slack.SlackFileObject) string {
+	if imageURL != "" {
+		return imageURL
+	}
+	if file != nil {
+		return file.URL
+	}
+	return ""
+}
+
+// imageBlockElementURL extracts the fetchable URL from a Slack image
+// element (section accessory or context image).
+func imageBlockElementURL(el *slack.ImageBlockElement) string {
+	if el == nil {
+		return ""
+	}
+	url := ""
+	if el.ImageURL != nil {
+		url = *el.ImageURL
+	}
+	return slackFileImageURL(url, el.SlackFile)
+}
+
 // ParseAttachments converts slack-go Attachment slice to our
 // LegacyAttachment slice. Returns nil for empty input.
 func ParseAttachments(in []slack.Attachment) []LegacyAttachment {
@@ -172,16 +196,18 @@ func ParseAttachments(in []slack.Attachment) []LegacyAttachment {
 
 func parseAttachment(a slack.Attachment) LegacyAttachment {
 	la := LegacyAttachment{
-		Color:      a.Color,
-		Pretext:    a.Pretext,
-		Title:      a.Title,
-		TitleLink:  a.TitleLink,
-		Text:       a.Text,
-		ImageURL:   a.ImageURL,
-		ThumbURL:   a.ThumbURL,
-		Footer:     a.Footer,
-		FooterIcon: a.FooterIcon,
-		Blocks:     Parse(a.Blocks),
+		Color:       a.Color,
+		Pretext:     a.Pretext,
+		Title:       a.Title,
+		TitleLink:   a.TitleLink,
+		Text:        a.Text,
+		ImageURL:    a.ImageURL,
+		ImageWidth:  a.ImageWidth,
+		ImageHeight: a.ImageHeight,
+		ThumbURL:    a.ThumbURL,
+		Footer:      a.Footer,
+		FooterIcon:  a.FooterIcon,
+		Blocks:      Parse(a.Blocks),
 	}
 	for _, f := range a.Fields {
 		la.Fields = append(la.Fields, LegacyField{

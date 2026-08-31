@@ -4,9 +4,11 @@
 // the left margin with title/text/fields/image_url/footer to its
 // right.
 //
-// thumb_url is deferred to a future task: rendering a small image
-// to the right of Text requires joinSideBySide against the text
-// column with width-aware truncation, which has not been wired up.
+// Link unfurls use the same card. Their preview image is image_url
+// when present, otherwise thumb_url, rendered full-width through
+// the shared image pipeline and capped at Context.MaxRows
+// (appearance.max_image_rows). Side-by-side thumb_url next to Text
+// is not wired; when image_url is already shown, thumb_url is skipped.
 package blockkit
 
 import (
@@ -151,23 +153,28 @@ func appendLegacyAttachment(out *RenderResult, a LegacyAttachment, ctx Context, 
 		}
 	}
 
-	// Inline image (Task 13). Uses the same fetcher path as image
+	// Inline image: image_url, or thumb_url when image_url is empty
+	// (typical Slack link-unfurl shape). Same fetcher path as image
 	// blocks; falls back to a single OSC-8 link line when no fetcher
 	// is configured or the protocol is off.
-	// TODO(blockkit): render thumb_url alongside text via joinSideBySide.
 	var imageHitInBody *HitRect
-	if a.ImageURL != "" {
+	imgURL, imgW, imgH := legacyInlineImage(a)
+	if imgURL != "" {
 		var t0 time.Time
 		if perf != nil {
 			t0 = time.Now()
 		}
 		if ctx.Fetcher == nil || ctx.Protocol == imgpkg.ProtoOff {
-			body = append(body, renderImageFallback(a.ImageURL))
+			body = append(body, renderImageFallback(imgURL))
 		} else {
-			target := computeBlockImageTarget(ImageBlock{URL: a.ImageURL}, ctx, contentW)
+			target := computeBlockImageTarget(ImageBlock{
+				URL:    imgURL,
+				Width:  imgW,
+				Height: imgH,
+			}, ctx, contentW)
 			if target.X > 0 && target.Y > 0 {
 				rowStartInBody := len(body)
-				lines, flushes, sxl, hit, ok := fetchOrPlaceholder(a.ImageURL, target, ctx, rowStartInBody)
+				lines, flushes, sxl, hit, ok := fetchOrPlaceholder(imgURL, target, ctx, rowStartInBody)
 				if ok {
 					body = append(body, lines...)
 					out.Flushes = append(out.Flushes, flushes...)
@@ -182,10 +189,10 @@ func appendLegacyAttachment(out *RenderResult, a LegacyAttachment, ctx Context, 
 					h := hit
 					imageHitInBody = &h
 				} else {
-					body = append(body, renderImageFallback(a.ImageURL))
+					body = append(body, renderImageFallback(imgURL))
 				}
 			} else {
-				body = append(body, renderImageFallback(a.ImageURL))
+				body = append(body, renderImageFallback(imgURL))
 			}
 		}
 		if perf != nil {
@@ -261,6 +268,16 @@ func appendLegacyAttachment(out *RenderResult, a LegacyAttachment, ctx Context, 
 			out.Hits = append(out.Hits, h)
 		}
 	}
+}
+
+// legacyInlineImage returns the URL and optional source pixel size
+// for a legacy attachment's full-width inline image. image_url wins;
+// thumb_url is the fallback used by many link unfurls.
+func legacyInlineImage(a LegacyAttachment) (url string, width, height int) {
+	if a.ImageURL != "" {
+		return a.ImageURL, a.ImageWidth, a.ImageHeight
+	}
+	return a.ThumbURL, 0, 0
 }
 
 // renderLegacyFields lays out attachment fields. Two consecutive
