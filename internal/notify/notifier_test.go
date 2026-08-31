@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestShouldNotify_SelfMessage(t *testing.T) {
@@ -151,6 +152,102 @@ func TestShouldNotify_SuppressedByDND(t *testing.T) {
 	}
 	if ShouldNotify(ctx, "C1", "U2", "hey <@U1> deploy", "dm") {
 		t.Error("DND should suppress notifications regardless of triggers")
+	}
+}
+
+func TestShouldNotify_SuppressedByQuietHours(t *testing.T) {
+	ctx := NotifyContext{
+		CurrentUserID:   "U1",
+		ActiveChannelID: "C_OTHER",
+		IsActiveWS:      false, // would otherwise notify
+		OnDM:            true,
+		OnMention:       true,
+		OnKeyword:       []string{"deploy"},
+		IsQuiet:         true,
+	}
+	if ShouldNotify(ctx, "C1", "U2", "hey <@U1> deploy", "dm") {
+		t.Error("quiet hours should suppress notifications regardless of triggers")
+	}
+}
+
+func clock(hour, min int) time.Time {
+	return time.Date(2026, 6, 15, hour, min, 0, 0, time.Local)
+}
+
+func TestInQuietHours(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+		now  time.Time
+		want bool
+	}{
+		// same-day window 09:00-17:00 (start inclusive, end exclusive)
+		{"in-window", "09:00-17:00", clock(12, 0), true},
+		{"in-window start", "09:00-17:00", clock(9, 0), true},
+		{"in-window last minute", "09:00-17:00", clock(16, 59), true},
+		{"out-of-window end", "09:00-17:00", clock(17, 0), false},
+		{"out-of-window before", "09:00-17:00", clock(8, 59), false},
+		{"out-of-window evening", "09:00-17:00", clock(22, 0), false},
+
+		// overnight wrap 22:00-08:00
+		{"overnight evening", "22:00-08:00", clock(22, 0), true},
+		{"overnight late", "22:00-08:00", clock(23, 30), true},
+		{"overnight midnight", "22:00-08:00", clock(0, 0), true},
+		{"overnight early", "22:00-08:00", clock(7, 59), true},
+		{"overnight end", "22:00-08:00", clock(8, 0), false},
+		{"overnight daytime", "22:00-08:00", clock(12, 0), false},
+		{"overnight before start", "22:00-08:00", clock(21, 59), false},
+
+		{"empty", "", clock(23, 0), false},
+		{"whitespace", "   ", clock(23, 0), false},
+		{"invalid garbage", "nope", clock(23, 0), false},
+		{"invalid missing end", "22:00", clock(23, 0), false},
+		{"invalid extra part", "22:00-08:00-09:00", clock(23, 0), false},
+		{"invalid hour", "25:00-08:00", clock(23, 0), false},
+		{"invalid minute", "22:60-08:00", clock(23, 0), false},
+		{"invalid end hour", "22:00-24:00", clock(23, 0), false},
+		{"invalid unpadded", "9:00-17:00", clock(12, 0), false},
+		{"zero-width", "08:00-08:00", clock(8, 0), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := InQuietHours(tt.spec, tt.now); got != tt.want {
+				t.Errorf("InQuietHours(%q, %s) = %v, want %v", tt.spec, tt.now.Format("15:04"), got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldNotify_QuietHoursWindow(t *testing.T) {
+	base := NotifyContext{
+		CurrentUserID:   "U1",
+		ActiveChannelID: "C_OTHER",
+		IsActiveWS:      true,
+		OnDM:            true,
+	}
+
+	in := base
+	in.IsQuiet = InQuietHours("22:00-08:00", clock(23, 0))
+	if ShouldNotify(in, "C1", "U2", "hello", "dm") {
+		t.Error("in-window quiet hours should suppress")
+	}
+
+	out := base
+	out.IsQuiet = InQuietHours("22:00-08:00", clock(12, 0))
+	if !ShouldNotify(out, "C1", "U2", "hello", "dm") {
+		t.Error("out-of-window quiet hours should still notify")
+	}
+
+	empty := base
+	empty.IsQuiet = InQuietHours("", clock(23, 0))
+	if !ShouldNotify(empty, "C1", "U2", "hello", "dm") {
+		t.Error("empty quiet_hours is disabled")
+	}
+
+	invalid := base
+	invalid.IsQuiet = InQuietHours("not-a-window", clock(23, 0))
+	if !ShouldNotify(invalid, "C1", "U2", "hello", "dm") {
+		t.Error("invalid quiet_hours is disabled, not a crash")
 	}
 }
 

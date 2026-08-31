@@ -324,6 +324,73 @@ func TestConfig_EmojiClamp(t *testing.T) {
 	}
 }
 
+func TestClampQuietHours(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"   ", ""},
+		{"22:00-08:00", "22:00-08:00"},
+		{"09:00-17:00", "09:00-17:00"},
+		{"  09:00-17:00  ", "09:00-17:00"},
+		{"00:00-23:59", "00:00-23:59"},
+		{"08:00-08:00", "08:00-08:00"},
+		{"25:00-08:00", ""},
+		{"22:00", ""},
+		{"nope", ""},
+		{"22:00-08:00-09:00", ""},
+		{"22:60-08:00", ""},
+		{"22:00-24:00", ""},
+		{"9:00-17:00", ""},
+		{"22:00 - 08:00", ""},
+	}
+	for _, tt := range tests {
+		if got := ClampQuietHours(tt.in); got != tt.want {
+			t.Errorf("ClampQuietHours(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestLoad_QuietHours(t *testing.T) {
+	dir := t.TempDir()
+
+	valid := filepath.Join(dir, "valid.toml")
+	if err := os.WriteFile(valid, []byte("[notifications]\nquiet_hours = \"22:00-08:00\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.QuietHours != "22:00-08:00" {
+		t.Errorf("valid quiet_hours = %q, want 22:00-08:00", cfg.Notifications.QuietHours)
+	}
+
+	invalid := filepath.Join(dir, "invalid.toml")
+	if err := os.WriteFile(invalid, []byte("[notifications]\nquiet_hours = \"not-a-window\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.QuietHours != "" {
+		t.Errorf("invalid quiet_hours should clamp to empty, got %q", cfg.Notifications.QuietHours)
+	}
+
+	missing := filepath.Join(dir, "missing.toml")
+	if err := os.WriteFile(missing, []byte("[notifications]\nenabled = true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.QuietHours != "" {
+		t.Errorf("unset quiet_hours should be empty, got %q", cfg.Notifications.QuietHours)
+	}
+}
+
 func TestResolveThemeWorkspaceWins(t *testing.T) {
 	c := Config{
 		Appearance: Appearance{Theme: "dark"},

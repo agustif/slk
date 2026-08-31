@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gammons/slk/internal/usergroups"
 	"github.com/gen2brain/beeep"
@@ -60,6 +61,7 @@ type NotifyContext struct {
 	OnKeyword       []string
 	IsDND           bool // when true, ShouldNotify always returns false
 	IsMuted         bool // when true (conversation is muted), ShouldNotify always returns false
+	IsQuiet         bool // when true (configured quiet hours), ShouldNotify always returns false
 }
 
 // ShouldNotify returns true if a message should trigger a desktop notification.
@@ -69,8 +71,8 @@ func ShouldNotify(ctx NotifyContext, channelID, userID, text, channelType string
 		return false
 	}
 
-	// Suppress entirely while DND/snoozed.
-	if ctx.IsDND {
+	// Suppress entirely while DND/snoozed or in configured quiet hours.
+	if ctx.IsDND || ctx.IsQuiet {
 		return false
 	}
 
@@ -109,6 +111,53 @@ func ShouldNotify(ctx NotifyContext, channelID, userID, text, channelType string
 	}
 
 	return false
+}
+
+// InQuietHours reports whether now falls inside spec, a local 24h window of
+// the form "HH:MM-HH:MM". Start is inclusive, end is exclusive. When start
+// is later than end (e.g. "22:00-08:00") the window wraps midnight. Empty
+// or invalid spec is treated as disabled (false) so a bad config cannot
+// crash notification delivery.
+func InQuietHours(spec string, now time.Time) bool {
+	start, end, ok := parseQuietHours(spec)
+	if !ok || start == end {
+		return false
+	}
+	mins := now.Hour()*60 + now.Minute()
+	if start < end {
+		return mins >= start && mins < end
+	}
+	return mins >= start || mins < end
+}
+
+func parseQuietHours(spec string) (start, end int, ok bool) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return 0, 0, false
+	}
+	startS, endS, found := strings.Cut(spec, "-")
+	if !found || startS == "" || endS == "" || strings.Contains(endS, "-") {
+		return 0, 0, false
+	}
+	sm, ok1 := parseHHMM(startS)
+	em, ok2 := parseHHMM(endS)
+	if !ok1 || !ok2 {
+		return 0, 0, false
+	}
+	return sm, em, true
+}
+
+func parseHHMM(s string) (int, bool) {
+	// Require zero-padded HH:MM so the documented "HH:MM-HH:MM" form is
+	// the only accepted spelling; time.Parse("15:04") also accepts "9:00".
+	if len(s) != 5 {
+		return 0, false
+	}
+	t, err := time.Parse("15:04", s)
+	if err != nil {
+		return 0, false
+	}
+	return t.Hour()*60 + t.Minute(), true
 }
 
 var (

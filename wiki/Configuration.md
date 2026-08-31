@@ -27,7 +27,7 @@ enabled = true
 on_mention = true
 on_dm = true
 on_keyword = ["deploy", "incident"]
-quiet_hours = "22:00-08:00"   # planned
+quiet_hours = "22:00-08:00"   # 24h local; overnight wrap ok; empty = off
 
 # notify_command (optional): run INSTEAD of the built-in OS notification for any
 # message that would notify (DM / mention / keyword). Executed via `sh -c` with
