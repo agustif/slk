@@ -107,6 +107,25 @@ func TestView_RendersChannelAndPreview(t *testing.T) {
 	}
 }
 
+func TestView_RendersParentAvatar(t *testing.T) {
+	m := New(map[string]string{"U1": "alice"}, "USELF")
+	m.SetAvatarFunc(func(id string) string {
+		if id == "U1" {
+			return "AV0T\nAV1T"
+		}
+		return ""
+	})
+	m.SetSummaries([]cache.ThreadSummary{{
+		ChannelID: "C1", ChannelName: "general", ChannelType: "channel",
+		ThreadTS: "1.000000", ParentUserID: "U1", ParentText: "hello world",
+		ReplyCount: 1, LastReplyTS: "1.000001", LastReplyBy: "U2",
+	}})
+	out := m.View(20, 60)
+	if !strings.Contains(out, "AV0T") || !strings.Contains(out, "AV1T") {
+		t.Errorf("thread card missing parent avatar:\n%s", out)
+	}
+}
+
 func TestView_EmptyState(t *testing.T) {
 	m := New(map[string]string{}, "USELF")
 	out := m.View(40, 60)

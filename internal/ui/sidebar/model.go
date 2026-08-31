@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/avatar"
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/debuglog"
 	emojiutil "github.com/gammons/slk/internal/emoji"
@@ -284,6 +285,11 @@ type Model struct {
 	// compete visually with the focused panel. Set by SetFocused() from
 	// the App layer.
 	focused bool
+
+	// avatarFn is the same lazy 4×2 renderer the messages pane uses.
+	// 1:1 DMs spend two visual rows when a face is cached so the
+	// portrait fits; group DMs and channels stay one row.
+	avatarFn messages.AvatarFunc
 }
 
 // SetSectionsProvider injects a Slack-native sections data source.
@@ -576,6 +582,28 @@ func (m *Model) Version() int64 { return m.version }
 
 // dirty bumps the version. Called from every state-mutating method.
 func (m *Model) dirty() { m.version++ }
+
+// SetAvatarFunc wires DM portraits. Invalidates the row cache so the
+// next View() can start the lazy fetch.
+func (m *Model) SetAvatarFunc(fn messages.AvatarFunc) {
+	m.avatarFn = fn
+	m.cacheValid = false
+	m.dirty()
+}
+
+// HandleAvatarReady rebuilds rows when a 1:1 DM peer's face lands.
+func (m *Model) HandleAvatarReady(userID string) {
+	if userID == "" {
+		return
+	}
+	for _, item := range m.items {
+		if item.Type == "dm" && item.DMUserID == userID {
+			m.cacheValid = false
+			m.dirty()
+			return
+		}
+	}
+}
 
 func New(items []ChannelItem) Model {
 	m := Model{items: items}
@@ -1219,6 +1247,29 @@ func (m *Model) aggregateUnreadForSection(section string) int {
 // navIdx links the row back to its entry in m.nav so View() can find
 // the selected row in O(1) using the cursor. -1 means "not navigable"
 // (blank separators, the optional 'No channels' placeholder).
+
+// dmAvatarLines returns the two rendered lines of a 4×2 portrait for a
+// 1:1 DM, or ok=false when there is no face yet (lazy miss, group DM,
+// or no renderer). Empty second lines are padded to AvatarCols so the
+// name column stays aligned.
+func dmAvatarLines(item ChannelItem, fn messages.AvatarFunc) (line0, line1 string, ok bool) {
+	if fn == nil || item.Type != "dm" || item.DMUserID == "" {
+		return "", "", false
+	}
+	rendered := fn(item.DMUserID)
+	if rendered == "" {
+		return "", "", false
+	}
+	parts := strings.Split(rendered, "\n")
+	line0 = parts[0]
+	if len(parts) > 1 {
+		line1 = parts[1]
+	} else {
+		line1 = strings.Repeat(" ", avatar.AvatarCols)
+	}
+	return line0, line1, true
+}
+
 type renderRow struct {
 	normal   string // rendered as a non-selected row
 	selected string // rendered with the selection cursor + selected style
@@ -1411,6 +1462,8 @@ func (m *Model) buildCache(width int) {
 			prefix = "# "
 		}
 
+		av0, av1, hasAvatar := dmAvatarLines(item, m.avatarFn)
+
 		// Truncate name to fit sidebar width.
 		// Unicode chars like ● (U+25CF), ○, ◆, ▌ have East Asian Width
 		// "Ambiguous" — terminals may render them as 2 columns wide, but
@@ -1420,6 +1473,9 @@ func (m *Model) buildCache(width int) {
 		// This assumes worst-case 2-col rendering for every ambiguous char.
 		name := item.Name
 		maxNameLen := (width - 2) - 8
+		if hasAvatar {
+			maxNameLen -= avatar.AvatarCols + 1
+		}
 		if maxNameLen < 5 {
 			maxNameLen = 5
 		}
@@ -1494,6 +1550,36 @@ func (m *Model) buildCache(width int) {
 		ni, ok := channelNavIdx[fi]
 		if !ok {
 			ni = -1
+		}
+		if hasAvatar {
+			suffixN := messages.ReapplyBgAfterResets(prefix+name+" "+unreadDot, normalAttrs)
+			suffixS := messages.ReapplyBgAfterResets(prefix+name+" "+unreadDot, selectedAttrs)
+			gap := " "
+			line0N := " " + av0 + gap + suffixN
+			line0S := cursorSelected + av0 + gap + suffixS
+			line0A := activeBorder + av0 + gap + suffixS
+			line1N := " " + av1
+			line1S := cursorSelected + av1
+			line1A := activeBorder + av1
+			sectionMap[sectionName].rows = append(sectionMap[sectionName].rows,
+				renderRow{
+					normal:    baseStyle.Width(width - 2).Render(line0N),
+					selected:  styles.ChannelSelected.Width(width - 2).Render(line0S),
+					active:    styles.ChannelSelected.Width(width - 2).Render(line0A),
+					height:    1,
+					navIdx:    ni,
+					channelID: item.ID,
+				},
+				renderRow{
+					normal:    baseStyle.Width(width - 2).Render(line1N),
+					selected:  styles.ChannelSelected.Width(width - 2).Render(line1S),
+					active:    styles.ChannelSelected.Width(width - 2).Render(line1A),
+					height:    1,
+					navIdx:    ni,
+					channelID: item.ID,
+				},
+			)
+			continue
 		}
 		sectionMap[sectionName].rows = append(sectionMap[sectionName].rows, renderRow{
 			normal:    rowNormal,

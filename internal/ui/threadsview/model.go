@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/avatar"
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -106,6 +107,8 @@ type Model struct {
 	// false, View renders a one-line "Threads list unavailable"
 	// banner above the list/empty-state. Default is true (optimistic).
 	subscriptionsAvailable bool
+
+	avatarFn messages.AvatarFunc
 
 	version int64
 }
@@ -201,6 +204,32 @@ func (m *Model) SetSelfUserID(id string) {
 		m.selfUserID = id
 		m.dirty()
 	}
+}
+
+// SetAvatarFunc wires the same lazy 4×2 renderer the messages pane uses.
+func (m *Model) SetAvatarFunc(fn messages.AvatarFunc) {
+	m.avatarFn = fn
+	m.dirty()
+}
+
+// HandleAvatarReady invalidates when the thread parent's face lands.
+func (m *Model) HandleAvatarReady(userID string) {
+	if userID == "" {
+		return
+	}
+	for _, s := range m.summaries {
+		if s.ParentUserID == userID {
+			m.dirty()
+			return
+		}
+	}
+}
+
+func (m *Model) avatarFor(userID string) string {
+	if userID == "" || m.avatarFn == nil {
+		return ""
+	}
+	return m.avatarFn(userID)
 }
 
 // SetFocused marks whether the panel currently has keyboard focus. Stored
@@ -639,6 +668,14 @@ func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []st
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
+	avatarStr := m.avatarFor(s.ParentUserID)
+	textWidth := contentWidth
+	if avatarStr != "" {
+		textWidth -= avatar.AvatarCols + 1
+		if textWidth < 8 {
+			textWidth = 8
+		}
+	}
 
 	// Header: <glyph><channel> · <author> · <relTime>  [• if unread]
 	glyph := channelGlyph(s.ChannelType)
@@ -648,7 +685,7 @@ func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []st
 	if s.Unread {
 		header += "  " + unreadDotStyle().Render("●")
 	}
-	header = clipToWidth(header, contentWidth)
+	header = clipToWidth(header, textWidth)
 
 	// Preview: "  > <parent text>"; falls back to "(parent not loaded)"
 	// when both ParentText and ParentUserID are empty (cache hasn't seen
@@ -663,13 +700,13 @@ func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []st
 			UserGroups:   m.userGroups,
 		})
 		preview = strings.ReplaceAll(preview, "\n", " ")
-		previewMax := contentWidth - 4
+		previewMax := textWidth - 4
 		if previewMax < 0 {
 			previewMax = 0
 		}
 		previewBody = truncate.StringWithTail(preview, uint(previewMax), "…")
 	}
-	previewLine := clipToWidth("  > "+previewBody, contentWidth)
+	previewLine := clipToWidth("  > "+previewBody, textWidth)
 
 	// Footer: "  N replies · last by <user> <relTime>".
 	replyWord := "replies"
@@ -678,26 +715,56 @@ func (m *Model) renderCard(s cache.ThreadSummary, width int, selected bool) []st
 	}
 	lastBy := m.resolveUser(s.LastReplyBy)
 	footerText := "  " + strconv.Itoa(s.ReplyCount) + " " + replyWord + " · last by " + lastBy + " " + formatRelTime(s.LastReplyTS)
-	footerText = clipToWidth(footerText, contentWidth)
+	footerText = clipToWidth(footerText, textWidth)
 
-	// Pick border + fill (themed Background for unselected; tinted
-	// SelectionTintColor for selected so trailing whitespace carries
-	// the tint to the right edge — same per-variant fill pattern used
-	// in internal/ui/messages/model.go).
+	body := header + "\n" + previewLine + "\n" + footerText
+	if avatarStr != "" {
+		bg := styles.Background
+		if selected {
+			bg = styles.SelectionTintColor(m.focused)
+		}
+		body = messages.PlaceAvatarBesideBg(avatarStr, body, bg)
+	}
+	raw := strings.Split(body, "\n")
+
+	bg := styles.Background
+	if selected {
+		bg = styles.SelectionTintColor(m.focused)
+	}
 	borderStyle := borderInvisStyle()
-	fill := borderFillStyle().Width(contentWidth)
 	if selected {
 		borderStyle = borderSelectStyle(m.focused)
-		fill = lipgloss.NewStyle().
-			Background(styles.SelectionTintColor(m.focused)).
-			Width(contentWidth)
+	}
+	fill := lipgloss.NewStyle().Background(bg).Width(contentWidth)
+	fillMuted := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
+	if avatarStr == "" {
+		fillMuted = fillMuted.Width(contentWidth)
 	}
 
-	headerOut := borderStyle.Render(fill.Render(header))
-	previewOut := borderStyle.Render(fill.Render(previewLine))
-	footerOut := borderStyle.Render(fill.Foreground(styles.TextMuted).Render(footerText))
+	paint := func(line string, muted bool) string {
+		st := fill
+		if muted {
+			st = fillMuted
+		}
+		if avatarStr != "" {
+			if w := lipgloss.Width(line); w < contentWidth {
+				line += lipgloss.NewStyle().Background(bg).Width(contentWidth - w).Render("")
+			}
+			st = lipgloss.NewStyle().Background(bg)
+			if muted {
+				st = st.Foreground(styles.TextMuted)
+			}
+		}
+		return borderStyle.Render(st.Render(line))
+	}
 
-	return []string{headerOut, previewOut, footerOut}
+	lineAt := func(i int) string {
+		if i < len(raw) {
+			return raw[i]
+		}
+		return ""
+	}
+	return []string{paint(lineAt(0), false), paint(lineAt(1), false), paint(lineAt(2), true)}
 }
 
 // channelGlyph returns the leading glyph for a channel row, matching the

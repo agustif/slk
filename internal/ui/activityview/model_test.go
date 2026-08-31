@@ -177,6 +177,32 @@ func TestMoveDownClamps(t *testing.T) {
 	}
 }
 
+func TestView_RendersActorAvatar(t *testing.T) {
+	m := New()
+	m.SetAvatarFunc(func(id string) string {
+		if id == "U1" {
+			return "AV0A\nAV1A"
+		}
+		return ""
+	})
+	m.SetItems([]Item{{
+		ActivityItem: slackclient.ActivityItem{
+			Key: "k1", Type: "channel", ActorID: "U1",
+			ChannelID: "C1", MessageTS: "1.0", FeedTS: "1.0",
+		},
+		ChannelName: "general", ChannelType: "channel", ActorName: "alice",
+	}})
+	out := m.View(12, 70)
+	if !strings.Contains(out, "AV0A") || !strings.Contains(out, "AV1A") {
+		t.Errorf("detailed card missing actor avatar:\n%s", out)
+	}
+	m.SetDensity(config.ActivityDensityCompact)
+	out = m.View(8, 70)
+	if strings.Contains(out, "AV0A") {
+		t.Errorf("compact density should not spend two rows on avatars:\n%s", out)
+	}
+}
+
 func TestEmptyState(t *testing.T) {
 	m := New()
 	out := m.View(10, 40)

@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/avatar"
 	"github.com/gammons/slk/internal/config"
 	slackclient "github.com/gammons/slk/internal/slack"
+	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
@@ -138,6 +140,8 @@ type Model struct {
 	tabHits  []hitbox
 	chipHits []hitbox
 	version  int64
+
+	avatarFn messages.AvatarFunc
 }
 
 // New creates an empty Model seeded from config defaults.
@@ -185,6 +189,34 @@ func (m *Model) SetSelfUserID(id string) {
 		m.selfUserID = id
 		m.dirty()
 	}
+}
+
+// SetAvatarFunc wires the same lazy 4×2 renderer the messages pane uses.
+func (m *Model) SetAvatarFunc(fn messages.AvatarFunc) {
+	m.avatarFn = fn
+	m.dirty()
+}
+
+// HandleAvatarReady invalidates the panel when that user's face lands so
+// the next View picks up the cached placement. No-op when the user is
+// not on any visible card.
+func (m *Model) HandleAvatarReady(userID string) {
+	if userID == "" {
+		return
+	}
+	for _, it := range m.items {
+		if it.ActorID == userID {
+			m.dirty()
+			return
+		}
+	}
+}
+
+func (m *Model) avatarFor(userID string) string {
+	if userID == "" || m.avatarFn == nil {
+		return ""
+	}
+	return m.avatarFn(userID)
 }
 
 func (m *Model) SetFocused(f bool) {
@@ -758,7 +790,7 @@ func (m *Model) renderCompact(it Item, width int, selected bool) string {
 	}
 	line := m.headerText(it)
 	line = clipToWidth(line, contentWidth)
-	return m.borderFill(line, contentWidth, selected, false)
+	return m.borderFill(line, contentWidth, selected, false, false)
 }
 
 func (m *Model) renderCard(it Item, width int, selected bool) []string {
@@ -766,28 +798,57 @@ func (m *Model) renderCard(it Item, width int, selected bool) []string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	header := clipToWidth(m.headerText(it), contentWidth)
-	preview := clipToWidth("  "+m.previewText(it), contentWidth)
-	footer := clipToWidth("  "+formatRelTime(it.FeedTS), contentWidth)
-	return []string{
-		m.borderFill(header, contentWidth, selected, false),
-		m.borderFill(preview, contentWidth, selected, false),
-		m.borderFill(footer, contentWidth, selected, true),
+	avatarStr := m.avatarFor(it.ActorID)
+	textWidth := contentWidth
+	if avatarStr != "" {
+		textWidth -= avatar.AvatarCols + 1
+		if textWidth < 8 {
+			textWidth = 8
+		}
 	}
+	header := clipToWidth(m.headerText(it), textWidth)
+	preview := clipToWidth("  "+m.previewText(it), textWidth)
+	footer := clipToWidth("  "+formatRelTime(it.FeedTS), textWidth)
+	body := header + "\n" + preview + "\n" + footer
+	if avatarStr != "" {
+		bg := styles.Background
+		if selected {
+			bg = styles.SelectionTintColor(m.focused)
+		}
+		body = messages.PlaceAvatarBesideBg(avatarStr, body, bg)
+	}
+	raw := strings.Split(body, "\n")
+	out := make([]string, 0, cardContentLines)
+	for i := 0; i < cardContentLines; i++ {
+		line := ""
+		if i < len(raw) {
+			line = raw[i]
+		}
+		out = append(out, m.borderFill(line, contentWidth, selected, i == cardContentLines-1, avatarStr != ""))
+	}
+	return out
 }
 
-func (m *Model) borderFill(text string, contentWidth int, selected, muted bool) string {
+func (m *Model) borderFill(text string, contentWidth int, selected, muted, hasAvatar bool) string {
 	borderStyle := borderInvisStyle()
-	fill := borderFillStyle().Width(contentWidth)
+	bg := styles.Background
 	if selected {
 		borderStyle = borderSelectStyle(m.focused)
-		fill = lipgloss.NewStyle().
-			Background(styles.SelectionTintColor(m.focused)).
-			Width(contentWidth)
+		bg = styles.SelectionTintColor(m.focused)
 	}
+	fill := lipgloss.NewStyle().Background(bg)
 	if muted {
 		fill = fill.Foreground(styles.TextMuted)
 	}
+	// Kitty avatar placeholders must not go through lipgloss Width
+	// truncation. Pad short lines; leave over-wide lines alone.
+	if hasAvatar {
+		if w := lipgloss.Width(text); w < contentWidth {
+			text += lipgloss.NewStyle().Background(bg).Width(contentWidth - w).Render("")
+		}
+		return borderStyle.Render(fill.Render(text))
+	}
+	fill = fill.Width(contentWidth)
 	return borderStyle.Render(fill.Render(text))
 }
 

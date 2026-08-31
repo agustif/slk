@@ -2097,6 +2097,9 @@ func (a *App) SetAvatarFunc(fn messages.AvatarFunc) {
 		m.SetAvatarFunc(fn)
 	}
 	a.threadPanel.SetAvatarFunc(fn)
+	a.activityView.SetAvatarFunc(fn)
+	a.threadsView.SetAvatarFunc(fn)
+	a.sidebar.SetAvatarFunc(fn)
 }
 
 // SetColoredUsernames enables or disables deterministic per-user coloring

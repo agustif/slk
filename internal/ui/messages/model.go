@@ -3,6 +3,7 @@ package messages
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"io"
 	"slices"
 	"strconv"
@@ -2350,7 +2351,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	// Place avatar next to message content (avatar is side-by-side, no
 	// extra rows; row indices for sixelRows remain valid).
 	if avatarStr != "" {
-		msgContent = placeAvatarBeside(avatarStr, msgContent)
+		msgContent = PlaceAvatarBeside(avatarStr, msgContent)
 	}
 
 	if len(allSixel) == 0 {
@@ -2376,14 +2377,23 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	return msgContent, append(allFlushes, flushes...), allSixel, hits, reactionHits
 }
 
-// placeAvatarBeside renders the avatar to the left of the message content.
-// The avatar is 4 cols wide, 2 rows tall. Message content flows to the right.
-func placeAvatarBeside(avatar, content string) string {
+// PlaceAvatarBeside renders the 4×2 avatar to the left of content, with a
+// one-column gap. Extra content rows keep a blank gutter so columns line up.
+// Used by the messages pane, Activity/Threads cards, and any other 3-line
+// card that wants the same OG-style face.
+func PlaceAvatarBeside(avatar, content string) string {
+	return PlaceAvatarBesideBg(avatar, content, styles.Background)
+}
+
+// PlaceAvatarBesideBg is PlaceAvatarBeside with an explicit gap/gutter
+// background (selected-row tint vs panel background).
+func PlaceAvatarBesideBg(avatar, content string, bg color.Color) string {
 	avatarLines := strings.Split(avatar, "\n")
 	contentLines := strings.Split(content, "\n")
 
-	// Pad avatar to consistent width (4 visible chars + reset codes)
-	avatarWidth := 5 // 4 chars + 1 space gap
+	// Pad avatar to consistent width (4 visible chars + 1 space gap)
+	avatarWidth := 5
+	gap := lipgloss.NewStyle().Background(bg)
 
 	var result []string
 	maxLines := len(contentLines)
@@ -2395,10 +2405,9 @@ func placeAvatarBeside(avatar, content string) string {
 		var left, right string
 
 		if i < len(avatarLines) {
-			left = avatarLines[i] + lipgloss.NewStyle().Background(styles.Background).Render(" ")
+			left = avatarLines[i] + gap.Render(" ")
 		} else {
-			// Empty space where avatar was (maintain alignment)
-			left = lipgloss.NewStyle().Background(styles.Background).Width(avatarWidth).Render("")
+			left = gap.Width(avatarWidth).Render("")
 		}
 
 		if i < len(contentLines) {

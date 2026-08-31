@@ -29,6 +29,49 @@ func TestSidebarView(t *testing.T) {
 	}
 }
 
+func TestDMAvatarTwoVisualRows(t *testing.T) {
+	m := New([]ChannelItem{
+		{ID: "D1", Name: "alice", Type: "dm", Presence: "active", DMUserID: "U1"},
+	})
+	m.SetAvatarFunc(func(id string) string {
+		if id == "U1" {
+			return "AV0S\nAV1S"
+		}
+		return ""
+	})
+	view := m.View(20, 40)
+	if !strings.Contains(view, "AV0S") || !strings.Contains(view, "AV1S") {
+		t.Fatalf("DM row missing avatar:\n%s", view)
+	}
+	if !strings.Contains(view, "alice") {
+		t.Fatalf("DM name missing next to avatar:\n%s", view)
+	}
+	// Second visual line is still the same nav stop.
+	item, ok := m.ClickAt( /* after Activity, Threads, blank, DM header */ 4)
+	if !ok || item.ID != "D1" {
+		// Locate alice's first line dynamically.
+		lines := strings.Split(view, "\n")
+		idx := -1
+		for i, l := range lines {
+			if strings.Contains(l, "AV0S") {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			t.Fatal("could not find avatar line 0")
+		}
+		item, ok = m.ClickAt(idx)
+		if !ok || item.ID != "D1" {
+			t.Fatalf("click avatar line 0: ok=%v id=%q", ok, item.ID)
+		}
+		item, ok = m.ClickAt(idx + 1)
+		if !ok || item.ID != "D1" {
+			t.Fatalf("click avatar line 1: ok=%v id=%q", ok, item.ID)
+		}
+	}
+}
+
 func TestSidebarNavigation(t *testing.T) {
 	channels := []ChannelItem{
 		{ID: "C1", Name: "general", Type: "channel"},

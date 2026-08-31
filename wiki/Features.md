@@ -46,7 +46,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Auto-closes on channel switch or narrow terminals
 - **Threads view** (`⚑ Threads` at top of sidebar): scrollable list of every
   thread you authored, replied to, or were @-mentioned in for the active
-  workspace. Unread first, then newest activity. Selecting a thread opens
+  workspace. Unread first, then newest activity. Cards show the parent
+  author's avatar. Selecting a thread opens
   it in the side panel; the list re-ranks live as new replies arrive.
   v1 is computed from the local SQLite cache, so threads from channels
   you have not yet opened in slk will not appear until they are seen.
@@ -63,7 +64,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   `activity.feed`, matching the official client.
 - Cards follow Slack's copy: "Post in #channel", "Thread in #channel",
   "Direct Message", "Mentioned you", "Reacted :eyes:", with a `vip`
-  marker when the item is priority.
+  marker when the item is priority. Detailed cards show the actor's
+  4×2 avatar (same kitty / half-block pipeline as the message pane).
 - Sort is newest (`chrono_v1`) or unreads-first
   (`priority_reads_and_unreads_v1` + `vip_unreads_first`). The unread
   chip is Slack's Unreads button on the current tab.
@@ -83,7 +85,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 ## Channels & Workspaces
 
 - Three-panel layout: workspace rail, channel sidebar, message pane
-- Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DM channels
+- Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DM channels. 1:1 DMs show the peer's avatar (two sidebar rows when the face is cached) next to the presence glyph.
 - **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. Reorder, rename, create, or delete sections in any other Slack client; slk catches up within a couple seconds. Read-only: section editing still happens in the official client. Falls back to glob-based config sections when disabled or if the API is unavailable.
 - Collapsible sections — `Enter`/`Space` on a section header toggles it. The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
 - Live unread indicators: bold + blue dot for unread channels, muted text for read ones, aggregate dot+count on collapsed section headers
