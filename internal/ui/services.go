@@ -648,3 +648,47 @@ func (s searchAdapter) SearchWorkspace(query string) tea.Msg {
 	}
 	return s.fns.SearchWorkspace(query)
 }
+
+// SectionService writes Slack-native sidebar sections (move a channel
+// into a section, create an empty section). Wired by cmd/slk/main.go.
+type SectionService interface {
+	// Assign moves channelID into sectionID via
+	// users.channelSections.channels.bulkUpdate. Returns a tea.Msg
+	// (typically SectionMovedMsg or SectionMoveFailedMsg).
+	Assign(channelID ids.ChannelID, sectionID string) tea.Msg
+	// Create creates an empty standard section named name via
+	// users.channelSections.create. Returns a tea.Msg (typically
+	// SectionCreatedMsg or SectionCreateFailedMsg).
+	Create(name string) tea.Msg
+}
+
+// SectionServiceFuncs is the closure bundle for NewSectionService.
+type SectionServiceFuncs struct {
+	Assign func(channelID ids.ChannelID, sectionID string) tea.Msg
+	Create func(name string) tea.Msg
+}
+
+// NewSectionService builds a SectionService from named closures.
+func NewSectionService(fns SectionServiceFuncs) SectionService {
+	return sectionAdapter{fns: fns}
+}
+
+var noopSectionService SectionService = sectionAdapter{}
+
+type sectionAdapter struct {
+	fns SectionServiceFuncs
+}
+
+func (s sectionAdapter) Assign(channelID ids.ChannelID, sectionID string) tea.Msg {
+	if s.fns.Assign == nil {
+		return SectionMoveFailedMsg{ChannelID: string(channelID), SectionID: sectionID, Err: "section writes unavailable"}
+	}
+	return s.fns.Assign(channelID, sectionID)
+}
+
+func (s sectionAdapter) Create(name string) tea.Msg {
+	if s.fns.Create == nil {
+		return SectionCreateFailedMsg{Name: name, Err: "section writes unavailable"}
+	}
+	return s.fns.Create(name)
+}

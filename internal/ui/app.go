@@ -43,6 +43,7 @@ import (
 	"github.com/gammons/slk/internal/ui/reactionpicker"
 	"github.com/gammons/slk/internal/ui/reactionsview"
 	"github.com/gammons/slk/internal/ui/searchresults"
+	"github.com/gammons/slk/internal/ui/sectionpicker"
 	"github.com/gammons/slk/internal/ui/sidebar"
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -206,6 +207,7 @@ type App struct {
 	// nil-checks.
 	threads  ThreadService
 	activity ActivityService
+	sections SectionService
 	// activityCfg is the [activity] config defaults (limit + the
 	// session-start filter/sort/unread_only/density). Live TUI
 	// cycles live on activityView, not here.
@@ -281,6 +283,8 @@ type App struct {
 
 	// linkPicker is the open-link choice modal (issue #62).
 	linkPicker *linkpicker.Model
+	// sectionPicker is the :move chooser of Slack sidebar sections.
+	sectionPicker *sectionpicker.Model
 
 	// fileDownloader downloads file attachments for the `d`
 	// keybinding. Nil in tests; downloadFileCmd toasts when unset.
@@ -511,6 +515,7 @@ func NewApp() *App {
 		threadsView:           threadsview.New(nil, ""),
 		activityView:          activityview.New(),
 		linkPicker:            linkpicker.New(),
+		sectionPicker:         sectionpicker.New(),
 		reactionPicker:        reactionpicker.New(),
 		reactionsView:         reactionsview.New(),
 		confirmPrompt:         confirmprompt.New(),
@@ -538,6 +543,7 @@ func NewApp() *App {
 		reactions:             noopReactionService,
 		threads:               noopThreadService,
 		activity:              noopActivityService,
+		sections:              noopSectionService,
 		messageSvc:            noopMessageService,
 		channels:              noopChannelService,
 		searchSvc:             noopSearchService,
@@ -624,6 +630,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceReactions,
 		reduceThreads,
 		reduceActivity,
+		reduceSections,
 		reduceSend,
 		reduceChannels,
 		reduceLinks,
@@ -2054,6 +2061,14 @@ func (a *App) SetActivityService(s ActivityService) {
 		s = noopActivityService
 	}
 	a.activity = s
+}
+
+// SetSectionService wires Slack-native section writes (:move / :section).
+func (a *App) SetSectionService(s SectionService) {
+	if s == nil {
+		s = noopSectionService
+	}
+	a.sections = s
 }
 
 // SetActivityConfig seeds the Activity view from [activity] in

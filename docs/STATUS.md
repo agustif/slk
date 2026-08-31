@@ -101,7 +101,7 @@ Last updated: 2026-05-03
 - [x] Private channels (◆ prefix)
 - [x] DMs with presence indicators (● online, ○ offline)
 - [x] Group DMs
-- [x] Slack-native sidebar sections (default): names, emoji, linked-list order, and channel/DM membership read from `users.channelSections.list` and kept live via WebSocket events (`channel_section_upserted`, `channel_section_deleted`, `channel_sections_channels_upserted`, `channel_sections_channels_removed`). Read-only in v1.
+- [x] Slack-native sidebar sections (default): names, emoji, linked-list order, and channel/DM membership read from `users.channelSections.list` and kept live via WebSocket events (`channel_section_upserted`, `channel_section_deleted`, `channel_sections_channels_upserted`, `channel_sections_channels_removed`). Writes: `:move` assigns the active channel (`users.channelSections.channels.bulkUpdate`); `:section <name>` creates an empty section (`users.channelSections.create`).
 - [x] Config-based channel sections with glob pattern matching (fallback when `use_slack_sections = false` or the API is unreachable)
 - [x] Channel name truncation for long names
 - [x] Sidebar scrolling with selected item always visible
@@ -170,7 +170,7 @@ slk/
 3. **Render caching** -- messages rendered once, cached until content changes
 4. **bubbles/viewport scrolling** -- all scrollable panels use bubbles/viewport with item-level selection
 5. **Direct WebSocket** -- connects to Slack's internal browser WebSocket protocol (not RTM or Socket Mode) for real-time events with xoxc tokens
-6. **Slack-native sidebar sections (default), with config-glob fallback** -- slk uses `users.channelSections.list` and four `channel_section*` WebSocket events (all undocumented but stable in the official client) to mirror the user's actual sidebar. Bootstrap on connect, live deltas thereafter, debounced re-bootstrap on reconnect. The legacy config-glob path is preserved verbatim and selected via `use_slack_sections = false` (globally or per-workspace), or activated automatically when the Slack endpoint fails. Read-only in v1; section editing still happens in the official client.
+6. **Slack-native sidebar sections (default), with config-glob fallback** -- slk uses `users.channelSections.list` and four `channel_section*` WebSocket events (all undocumented but stable in the official client) to mirror the user's actual sidebar. Bootstrap on connect, live deltas thereafter, debounced re-bootstrap on reconnect. The legacy config-glob path is preserved verbatim and selected via `use_slack_sections = false` (globally or per-workspace), or activated automatically when the Slack endpoint fails. `:move` / `:section` write via `users.channelSections.channels.bulkUpdate` and `users.channelSections.create`; rename/delete/reorder still happen in the official client.
 7. **muesli/reflow** -- ANSI-aware text wrapping, padding, and truncation for correct rendering with styled text
 8. **Green left-border selection** -- consistent `▌` indicator across messages, threads, channels, and channel finder
 9. **Thick left-border compose** -- compose boxes use `▌` border with dark background, matching opencode's input style

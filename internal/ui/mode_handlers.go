@@ -63,6 +63,7 @@ var modeHandlers = map[Mode]modeHandler{
 	ModeHelp:                 handleHelpMode,
 	ModeReactionsView:        handleReactionsViewMode,
 	ModeLinkPicker:           handleLinkPickerMode,
+	ModeSectionPicker:        handleSectionPickerMode,
 	ModeWorkspaceSearch:      handleWorkspaceSearchMode,
 }
 

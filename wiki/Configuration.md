@@ -162,8 +162,7 @@ rest of the `[sections.*]` block.
 
 ### Limitations of Slack-native sections
 
-Slack-native sections are read-only — section editing still happens in the official client; slk
-reflects the results. The `stars` section type (Slack's "Starred" feature) is rendered
+`:move` / `:section` write membership and create empty sections. Rename, delete, and reorder still happen in the official client. The `stars` section type (Slack's "Starred" feature) is rendered
 when non-empty, with the header `Starred`. Sections of type `slack_connect`,
 `salesforce_records`, and `agents` are hidden. Sections with more than 10 channels may be returned
 only partially by Slack's API on initial load; the missing channels

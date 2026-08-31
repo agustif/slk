@@ -31,6 +31,8 @@
 | `Ctrl+]` | Any | Toggle thread panel |
 | `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder |
 | `:ws` | Normal | Workspace picker |
+| `:move` | Normal | Move the active channel into a Slack sidebar section (picker of existing section names; `:move Engineering` skips the picker) |
+| `:section <name>` | Normal | Create an empty Slack sidebar section |
 | `1`–`9` | Normal | Jump to workspace N |
 | `r` | Normal (message) | Open reaction picker |
 | `R` | Normal (message) | Quick-toggle existing reactions |

@@ -246,7 +246,7 @@ type Model struct {
 	threadsActive bool
 	// activityActive is the same indicator for the Activity inbox row.
 	activityActive bool
-	nowFn         func() time.Time
+	nowFn          func() time.Time
 
 	// snappedSelection lets View() avoid snapping yOffset back to the
 	// selected row on every render. While snappedSelection == cursor,
@@ -296,6 +296,16 @@ func (m *Model) SetSectionsProvider(p SectionsProvider) {
 	m.rebuildNavPreserveCursor()
 	m.cacheValid = false
 	m.dirty()
+}
+
+// SlackSections returns Slack-native section metadata when the
+// provider is ready; nil otherwise. Used by :move to populate the
+// section picker.
+func (m *Model) SlackSections() []SectionMeta {
+	if m.sectionsProvider == nil || !m.sectionsProvider.Ready() {
+		return nil
+	}
+	return m.sectionsProvider.OrderedSlackSections()
 }
 
 // SetReadStateReader installs a callback that returns the per-channel

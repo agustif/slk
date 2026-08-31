@@ -1740,6 +1740,59 @@ func run() error {
 			},
 		}))
 
+		app.SetSectionService(ui.NewSectionService(ui.SectionServiceFuncs{
+			Assign: func(channelID ids.ChannelID, sectionID string) tea.Msg {
+				ch, to := string(channelID), sectionID
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.SectionMoveFailedMsg{ChannelID: ch, SectionID: to, Err: "no active workspace"}
+				}
+				store := wctx.SectionStore
+				if store == nil || !store.Ready() {
+					return ui.SectionMoveFailedMsg{ChannelID: ch, SectionID: to, Err: "Slack sections not available"}
+				}
+				from, _ := store.Membership(ch)
+				if from == to {
+					return ui.SectionMovedMsg{ChannelID: ch, SectionID: to, Name: slackSectionDisplayName(store, to), Unchanged: true}
+				}
+				store.MoveChannel(ch, to)
+				syncWorkspaceChannelSections(wctx)
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.AssignChannelToSection(ctx, ch, to, from); err != nil {
+					store.MoveChannel(ch, from)
+					syncWorkspaceChannelSections(wctx)
+					return ui.SectionMoveFailedMsg{ChannelID: ch, SectionID: to, FromSectionID: from, Err: err.Error()}
+				}
+				return ui.SectionMovedMsg{
+					ChannelID:     ch,
+					SectionID:     to,
+					FromSectionID: from,
+					Name:          slackSectionDisplayName(store, to),
+				}
+			},
+			Create: func(name string) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.SectionCreateFailedMsg{Name: name, Err: "no active workspace"}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				id, err := wctx.Client.CreateChannelSection(ctx, name, "")
+				if err != nil {
+					return ui.SectionCreateFailedMsg{Name: name, Err: err.Error()}
+				}
+				if store := wctx.SectionStore; store != nil && store.Ready() {
+					store.ApplyUpsert(slackclient.ChannelSectionUpserted{
+						ID:   id,
+						Name: name,
+						Type: "standard",
+					})
+				}
+				return ui.SectionCreatedMsg{ID: id, Name: name}
+			},
+		}))
+
 		app.SetThreadService(ui.NewThreadService(ui.ThreadServiceFuncs{
 			Fetch: func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
 				chIDStr, threadTSStr := string(channelID), string(threadTS)
@@ -4687,37 +4740,62 @@ func (h *rtmEventHandler) OnConversationOpened(ch slack.Channel) {
 	})
 }
 
-// refreshSectionsForActive re-syncs every wctx.Channels item's Section
-// field with the current SectionStore state, then (if this workspace
-// is active) posts a SectionsRefreshedMsg so the App rebuckets the
-// sidebar. Inactive workspaces still get their wctx.Channels mutated
-// in place; the user sees the refresh on next workspace switch.
-//
-// Called from the four channel-section WS event handlers after they've
-// already applied their delta to the store.
-func (h *rtmEventHandler) refreshSectionsForActive() {
-	if h.wsCtx == nil || h.wsCtx.SectionStore == nil {
+// syncWorkspaceChannelSections copies SectionStore membership onto
+// every wctx.Channels item. Channels not claimed by a renderable
+// section get Section="".
+func syncWorkspaceChannelSections(wctx *WorkspaceContext) {
+	if wctx == nil || wctx.SectionStore == nil || !wctx.SectionStore.Ready() {
 		return
 	}
-	store := h.wsCtx.SectionStore
-	if !store.Ready() {
-		return
-	}
-	// Update Section field on every channel in the workspace context
-	// based on current store state. Channels not claimed by any
-	// section have Section reset to "" — letting the sidebar's Slack
-	// mode bucket them via type-default fallback (Task 8) or the
-	// config-glob path if Slack mode isn't active.
-	for i := range h.wsCtx.Channels {
-		item := &h.wsCtx.Channels[i]
+	store := wctx.SectionStore
+	for i := range wctx.Channels {
+		item := &wctx.Channels[i]
 		if id, ok := store.SectionForChannel(item.ID); ok {
 			item.Section = id
 		} else {
 			item.Section = ""
 		}
-		// SectionOrder is unused in Slack mode (linked-list order
-		// comes from the provider); reset to 0 for consistency.
 		item.SectionOrder = 0
+	}
+}
+
+func slackSectionDisplayName(store *service.SectionStore, id string) string {
+	if store == nil {
+		return id
+	}
+	for _, s := range store.OrderedSections() {
+		if s.ID != id {
+			continue
+		}
+		if s.Name != "" {
+			return s.Name
+		}
+		switch s.Type {
+		case "channels":
+			return "Channels"
+		case "direct_messages":
+			return "Direct Messages"
+		case "stars":
+			return "Starred"
+		default:
+			return "(unnamed)"
+		}
+	}
+	return id
+}
+
+// refreshSectionsForActive re-syncs every wctx.Channels item's Section
+// field with the current SectionStore state, then (if this workspace
+// is active) posts a SectionsRefreshedMsg so the App rebuckets the
+// sidebar. Inactive workspaces still get their wctx.Channels mutated
+// in place; the user sees the refresh on next workspace switch.
+func (h *rtmEventHandler) refreshSectionsForActive() {
+	if h.wsCtx == nil || h.wsCtx.SectionStore == nil {
+		return
+	}
+	syncWorkspaceChannelSections(h.wsCtx)
+	if !h.wsCtx.SectionStore.Ready() {
+		return
 	}
 	if h.program == nil {
 		return
