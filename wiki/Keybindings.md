@@ -25,6 +25,7 @@
 | `/` | Normal | Search in channel (vim-style; searches cached history of the current channel) |
 | `n` / `N` | Normal | Next / previous search match (wraps) |
 | `a` / `A` | Normal | Jump to next / previous unread channel (wraps) |
+| `m` | Normal | Mute / unmute the selected sidebar channel, or the active channel if the message pane is focused |
 | `Esc` | Normal (search active) | Clear active search |
 | `Ctrl+f` | Any | Search workspace (Slack server-side; supports modifiers like `from:@user`, `in:#channel`, `before:YYYY-MM-DD`) |
 | `Ctrl+b` | Any | Toggle sidebar |

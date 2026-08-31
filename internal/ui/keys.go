@@ -68,6 +68,7 @@ type KeyMap struct {
 	ActivityFilterPrev  key.Binding
 	ActivitySort        key.Binding
 	ActivityUnreadOnly  key.Binding
+	ToggleMute          key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -144,5 +145,6 @@ func DefaultKeyMap() KeyMap {
 		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev activity tab")),
 		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),
 		ActivityUnreadOnly: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle activity unread-only")),
+		ToggleMute:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute channel")),
 	}
 }

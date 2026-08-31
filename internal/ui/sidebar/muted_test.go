@@ -121,6 +121,27 @@ func TestAggregateBadge_AllMutedDropsBadge(t *testing.T) {
 // count. If a future change diverges any of those call sites from the
 // predicate captured here, the corresponding render/count tests will
 // fail -- but this one fails first and points directly at the rule.
+func TestSetMuted_FlipsFlagAndNoOpsUnknown(t *testing.T) {
+	m := New([]ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel"},
+	})
+	if !m.SetMuted("C1", true) {
+		t.Fatal("SetMuted(C1, true) = false")
+	}
+	if !m.Items()[0].IsMuted {
+		t.Fatal("C1 not muted")
+	}
+	if !m.SetMuted("C1", true) {
+		t.Fatal("idempotent SetMuted should still return true (found)")
+	}
+	if m.SetMuted("C-missing", true) {
+		t.Fatal("unknown id should return false")
+	}
+	if m.SetMuted("", true) {
+		t.Fatal("empty id should return false")
+	}
+}
+
 func TestChannelItem_IsVisiblyUnread(t *testing.T) {
 	cases := []struct {
 		name  string

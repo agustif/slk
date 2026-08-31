@@ -201,6 +201,67 @@ func TestMuteStore_ApplyPrefChange_TolerantOfWhitespaceAndEmpties(t *testing.T) 
 	}
 }
 
+func TestMuteStore_SetMuted_OptimisticToggle(t *testing.T) {
+	s := NewMuteStore()
+	if s.SetMuted("", true) {
+		t.Error("SetMuted(\"\") returned changed=true")
+	}
+	if s.Ready() {
+		t.Error("empty channelID should not mark the store ready")
+	}
+
+	if !s.SetMuted("C1", true) {
+		t.Error("first mute returned changed=false")
+	}
+	if !s.Ready() {
+		t.Error("Ready=false after local toggle, want true")
+	}
+	if !s.IsMuted("C1") {
+		t.Error("IsMuted(C1)=false after SetMuted(true)")
+	}
+	if s.SetMuted("C1", true) {
+		t.Error("idempotent mute returned changed=true")
+	}
+
+	if !s.SetMuted("C1", false) {
+		t.Error("unmute returned changed=false")
+	}
+	if s.IsMuted("C1") {
+		t.Error("IsMuted(C1)=true after SetMuted(false)")
+	}
+}
+
+func TestMuteStore_SetMuted_ThenPrefChangeReconciles(t *testing.T) {
+	s := NewMuteStore()
+	s.ApplyPrefChange("all_notifications_prefs", `{"channels":{"C1":{"muted":true},"C2":{"muted":true}}}`)
+	if !s.SetMuted("C1", false) {
+		t.Fatal("local unmute should change the set")
+	}
+	if s.IsMuted("C1") || !s.IsMuted("C2") {
+		t.Fatalf("after local unmute: C1 muted=%v C2 muted=%v", s.IsMuted("C1"), s.IsMuted("C2"))
+	}
+
+	// Slack's pref_change is the full authoritative blob. A later
+	// event that disagrees with the local toggle (or includes other
+	// channels) must win.
+	value := `{"channels":{"C1":{"muted":false},"C2":{"muted":true},"C3":{"muted":true}}}`
+	if !s.ApplyPrefChange("all_notifications_prefs", value) {
+		t.Error("pref_change adding C3 returned changed=false")
+	}
+	if s.IsMuted("C1") {
+		t.Error("C1 remuted; pref_change said muted=false")
+	}
+	if !s.IsMuted("C2") || !s.IsMuted("C3") {
+		t.Errorf("expected C2+C3 muted after reconcile, got %v", s.MutedChannels())
+	}
+
+	// Matching pref_change after an identical local toggle is a no-op.
+	s.SetMuted("C1", true)
+	if s.ApplyPrefChange("all_notifications_prefs", `{"channels":{"C1":{"muted":true},"C2":{"muted":true},"C3":{"muted":true}}}`) {
+		t.Error("pref_change matching local set returned changed=true")
+	}
+}
+
 func TestMuteStore_MutedChannelsSnapshot(t *testing.T) {
 	s := NewMuteStore()
 	if got := s.MutedChannels(); got != nil {

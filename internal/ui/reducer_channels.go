@@ -34,6 +34,8 @@
 //	                                switch to last-visited or Threads,
 //	                                toast.
 //	ChannelLeaveFailedMsg         - leave API failed: toast.
+//	ChannelMutedMsg               - mute write result: roll back
+//	                                optimistic sidebar mute on error.
 //	channelSearchDebounceMsg      - finder typing paused: issue one
 //	                                channels/search for the query
 //	                                the user stopped on.
@@ -250,6 +252,13 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case ChannelLeaveFailedMsg:
 		log.Printf("warning: failed to leave channel %s: %v", m.Name, m.Err)
 		return toastWithClear(a, fmt.Sprintf("Failed to leave #%s: %v", m.Name, m.Err), 3*time.Second), true
+
+	case ChannelMutedMsg:
+		if m.Err != nil {
+			a.sidebar.SetMuted(m.ChannelID, !m.Muted)
+			return toastWithClear(a, "Mute failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		return nil, true
 
 	case channelSearchDebounceMsg:
 		// The typing has stopped. Anything older than the current

@@ -1549,6 +1549,38 @@ func run() error {
 				}
 				return ui.ChannelLeftMsg{ID: chIDStr, Name: channelName}
 			},
+			SetMuted: func(channelID ids.ChannelID, muted bool) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelMutedMsg{ChannelID: chIDStr, Muted: muted, Err: errors.New("no active workspace")}
+				}
+				client := wctx.Client
+				store := wctx.MuteStore
+				if store != nil {
+					store.SetMuted(chIDStr, muted)
+					for i := range wctx.Channels {
+						if wctx.Channels[i].ID == chIDStr {
+							wctx.Channels[i].IsMuted = muted
+						}
+					}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				err := client.SetChannelMuted(ctx, chIDStr, muted)
+				if err != nil {
+					if store != nil {
+						store.SetMuted(chIDStr, !muted)
+						for i := range wctx.Channels {
+							if wctx.Channels[i].ID == chIDStr {
+								wctx.Channels[i].IsMuted = !muted
+							}
+						}
+					}
+					log.Printf("Warning: set channel muted %s=%v: %v", chIDStr, muted, err)
+				}
+				return ui.ChannelMutedMsg{ChannelID: chIDStr, Muted: muted, Err: err}
+			},
 		}))
 
 		app.SetSearchService(ui.NewSearchService(ui.SearchServiceFuncs{

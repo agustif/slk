@@ -492,6 +492,11 @@ type ChannelService interface {
 	// the finder showing local matches only, which is what it showed
 	// before this existed.
 	SearchRemote(query string) []channelfinder.Item
+
+	// SetMuted writes the user's mute pref for channelID. Returns a
+	// tea.Msg (typically ChannelMutedMsg) so the reducer can roll
+	// back an optimistic sidebar update on error.
+	SetMuted(channelID ids.ChannelID, muted bool) tea.Msg
 }
 
 // ChannelServiceFuncs is the closure bundle accepted by
@@ -511,6 +516,7 @@ type ChannelServiceFuncs struct {
 	MembershipFetch  func(channelID ids.ChannelID)
 	OpenConversation func(userIDs []string, requestID uint64) tea.Cmd
 	SearchRemote     func(query string) []channelfinder.Item
+	SetMuted         func(channelID ids.ChannelID, muted bool) tea.Msg
 }
 
 // NewChannelService builds a ChannelService from a
@@ -616,6 +622,13 @@ func (c channelAdapter) OpenConversation(userIDs []string, requestID uint64) tea
 		return nil
 	}
 	return c.fns.OpenConversation(userIDs, requestID)
+}
+
+func (c channelAdapter) SetMuted(channelID ids.ChannelID, muted bool) tea.Msg {
+	if c.fns.SetMuted == nil {
+		return nil
+	}
+	return c.fns.SetMuted(channelID, muted)
 }
 
 // SearchService runs message searches. SearchChannel queries the local

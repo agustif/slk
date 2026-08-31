@@ -11,7 +11,7 @@
 //     Ctrl-o/i (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
 //   - message ops: yy (yank text), Y/C (copy permalink), E (edit),
-//     D (delete), M (mark unread), O (open image preview)
+//     D (delete), M (mark unread), m (mute channel), O (open image preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -27,11 +27,13 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 )
@@ -321,6 +323,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.MarkUnread):
 		return a.markUnreadOfSelected()
 
+	case key.Matches(msg, a.keys.ToggleMute):
+		return a.toggleMuteSelected()
+
 	case key.Matches(msg, a.keys.NextUnread):
 		return a.jumpToUnread(1)
 
@@ -358,6 +363,64 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// toggleMuteSelected mutes or unmutes the channel under the sidebar
+// cursor when the sidebar is focused (and sitting on a channel row),
+// otherwise the active channel. Optimistic: the sidebar dimming
+// flips immediately and a toast fires; ChannelService.SetMuted
+// persists the pref and ChannelMutedMsg rolls back on error.
+func (a *App) toggleMuteSelected() tea.Cmd {
+	id, name, chType, currentlyMuted, ok := a.muteTarget()
+	if !ok {
+		return nil
+	}
+	muted := !currentlyMuted
+	a.sidebar.SetMuted(id, muted)
+	channels := a.channels
+	return tea.Batch(
+		toastWithClear(a, muteToast(muted, name, chType), 2*time.Second),
+		func() tea.Msg {
+			return channels.SetMuted(ids.ChannelID(id), muted)
+		},
+	)
+}
+
+// muteTarget picks the channel `m` should toggle: the selected
+// sidebar row when the sidebar is focused on a channel, else the
+// active channel (Slack's channel-bell binding).
+func (a *App) muteTarget() (id, name, chType string, currentlyMuted bool, ok bool) {
+	if a.focusedPanel == PanelSidebar {
+		if item, selected := a.sidebar.SelectedItem(); selected {
+			return item.ID, item.Name, item.Type, item.IsMuted, true
+		}
+	}
+	if a.activeChannelID == "" {
+		return "", "", "", false, false
+	}
+	for _, item := range a.sidebar.Items() {
+		if item.ID == a.activeChannelID {
+			return item.ID, item.Name, item.Type, item.IsMuted, true
+		}
+	}
+	name = a.channelNames[a.activeChannelID]
+	return a.activeChannelID, name, "channel", false, true
+}
+
+func muteToast(muted bool, name, chType string) string {
+	label := name
+	switch chType {
+	case "dm", "group_dm", "app":
+		// DMs keep their display name (no #).
+	default:
+		if name != "" && !strings.HasPrefix(name, "#") {
+			label = "#" + name
+		}
+	}
+	if muted {
+		return "Muted " + label
+	}
+	return "Unmuted " + label
 }
 
 // jumpToUnread selects and opens the next (dir>0) or previous (dir<0)

@@ -529,6 +529,16 @@ type OpenLinkMsg struct{ URL string }
 // reduceFiles.
 type DownloadFileMsg struct{ Attachment messages.Attachment }
 
+// ChannelMutedMsg carries the result of ChannelService.SetMuted.
+// Muted is the requested state. On error the App rolls back the
+// optimistic sidebar mute flag and toasts the failure; success is
+// already reflected locally (pref_change reconciles MuteStore).
+type ChannelMutedMsg struct {
+	ChannelID string
+	Muted     bool
+	Err       error
+}
+
 // MarkUnreadMsg requests the App to mark the given message as unread.
 // ThreadTS is "" for channel-level mark-unread; non-empty for thread-level
 // (in which case ChannelID is the parent channel and BoundaryTS is the

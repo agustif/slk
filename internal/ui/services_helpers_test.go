@@ -100,4 +100,8 @@ func (a *App) setChannelMembershipFetcherForTest(fn func(channelID ids.ChannelID
 	a.SetChannelService(NewChannelService(fns))
 }
 
-
+func (a *App) setChannelMutedForTest(fn func(channelID ids.ChannelID, muted bool) tea.Msg) {
+	fns := channelFuncsForTest(a)
+	fns.SetMuted = fn
+	a.SetChannelService(NewChannelService(fns))
+}
