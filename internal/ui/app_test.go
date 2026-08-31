@@ -15,7 +15,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/ids"
+	slackclient "github.com/gammons/slk/internal/slack"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/compose"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -691,12 +693,115 @@ func TestApp_ThreadsListLoadedIgnoredForOtherWorkspace(t *testing.T) {
 	}
 }
 
+func TestApp_ActivityViewActivation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(ActivityViewActivatedMsg{})
+	if app.view != ViewActivity {
+		t.Fatalf("after activation view = %v, want ViewActivity", app.view)
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
+	if app.view != ViewChannels {
+		t.Errorf("after ChannelSelectedMsg view = %v, want ViewChannels", app.view)
+	}
+}
+
+func TestApp_ActivityCountsUpdatesBadge(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(ActivityCountsMsg{TeamID: "T1", Unread: 7})
+	if app.sidebar.ActivityUnreadCount() != 7 {
+		t.Errorf("ActivityUnreadCount = %d, want 7", app.sidebar.ActivityUnreadCount())
+	}
+	_, _ = app.Update(ActivityCountsMsg{TeamID: "T2", Unread: 99})
+	if app.sidebar.ActivityUnreadCount() != 7 {
+		t.Errorf("other-team counts should be ignored; got %d", app.sidebar.ActivityUnreadCount())
+	}
+}
+
+func TestApp_HandleEnterOnActivityRowActivatesView(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	if !app.sidebar.IsActivitySelected() {
+		t.Fatal("precondition: Activity row is the default top slot")
+	}
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(ActivityViewActivatedMsg); !ok {
+		t.Errorf("expected ActivityViewActivatedMsg, got %T", msg)
+	}
+}
+
+func TestApp_ActivityFeedLoadedDecoratesAndSelects(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.channelNames = map[string]string{"C1": "general"}
+	app.SetUserNames(map[string]string{"U1": "alice"})
+	app.view = ViewActivity
+	app.activityGen = 3
+	_, _ = app.Update(ActivityFeedLoadedMsg{
+		TeamID: "T1",
+		Gen:    3,
+		Items: []slackclient.ActivityItem{{
+			Key: "k1", Type: "at_user", ChannelID: "C1", MessageTS: "1.0", ActorID: "U1",
+		}},
+	})
+	it, ok := app.activityView.SelectedItem()
+	if !ok {
+		t.Fatal("expected a selected activity item")
+	}
+	if it.ChannelName != "general" {
+		t.Errorf("ChannelName = %q, want general", it.ChannelName)
+	}
+	if it.ActorName != "alice" {
+		t.Errorf("ActorName = %q, want alice", it.ActorName)
+	}
+}
+
+func TestApp_ActivityFeedLoadedDropsStaleGen(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.activityGen = 5
+	_, _ = app.Update(ActivityFeedLoadedMsg{
+		TeamID: "T1",
+		Gen:    4,
+		Items:  []slackclient.ActivityItem{{Key: "stale", ChannelID: "C1"}},
+	})
+	if _, ok := app.activityView.SelectedItem(); ok {
+		t.Error("stale gen should not populate the view")
+	}
+}
+
+func TestApp_SetActivityConfigSeedsQuery(t *testing.T) {
+	app := NewApp()
+	app.SetActivityConfig(config.Activity{
+		Filter:     "mentions",
+		Sort:       "unreads_first",
+		UnreadOnly: true,
+		Density:    "compact",
+		Limit:      20,
+	})
+	q := app.activityView.Query()
+	if q.Filter != "mentions" || q.Sort != "unreads_first" || !q.UnreadOnly {
+		t.Errorf("Query = %+v", q)
+	}
+	if app.activityView.Density() != "compact" {
+		t.Errorf("Density = %q", app.activityView.Density())
+	}
+	if app.activityCfg.Limit != 20 {
+		t.Errorf("Limit = %d", app.activityCfg.Limit)
+	}
+}
+
 func TestApp_HandleEnterOnThreadsRowActivatesView(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
-	// Sidebar default-selects the Threads row.
+	app.sidebar.SelectThreadsRow()
 	if !app.sidebar.IsThreadsSelected() {
-		t.Fatalf("precondition: sidebar should default-select Threads row")
+		t.Fatalf("precondition: Threads row selected")
 	}
 	cmd := app.handleEnter()
 	if cmd == nil {
@@ -1164,11 +1269,11 @@ func TestApp_BackgroundWorkspaceReadyDoesNotClobberActiveState(t *testing.T) {
 
 func TestApp_WorkspaceSwitchedTriggersThreadsListFetchAndSelectsThreadsRow(t *testing.T) {
 	app := NewApp()
-	// Move sidebar selection off the Threads row first to verify the reset.
+	// Move sidebar selection off the synthetic rows first to verify the reset.
 	app.sidebar.SetItems([]sidebar.ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
-	app.sidebar.MoveDown()
-	if app.sidebar.IsThreadsSelected() {
-		t.Fatal("precondition: should be off Threads row")
+	app.sidebar.SelectByID("C1")
+	if app.sidebar.IsThreadsSelected() || app.sidebar.IsActivitySelected() {
+		t.Fatal("precondition: should be off synthetic rows")
 	}
 
 	fetched := make(chan string, 1)
@@ -2977,6 +3082,45 @@ func TestThreadMarkedRemoteMsg_ReadClearsRow(t *testing.T) {
 		if s.ThreadTS == "P1" && s.Unread {
 			t.Errorf("expected P1 Unread=false after remote thread_marked read=true")
 		}
+	}
+}
+
+func TestDMNameResolvedMsg_RenamesSidebarDM(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.SetChannels([]sidebar.ChannelItem{
+		{ID: "D1", Name: "U123", Type: "dm", DMUserID: "U123"},
+	})
+	app.Update(DMNameResolvedMsg{TeamID: "T1", ChannelID: "D1", DisplayName: "Alice"})
+	got := app.sidebar.Items()
+	if len(got) != 1 || got[0].Name != "Alice" {
+		t.Errorf("sidebar DM = %+v; want Name Alice", got)
+	}
+}
+
+func TestDMNameResolvedMsg_IgnoresOtherWorkspace(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.SetChannels([]sidebar.ChannelItem{
+		{ID: "D1", Name: "U123", Type: "dm", DMUserID: "U123"},
+	})
+	app.Update(DMNameResolvedMsg{TeamID: "T2", ChannelID: "D1", DisplayName: "Alice"})
+	got := app.sidebar.Items()
+	if len(got) != 1 || got[0].Name != "U123" {
+		t.Errorf("inactive-workspace DMNameResolvedMsg mutated the active sidebar: %+v", got)
+	}
+}
+
+func TestUserResolvedMsg_RenamesSidebarDM(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.SetChannels([]sidebar.ChannelItem{
+		{ID: "D1", Name: "U123", Type: "dm", DMUserID: "U123"},
+	})
+	app.Update(UserResolvedMsg{TeamID: "T1", UserID: "U123", DisplayName: "Alice", IsBot: false})
+	got := app.sidebar.Items()
+	if len(got) != 1 || got[0].Name != "Alice" {
+		t.Errorf("sidebar DM = %+v; want Name Alice from UserResolvedMsg", got)
 	}
 }
 

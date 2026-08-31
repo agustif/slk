@@ -64,20 +64,23 @@ func TestReconnect_DedupeWindow(t *testing.T) {
 // slackhttp.Counter reports, so a count here is comparable with a
 // count from a real session.
 type fakeCounts struct {
-	mu      sync.Mutex
-	calls   []string
-	unreads []slackclient.UnreadInfo
-	err     error
+	mu       sync.Mutex
+	calls    []string
+	unreads  []slackclient.UnreadInfo
+	activity slackclient.ActivityCounts
+	err      error
 }
 
-func (f *fakeCounts) GetUnreadCounts() ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error) {
+func (f *fakeCounts) GetCounts() (slackclient.CountsSnapshot, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, "client.counts")
+	unreads := f.unreads
+	activity := f.activity
 	f.mu.Unlock()
 	if f.err != nil {
-		return nil, slackclient.ThreadsAggregate{}, f.err
+		return slackclient.CountsSnapshot{}, f.err
 	}
-	return f.unreads, slackclient.ThreadsAggregate{}, nil
+	return slackclient.CountsSnapshot{Unreads: unreads, Activity: activity}, nil
 }
 
 func (f *fakeCounts) snapshot() []string {
@@ -181,10 +184,10 @@ func TestReconnect_ClientSurfaceCannotEnumerate(t *testing.T) {
 		for i := 0; i < iface.NumMethod(); i++ {
 			names = append(names, iface.Method(i).Name)
 		}
-		t.Errorf("reconnectClient declares %v; want only GetUnreadCounts — anything per-channel or per-thread here is an O(n) reconnect waiting to happen", names)
+		t.Errorf("reconnectClient declares %v; want only GetCounts — anything per-channel or per-thread here is an O(n) reconnect waiting to happen", names)
 	}
-	if _, ok := iface.MethodByName("GetUnreadCounts"); !ok {
-		t.Error("reconnectClient has no GetUnreadCounts; client.counts is the one call that refreshes unread state for the whole workspace")
+	if _, ok := iface.MethodByName("GetCounts"); !ok {
+		t.Error("reconnectClient has no GetCounts; client.counts is the one call that refreshes unread state for the whole workspace")
 	}
 }
 

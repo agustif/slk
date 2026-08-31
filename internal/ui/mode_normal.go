@@ -60,7 +60,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// only way to type is into the right-side thread panel's
 		// compose. Force focus there even when the threads list
 		// itself was the focused panel.
-		if a.focusedPanel == PanelThread || (a.view == ViewThreads && a.threadVisible) {
+		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity) && a.threadVisible) {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}
@@ -97,7 +97,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.SearchMode):
 		// Spec scopes `/` to the channel message pane in v1: no-op
 		// while the thread panel has focus.
-		if a.focusedPanel == PanelThread {
+		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity {
 			return nil
 		}
 		a.searchInput = ""
@@ -170,6 +170,23 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.Enter):
 		return a.handleEnter()
+
+	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivityFilter):
+		if a.activityView.CycleFilter(1) {
+			return a.fetchActivityCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivityFilterPrev):
+		if a.activityView.CycleFilter(-1) {
+			return a.fetchActivityCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivitySort):
+		if a.activityView.CycleSort() {
+			return a.fetchActivityCmd()
+		}
+	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivityUnreadOnly):
+		if a.activityView.ToggleUnreadOnly() {
+			return a.fetchActivityCmd()
+		}
 
 	case key.Matches(msg, a.keys.ToggleSection):
 		// Space on a sidebar section header toggles its collapsed

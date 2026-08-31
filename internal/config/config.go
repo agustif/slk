@@ -19,6 +19,7 @@ type Config struct {
 	Notifications Notifications                `toml:"notifications"`
 	Cache         CacheConfig                  `toml:"cache"`
 	Sidebar       Sidebar                      `toml:"sidebar"`
+	Activity      Activity                     `toml:"activity"`
 	Sections      map[string]SectionDef        `toml:"sections"`
 	Theme         Theme                        `toml:"theme"`
 	Workspaces    map[string]Workspace         `toml:"workspaces"`
@@ -151,6 +152,181 @@ type Sidebar struct {
 	Width                 int `toml:"width"`
 }
 
+// Activity is the Activity inbox: Slack's activity.feed surface
+// (recents + notifications), with the same filter/sort knobs the
+// official All / DMs / Mentions / Threads tabs send.
+//
+// Config values are the session defaults. The Activity view can
+// cycle them live (f/F filter, s sort, u unread-only); those
+// changes are session-only and do not rewrite this file.
+type Activity struct {
+	// Filter is the Activity tab to open on. Matches an
+	// activity.views name, view_type, or id (All / DMs / Mentions /
+	// Threads, plus any custom view like Unreads / Reactions / VIP).
+	// Empty → "all". Unknown names are kept so a custom tab still
+	// works once views load; if it never appears, the TUI falls
+	// back to All.
+	Filter string `toml:"filter"`
+	// Sort is the feed ranking. "newest" is Slack's chrono_v1
+	// (All tab); "unreads_first" is priority_reads_and_unreads_v1
+	// + sort=vip_unreads_first (the other official tabs).
+	// Clamped on load; empty / unknown → "newest".
+	Sort string `toml:"sort"`
+	// UnreadOnly, when true, sends unread_only=true so Slack
+	// returns only unread items.
+	UnreadOnly bool `toml:"unread_only"`
+	// Density is the Activity list layout. "detailed" is 3-line
+	// cards (Threads-view style); "compact" is one line per item.
+	// Clamped on load; empty / unknown → "detailed".
+	Density string `toml:"density"`
+	// Limit is activity.feed's page size. Clamped to 1..100;
+	// 0 / unset → 50.
+	Limit int `toml:"limit"`
+}
+
+const (
+	ActivityFilterAll       = "all"
+	ActivityFilterDMs       = "dms"
+	ActivityFilterMentions  = "mentions"
+	ActivityFilterThreads   = "threads"
+	ActivityFilterReactions = "reactions"
+
+	ActivitySortNewest       = "newest"
+	ActivitySortUnreadsFirst = "unreads_first"
+
+	ActivityDensityCompact  = "compact"
+	ActivityDensityDetailed = "detailed"
+
+	ActivityLimitDefault = 50
+	ActivityLimitMax     = 100
+)
+
+// ActivityFilters is the cycle order for the Activity view's filter
+// tabs and the f/F keys. Keep in sync with Slack's All / DMs /
+// Mentions / Threads tabs, plus Reactions (a captured feed type).
+var ActivityFilters = []string{
+	ActivityFilterAll,
+	ActivityFilterDMs,
+	ActivityFilterMentions,
+	ActivityFilterThreads,
+	ActivityFilterReactions,
+}
+
+// ActivitySorts is the cycle order for the Activity view's sort chip
+// and the s key.
+var ActivitySorts = []string{
+	ActivitySortNewest,
+	ActivitySortUnreadsFirst,
+}
+
+// ActivityFilterLabel is the tab label shown in the Activity toolbar.
+func ActivityFilterLabel(filter string) string {
+	switch ClampActivityFilter(filter) {
+	case ActivityFilterDMs:
+		return "DMs"
+	case ActivityFilterMentions:
+		return "Mentions"
+	case ActivityFilterThreads:
+		return "Threads"
+	case ActivityFilterReactions:
+		return "Reactions"
+	default:
+		return "All"
+	}
+}
+
+// ActivitySortLabel is the sort-chip label shown in the Activity toolbar.
+func ActivitySortLabel(sort string) string {
+	if ClampActivitySort(sort) == ActivitySortUnreadsFirst {
+		return "unreads first"
+	}
+	return "newest"
+}
+
+func ClampActivityFilter(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ActivityFilterAll
+	}
+	switch strings.ToLower(s) {
+	case ActivityFilterAll, ActivityFilterDMs, ActivityFilterMentions, ActivityFilterThreads, ActivityFilterReactions:
+		return strings.ToLower(s)
+	default:
+		// Custom activity.views name (Unreads, VIP, …) — keep as typed.
+		return s
+	}
+}
+
+func ClampActivitySort(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case ActivitySortUnreadsFirst:
+		return ActivitySortUnreadsFirst
+	default:
+		return ActivitySortNewest
+	}
+}
+
+func ClampActivityDensity(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case ActivityDensityCompact:
+		return ActivityDensityCompact
+	default:
+		return ActivityDensityDetailed
+	}
+}
+
+func ClampActivityLimit(n int) int {
+	if n < 1 {
+		return ActivityLimitDefault
+	}
+	if n > ActivityLimitMax {
+		return ActivityLimitMax
+	}
+	return n
+}
+
+// Normalized returns a copy with every enum/limit clamped to the
+// documented set. Load applies this so a partial or typo'd [activity]
+// block still starts the TUI on valid knobs.
+func (a Activity) Normalized() Activity {
+	a.Filter = ClampActivityFilter(a.Filter)
+	a.Sort = ClampActivitySort(a.Sort)
+	a.Density = ClampActivityDensity(a.Density)
+	a.Limit = ClampActivityLimit(a.Limit)
+	return a
+}
+
+// NextActivityFilter walks ActivityFilters. dir > 0 advances, dir < 0
+// goes backward, wrapping at both ends.
+func NextActivityFilter(current string, dir int) string {
+	return cycleChoice(ActivityFilters, ClampActivityFilter(current), dir)
+}
+
+// NextActivitySort walks ActivitySorts forward (two values, so this
+// is a toggle).
+func NextActivitySort(current string) string {
+	return cycleChoice(ActivitySorts, ClampActivitySort(current), 1)
+}
+
+func cycleChoice(opts []string, current string, dir int) string {
+	if len(opts) == 0 {
+		return current
+	}
+	i := 0
+	for j, o := range opts {
+		if o == current {
+			i = j
+			break
+		}
+	}
+	n := len(opts)
+	i = (i + dir) % n
+	if i < 0 {
+		i += n
+	}
+	return opts[i]
+}
+
 // Workspace holds per-workspace user preferences. The TOML key for
 // the surrounding map can be either a user-chosen slug (with TeamID
 // set explicitly via team_id) or — for backward compatibility —
@@ -222,6 +398,12 @@ func Default() Config {
 		Sidebar: Sidebar{
 			HideInactiveAfterDays: 30,
 		},
+		Activity: Activity{
+			Filter:  ActivityFilterAll,
+			Sort:    ActivitySortNewest,
+			Density: ActivityDensityDetailed,
+			Limit:   ActivityLimitDefault,
+		},
 	}
 }
 
@@ -264,6 +446,8 @@ func Load(path string) (Config, error) {
 	if cfg.Appearance.EmojiImages != "on" && cfg.Appearance.EmojiImages != "off" {
 		cfg.Appearance.EmojiImages = "on"
 	}
+
+	cfg.Activity = cfg.Activity.Normalized()
 
 	return cfg, nil
 }

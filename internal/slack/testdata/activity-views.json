@@ -1,0 +1,83 @@
+{
+  "ok": true,
+  "views": [
+    {
+      "id": "Av0ATWU6QP1Q",
+      "name": "All",
+      "emoji": null,
+      "view_type": "all",
+      "position": "1000000000",
+      "sort": "newest",
+      "density": "compact"
+    },
+    {
+      "id": "Av02",
+      "name": "DMs",
+      "emoji": null,
+      "view_type": "dms",
+      "position": "2000000000",
+      "sort": "vip_unreads_first",
+      "filters": {"entry_types": ["dm"]}
+    },
+    {
+      "id": "Av03",
+      "name": "Mentions",
+      "emoji": null,
+      "view_type": "mentions",
+      "position": "3000000000",
+      "sort": "vip_unreads_first",
+      "filters": {
+        "entry_types": [
+          "at_user",
+          "at_user_group",
+          "at_channel",
+          "at_everyone",
+          "keyword",
+          "list_record_assigned",
+          "list_user_mentioned",
+          "list_todo_notification",
+          "unjoined_channel_mention"
+        ]
+      }
+    },
+    {
+      "id": "Av04",
+      "name": "Threads",
+      "emoji": null,
+      "view_type": "threads",
+      "position": "4000000000",
+      "sort": "vip_unreads_first",
+      "filters": {"entry_types": ["thread_v2"]}
+    },
+    {
+      "id": "Av0BTXFUMSNM",
+      "name": "Unreads",
+      "emoji": null,
+      "view_type": "custom",
+      "position": "5000000000",
+      "sort": "newest",
+      "density": "compact",
+      "filters": {"unread_only": true}
+    },
+    {
+      "id": "Av0BTRHD191B",
+      "name": "Reactions",
+      "emoji": null,
+      "view_type": "custom",
+      "position": "5000000001",
+      "sort": "newest",
+      "density": "compact",
+      "filters": {"entry_types": ["message_reaction"]}
+    },
+    {
+      "id": "Av0BTVL8SCV8",
+      "name": "VIP",
+      "emoji": null,
+      "view_type": "custom",
+      "position": "5000000002",
+      "sort": "newest",
+      "density": "compact",
+      "filters": {"priority_only": true}
+    }
+  ]
+}

@@ -255,6 +255,56 @@ func (t threadAdapter) ChannelLastRead(channelID ids.ChannelID) string {
 	return t.fns.ChannelLastRead(channelID)
 }
 
+// ActivityFeedQuery is the flattened activity.feed request: the
+// selected activity.views tab plus live unread/sort chips.
+type ActivityFeedQuery struct {
+	Filter       string
+	Types        []string
+	Sort         string
+	UnreadOnly   bool
+	PriorityOnly bool
+	Limit        int
+	Gen          uint64
+}
+
+// ActivityServiceFuncs is the closure bundle for NewActivityService.
+type ActivityServiceFuncs struct {
+	FetchViews func(teamID ids.TeamID) tea.Msg
+	FetchFeed  func(teamID ids.TeamID, q ActivityFeedQuery) tea.Msg
+}
+
+// ActivityService fetches Slack's Activity inbox (activity.views +
+// activity.feed). Wired by cmd/slk/main.go.
+type ActivityService interface {
+	FetchViews(teamID ids.TeamID) tea.Msg
+	FetchFeed(teamID ids.TeamID, q ActivityFeedQuery) tea.Msg
+}
+
+// NewActivityService builds an ActivityService from named closures.
+func NewActivityService(fns ActivityServiceFuncs) ActivityService {
+	return activityAdapter{fns: fns}
+}
+
+var noopActivityService ActivityService = activityAdapter{}
+
+type activityAdapter struct {
+	fns ActivityServiceFuncs
+}
+
+func (a activityAdapter) FetchViews(teamID ids.TeamID) tea.Msg {
+	if a.fns.FetchViews == nil {
+		return ActivityViewsLoadedMsg{TeamID: string(teamID)}
+	}
+	return a.fns.FetchViews(teamID)
+}
+
+func (a activityAdapter) FetchFeed(teamID ids.TeamID, q ActivityFeedQuery) tea.Msg {
+	if a.fns.FetchFeed == nil {
+		return ActivityFeedLoadedMsg{TeamID: string(teamID), Gen: q.Gen}
+	}
+	return a.fns.FetchFeed(teamID, q)
+}
+
 // MessageService is the App's interface to Slack's per-message
 // operations: send, edit, delete, mark-unread, and permalink lookup.
 // Implementations are wired by cmd/slk/main.go.

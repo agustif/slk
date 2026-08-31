@@ -462,6 +462,48 @@ team_id = "T01ABCDEF"
 	}
 }
 
+func TestLoadWorkspacesMergesLegacyTeamIDKeyIntoSlug(t *testing.T) {
+	// saveWorkspaceVersionTS used to append [workspaces.<teamID>] when
+	// it could not find the slug header, so a real config looks like
+	// this after the first boot. Two slugs for the same team is still
+	// an error (TestLoadWorkspacesDuplicateTeamID); a leftover team-ID
+	// key next to the slug that owns that team is prefs, not a second
+	// workspace.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+[workspaces.work]
+team_id = "T01ABCDEF"
+theme = "dracula"
+
+[workspaces.T01ABCDEF]
+version_ts = "1788174451"
+`)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := cfg.Workspaces["T01ABCDEF"]; ok {
+		t.Fatal("leftover team-ID key should be dropped after merge")
+	}
+	ws, ok := cfg.Workspaces["work"]
+	if !ok {
+		t.Fatalf("expected slug key 'work', got %v", cfg.Workspaces)
+	}
+	if ws.TeamID != "T01ABCDEF" {
+		t.Errorf("TeamID = %q, want T01ABCDEF", ws.TeamID)
+	}
+	if ws.Theme != "dracula" {
+		t.Errorf("Theme = %q, want dracula (slug fields must survive the merge)", ws.Theme)
+	}
+	if ws.VersionTS != "1788174451" {
+		t.Errorf("VersionTS = %q, want the leftover block's 1788174451", ws.VersionTS)
+	}
+}
+
 func TestLoadWorkspacesMixedKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -859,5 +901,135 @@ team_id = "T04T4TH8W"
 	}
 	if got := cfg.Workspaces["acme"].VersionTS; got != "" {
 		t.Errorf("VersionTS = %q; want empty when unset", got)
+	}
+}
+
+func TestActivityDefaults(t *testing.T) {
+	d := Default()
+	if d.Activity.Filter != ActivityFilterAll {
+		t.Errorf("Filter = %q, want all", d.Activity.Filter)
+	}
+	if d.Activity.Sort != ActivitySortNewest {
+		t.Errorf("Sort = %q, want newest", d.Activity.Sort)
+	}
+	if d.Activity.UnreadOnly {
+		t.Error("UnreadOnly should default false")
+	}
+	if d.Activity.Density != ActivityDensityDetailed {
+		t.Errorf("Density = %q, want detailed", d.Activity.Density)
+	}
+	if d.Activity.Limit != ActivityLimitDefault {
+		t.Errorf("Limit = %d, want %d", d.Activity.Limit, ActivityLimitDefault)
+	}
+
+	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity != d.Activity {
+		t.Errorf("missing file Activity = %+v, want %+v", cfg.Activity, d.Activity)
+	}
+}
+
+func TestActivityClampOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(`
+[activity]
+filter = "nope"
+sort = "alphabetical"
+density = "huge"
+limit = 0
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity.Filter != "nope" {
+		t.Errorf("unknown filter %q should pass through as a custom view name", cfg.Activity.Filter)
+	}
+	if cfg.Activity.Sort != ActivitySortNewest {
+		t.Errorf("bad sort clamped to %q, want newest", cfg.Activity.Sort)
+	}
+	if cfg.Activity.Density != ActivityDensityDetailed {
+		t.Errorf("bad density clamped to %q, want detailed", cfg.Activity.Density)
+	}
+	if cfg.Activity.Limit != ActivityLimitDefault {
+		t.Errorf("limit 0 clamped to %d, got %d", ActivityLimitDefault, cfg.Activity.Limit)
+	}
+}
+
+func TestActivityValidValuesPassThrough(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(`
+[activity]
+filter = "mentions"
+sort = "unreads_first"
+unread_only = true
+density = "compact"
+limit = 20
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity.Filter != ActivityFilterMentions {
+		t.Errorf("Filter = %q", cfg.Activity.Filter)
+	}
+	if cfg.Activity.Sort != ActivitySortUnreadsFirst {
+		t.Errorf("Sort = %q", cfg.Activity.Sort)
+	}
+	if !cfg.Activity.UnreadOnly {
+		t.Error("UnreadOnly = false, want true")
+	}
+	if cfg.Activity.Density != ActivityDensityCompact {
+		t.Errorf("Density = %q", cfg.Activity.Density)
+	}
+	if cfg.Activity.Limit != 20 {
+		t.Errorf("Limit = %d, want 20", cfg.Activity.Limit)
+	}
+}
+
+func TestActivityLimitClampMax(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[activity]\nlimit = 500\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity.Limit != ActivityLimitMax {
+		t.Errorf("Limit = %d, want %d", cfg.Activity.Limit, ActivityLimitMax)
+	}
+}
+
+func TestNextActivityFilterWraps(t *testing.T) {
+	if got := NextActivityFilter(ActivityFilterAll, 1); got != ActivityFilterDMs {
+		t.Errorf("all+1 = %q, want dms", got)
+	}
+	if got := NextActivityFilter(ActivityFilterReactions, 1); got != ActivityFilterAll {
+		t.Errorf("reactions+1 = %q, want all", got)
+	}
+	if got := NextActivityFilter(ActivityFilterAll, -1); got != ActivityFilterReactions {
+		t.Errorf("all-1 = %q, want reactions", got)
+	}
+	if got := NextActivityFilter("bogus", 1); got != ActivityFilterDMs {
+		t.Errorf("unknown+1 should start from all → dms, got %q", got)
+	}
+}
+
+func TestNextActivitySortToggles(t *testing.T) {
+	if got := NextActivitySort(ActivitySortNewest); got != ActivitySortUnreadsFirst {
+		t.Errorf("newest → %q", got)
+	}
+	if got := NextActivitySort(ActivitySortUnreadsFirst); got != ActivitySortNewest {
+		t.Errorf("unreads_first → %q", got)
 	}
 }

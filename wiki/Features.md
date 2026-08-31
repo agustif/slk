@@ -51,6 +51,28 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   v1 is computed from the local SQLite cache, so threads from channels
   you have not yet opened in slk will not appear until they are seen.
 
+## Activity
+
+- **Activity inbox** (`◎ Activity` above Threads in the sidebar): Slack's
+  Activity tab — recents and notifications, read and unread — via
+  `activity.feed`. The sidebar badge is `client.counts` `activity_v2`.
+- Tabs come from `activity.views`, so built-in All / DMs / Mentions /
+  Threads plus **any custom view you created in Slack** (Unreads,
+  Reactions, VIP, …) show up automatically. Selecting a tab flattens
+  that view's `entry_types` / `unread_only` / `priority_only` onto
+  `activity.feed`, matching the official client.
+- Cards follow Slack's copy: "Post in #channel", "Thread in #channel",
+  "Direct Message", "Mentioned you", "Reacted :eyes:", with a `vip`
+  marker when the item is priority.
+- Sort is newest (`chrono_v1`) or unreads-first
+  (`priority_reads_and_unreads_v1` + `vip_unreads_first`). The unread
+  chip is Slack's Unreads button on the current tab.
+- Defaults live in `[activity]` in `config.toml`. In the view: `f`/`F`
+  cycle tabs, `s` cycles sort, `u` toggles unread-only (session-only;
+  config is the next-launch default). Click the tabs/chips too.
+- `Enter` on a row opens the message (or thread) through the same
+  in-app permalink path search results use.
+
 ## Reactions
 
 - Search-first picker overlay (`r`) with frecent emoji

@@ -63,6 +63,17 @@ message_retention_days = 30
 max_db_size_mb = 500
 max_image_cache_mb = 200
 
+# Activity inbox (Slack's Activity tab). These are the session defaults;
+# f / F / s / u in the Activity view cycle them live without rewriting
+# this file.
+[activity]
+filter = "all"            # All / DMs / Mentions / Threads, or a custom
+                          # activity.views name (Unreads, Reactions, VIP, …)
+sort = "newest"           # newest | unreads_first
+unread_only = false
+density = "detailed"      # detailed | compact (Slack Detailed / Dense)
+limit = 50                # activity.feed page size, 1–100
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.
@@ -173,6 +184,24 @@ regardless of network timing, even without an explicit `order` set.
 
 Legacy configs that key the block by raw team ID
 (`[workspaces.T01ABCDEF]`) keep working unchanged.
+
+## Activity inbox
+
+`[activity]` sets the defaults for the Activity sidebar row (Slack's
+Activity tab). Unknown values clamp on load.
+
+| Key | Values | Default | Maps to |
+|---|---|---|---|
+| `filter` | view name / type / id (`all`, `Unreads`, `VIP`, …) | `all` | selected `activity.views` tab |
+| `sort` | `newest`, `unreads_first` | `newest` | `chrono_v1` vs `priority_reads_and_unreads_v1` + `vip_unreads_first` |
+| `unread_only` | bool | `false` | `unread_only` |
+| `density` | `detailed`, `compact` | `detailed` | 3-line cards vs one line |
+| `limit` | 1–100 | `50` | `activity.feed` page size |
+
+In the Activity view, `f`/`F`, `s`, and `u` cycle filter / sort /
+unread-only for the rest of the session without rewriting
+`config.toml`. Click the tabs and chips in the toolbar for the same
+controls.
 
 ## Terminal-palette themes (`ANSI Dark`, `ANSI Light`)
 

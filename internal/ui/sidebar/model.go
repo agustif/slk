@@ -23,7 +23,7 @@ const (
 	defaultDMSection       = "Direct Messages"
 	// defaultAppsSection groups DMs whose peer is a Slack app or bot,
 	// matching the behavior of the official Slack desktop client. Falls
-	// between "Direct Messages" (humans) and "Channels" (firehose).
+	// after custom sections and before "Channels" (the firehose).
 	defaultAppsSection = "Apps"
 )
 
@@ -95,12 +95,11 @@ func orderedSections(items []ChannelItem, filtered []int) []string {
 }
 
 // orderedSectionsLegacy returns the section names in display order given the
-// currently filtered items. Custom (user-defined) sections come first,
-// sorted by SectionOrder ascending then by first-appearance for ties.
-// The three built-in fallback sections are appended at the end in this
-// order: "Direct Messages" (humans you talk to one-on-one), "Apps"
-// (Slack apps and bots), then "Channels" (the firehose). Anything the
-// user pinned to a custom section still wins the top spots.
+// currently filtered items. Direct Messages sit at the top (after the
+// Threads row), then custom (user-defined) sections sorted by
+// SectionOrder ascending then by first-appearance for ties, then Apps,
+// then Channels. DMs lead because they are the daily-driver
+// conversations; custom groupings and the channel firehose follow.
 func orderedSectionsLegacy(items []ChannelItem, filtered []int) []string {
 	type customInfo struct {
 		name      string
@@ -148,11 +147,11 @@ func orderedSectionsLegacy(items []ChannelItem, filtered []int) []string {
 	})
 
 	out := make([]string, 0, len(customs)+3)
-	for _, c := range customs {
-		out = append(out, c.name)
-	}
 	if hasDMs {
 		out = append(out, defaultDMSection)
+	}
+	for _, c := range customs {
+		out = append(out, c.name)
 	}
 	if hasApps {
 		out = append(out, defaultAppsSection)
@@ -170,6 +169,7 @@ type navKind int
 
 const (
 	navThreads navKind = iota
+	navActivity
 	navHeader
 	navChannel
 )
@@ -216,8 +216,9 @@ type Model struct {
 
 	// sectionsProvider is the Slack-native sections data source. Nil
 	// means "use config-glob behavior". When non-nil and Ready, the
-	// orderedSections function returns the provider's verbatim order
-	// and headers are keyed by section ID instead of name.
+	// section order is the provider's linked list with direct_messages
+	// hoisted to the top, and headers are keyed by section ID instead
+	// of name.
 	sectionsProvider SectionsProvider
 	// readStateReader returns the per-channel read state map for the
 	// active workspace, keyed by channel ID. Set by App via
@@ -243,6 +244,8 @@ type Model struct {
 	// is on a different row), the synthetic Threads row renders with
 	// the same orange "active" indicator used for active channels.
 	threadsActive bool
+	// activityActive is the same indicator for the Activity inbox row.
+	activityActive bool
 	nowFn         func() time.Time
 
 	// snappedSelection lets View() avoid snapping yOffset back to the
@@ -267,12 +270,13 @@ type Model struct {
 	cacheWidth  int
 	cacheFiller string // pre-rendered empty row for vertical padding
 
-	// Synthetic "Threads" row state. The Threads row is rendered at the
-	// very top of the sidebar and is the first entry in nav. It is
-	// selectable via j/k like a channel, but it is NOT a channel — when
-	// the cursor sits on it, SelectedItem/SelectedID return zero / empty
-	// and the App layer activates the threads view instead.
-	threadsUnread int
+	// Synthetic Activity (inbox) then Threads sit at the top of the
+	// sidebar. They are selectable via j/k like a channel, but they
+	// are NOT channels — when the cursor sits on one, SelectedItem /
+	// SelectedID return zero / empty and the App layer activates the
+	// matching view instead.
+	threadsUnread  int
+	activityUnread int
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the cursor "▌" glyph dims from Accent to TextMuted (via
@@ -444,9 +448,12 @@ func (m *Model) sectionFor(item ChannelItem) string {
 }
 
 // modelOrderedSections returns the section keys in display order for
-// the current model state. Slack mode: provider's verbatim list,
-// returning IDs of sections that have at least one filtered item OR
-// are standard-typed. Config mode: legacy algorithm.
+// the current model state. Slack mode: provider's linked-list order,
+// with direct_messages hoisted to the top so DMs sit under Activity
+// and Threads instead of at the bottom of the rail. Sections with at least one
+// filtered item, or of type standard, are included. Config mode:
+// legacy algorithm (DMs, then custom sections, then Apps, then
+// Channels).
 func (m *Model) modelOrderedSections(filtered []int) []string {
 	if !m.useSlackSections() {
 		return orderedSectionsLegacy(m.items, filtered)
@@ -456,13 +463,18 @@ func (m *Model) modelOrderedSections(filtered []int) []string {
 	for _, idx := range filtered {
 		hasItem[m.sectionFor(m.items[idx])] = true
 	}
-	out := make([]string, 0, len(metas))
+	var dms, rest []string
 	for _, meta := range metas {
-		if meta.Type == "standard" || hasItem[meta.ID] {
-			out = append(out, meta.ID)
+		if meta.Type != "standard" && !hasItem[meta.ID] {
+			continue
 		}
+		if meta.Type == "direct_messages" {
+			dms = append(dms, meta.ID)
+			continue
+		}
+		rest = append(rest, meta.ID)
 	}
-	return out
+	return append(dms, rest...)
 }
 
 // SetFocused records whether the sidebar currently holds user focus and
@@ -547,6 +559,16 @@ func (m *Model) SetThreadsActive(active bool) {
 	m.dirty()
 }
 
+// SetActivityActive marks the synthetic "Activity" row as the active
+// destination in the message pane. Mirrors SetThreadsActive.
+func (m *Model) SetActivityActive(active bool) {
+	if m.activityActive == active {
+		return
+	}
+	m.activityActive = active
+	m.dirty()
+}
+
 // Version returns a counter that increments any time the View() output could
 // change. Callers can compare against a previously-seen version to know
 // whether to recompute downstream layout / wrapping.
@@ -568,7 +590,8 @@ func New(items []ChannelItem) Model {
 	}
 	m.rebuildFilter()
 	m.rebuildNav()
-	// Default selection is the synthetic Threads row at the top.
+	// Default selection is the synthetic Activity row at the top
+	// (Threads sits under it, then sections).
 	m.cursor = 0
 	return m
 }
@@ -586,6 +609,28 @@ func (m *Model) IsThreadsSelected() bool {
 func (m *Model) SelectThreadsRow() {
 	for i, n := range m.nav {
 		if n.kind == navThreads {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
+// IsActivitySelected reports whether the synthetic "Activity" row is
+// the selected entry.
+func (m *Model) IsActivitySelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navActivity
+}
+
+// SelectActivityRow moves the cursor to the synthetic Activity row.
+func (m *Model) SelectActivityRow() {
+	for i, n := range m.nav {
+		if n.kind == navActivity {
 			if m.cursor != i {
 				m.cursor = i
 				m.dirty()
@@ -677,11 +722,28 @@ func (m *Model) SetThreadsUnreadCount(n int) {
 // ThreadsUnreadCount returns the current Threads-row unread badge count.
 func (m *Model) ThreadsUnreadCount() int { return m.threadsUnread }
 
+// SetActivityUnreadCount updates the badge count shown next to the
+// Activity row (client.counts activity_v2 sum). Invalidates the
+// render cache when the count changes.
+func (m *Model) SetActivityUnreadCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if m.activityUnread != n {
+		m.activityUnread = n
+		m.cacheValid = false
+		m.dirty()
+	}
+}
+
+// ActivityUnreadCount returns the current Activity-row unread badge.
+func (m *Model) ActivityUnreadCount() int { return m.activityUnread }
+
 // SetItems replaces the sidebar's channel list. It does NOT reset the
 // cursor to the Threads row — SetItems is called on every routine
 // refresh (presence updates, unread changes, channel-list resync, etc.)
 // and clobbering selection on those refreshes would be wrong. Callers
-// that want to reset selection to the default Threads row on a major
+// that want to reset selection to the default Activity row on a major
 // context change (e.g. workspace switch) should explicitly call
 // SelectThreadsRow() after SetItems.
 func (m *Model) SetItems(items []ChannelItem) {
@@ -1040,6 +1102,8 @@ func (m *Model) currentCursorKey() (cursorKey, bool) {
 	switch n.kind {
 	case navThreads:
 		return cursorKey{kind: navThreads}, true
+	case navActivity:
+		return cursorKey{kind: navActivity}, true
 	case navHeader:
 		return cursorKey{kind: navHeader, header: n.header}, true
 	case navChannel:
@@ -1065,8 +1129,8 @@ func (m *Model) rebuildNav() {
 		bucket[key] = append(bucket[key], fi)
 	}
 
-	nav := make([]navItem, 0, 1+len(sectionOrder))
-	nav = append(nav, navItem{kind: navThreads})
+	nav := make([]navItem, 0, 2+len(sectionOrder))
+	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navThreads})
 	for _, name := range sectionOrder {
 		nav = append(nav, navItem{kind: navHeader, header: name})
 		if m.IsCollapsed(name) {
@@ -1097,6 +1161,9 @@ func (m *Model) rebuildNavPreserveCursor() {
 		case key.kind == navThreads && n.kind == navThreads:
 			m.cursor = i
 			return
+		case key.kind == navActivity && n.kind == navActivity:
+			m.cursor = i
+			return
 		case key.kind == navHeader && n.kind == navHeader && n.header == key.header:
 			m.cursor = i
 			return
@@ -1108,7 +1175,8 @@ func (m *Model) rebuildNavPreserveCursor() {
 		}
 	}
 	// Previous target gone (e.g. the channel was filtered out, or its
-	// section now collapsed). Fall back to the Threads row.
+	// section now collapsed). Fall back to the top synthetic row
+	// (Activity).
 	m.cursor = 0
 }
 
@@ -1165,6 +1233,8 @@ type renderRow struct {
 	// the `active` variant whenever m.threadsActive is true (mirroring
 	// the channelID-based check used for channels).
 	isThreadsRow bool
+	// isActivityRow is the same flag for the Activity inbox row.
+	isActivityRow bool
 }
 
 // buildCache rebuilds m.cacheRows for the given width. Expensive; runs only
@@ -1208,10 +1278,13 @@ func (m *Model) buildCache(width int) {
 	headerNavIdx := map[string]int{}
 	channelNavIdx := map[int]int{} // filter idx -> nav idx
 	threadsIdx := -1
+	activityIdx := -1
 	for i, n := range m.nav {
 		switch n.kind {
 		case navThreads:
 			threadsIdx = i
+		case navActivity:
+			activityIdx = i
 		case navHeader:
 			headerNavIdx[n.header] = i
 		case navChannel:
@@ -1257,45 +1330,11 @@ func (m *Model) buildCache(width int) {
 	appPrefixMuted := "▣ "
 	groupDMPrefix := styles.PresenceAway.Render("● ")
 
-	// Synthetic "Threads" row, always rendered at the very top of the sidebar
-	// (before any section). Selectable like a channel; the App layer activates
-	// the threads view when IsThreadsSelected() is true.
-	threadsLabel := " ⚑ Threads"
-	threadsCursor := cursorSelected + "⚑ Threads"
-	threadsActiveLabel := activeBorder + "⚑ Threads"
-	if m.threadsUnread > 0 {
-		// Render "•N" as a single styled span so the dot glyph and the digits
-		// stay adjacent in the output (no ANSI reset splits them). Tests rely
-		// on the literal substring "•N" being searchable in View() output.
-		badge := " " + dotStyle.Render("•"+fmt.Sprintf("%d", m.threadsUnread))
-		threadsLabel += badge
-		threadsCursor += badge
-		threadsActiveLabel += badge
-	}
-	threadsAttrs := bgAnsi
-	if m.threadsUnread > 0 {
-		threadsAttrs += "\x1b[1m"
-	}
-	threadsLabel = messages.ReapplyBgAfterResets(threadsLabel, threadsAttrs)
-	threadsCursor = messages.ReapplyBgAfterResets(threadsCursor, threadsAttrs)
-	threadsActiveLabel = messages.ReapplyBgAfterResets(threadsActiveLabel, threadsAttrs)
-	threadsBaseStyle := styles.ChannelNormal
-	if m.threadsUnread > 0 {
-		threadsBaseStyle = styles.ChannelUnread
-	}
-	threadsNormal := threadsBaseStyle.Width(width - 2).Render(threadsLabel)
-	threadsSelectedRow := styles.ChannelSelected.Width(width - 2).Render(threadsCursor)
-	threadsActiveRow := styles.ChannelSelected.Width(width - 2).Render(threadsActiveLabel)
-	m.cacheRows = append(m.cacheRows, renderRow{
-		normal:       threadsNormal,
-		selected:     threadsSelectedRow,
-		active:       threadsActiveRow,
-		height:       1,
-		navIdx:       threadsIdx,
-		isThreadsRow: true,
-	})
-	// Blank separator between the Threads row and the first section (or below
-	// the Threads row when there are no channels at all).
+	// Activity sits above Threads so new inbox rows displace Threads
+	// rather than stacking under it. Then a blank, then sections.
+	m.cacheRows = append(m.cacheRows, m.synthRow("◎ Activity", m.activityUnread, activityIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, false, true))
+	m.cacheRows = append(m.cacheRows, m.synthRow("⚑ Threads", m.threadsUnread, threadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, true, false))
+	// Blank separator between the synthetic rows and the first section.
 	m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
 
 	// Pre-build the per-section channel rows so we can flatten with
@@ -1640,6 +1679,8 @@ func (m *Model) View(height, width int) string {
 			// Threads view is the currently displayed view; mark the
 			// Threads row as active with the same orange indicator.
 			visible = append(visible, r.active)
+		case r.isActivityRow && m.activityActive && r.active != "":
+			visible = append(visible, r.active)
 		case r.normal == "":
 			// Inter-section blank row -- emit a width-sized themed blank so
 			// the panel background remains continuous.
@@ -1658,9 +1699,10 @@ func (m *Model) View(height, width int) string {
 // ClickAt handles a mouse click at the given y-coordinate (relative to
 // sidebar content top). Updates the cursor to whatever sits at that
 // position. Returns the channel item and true ONLY when the click
-// landed on a channel row; section-header / threads-row / blank clicks
-// return (zero, false). Callers consult IsThreadsSelected /
-// IsSectionHeaderSelected after this call when ok == false.
+// landed on a channel row; section-header / threads-row / activity-row
+// / blank clicks return (zero, false). Callers consult
+// IsThreadsSelected / IsActivitySelected / IsSectionHeaderSelected
+// after this call when ok == false.
 func (m *Model) ClickAt(y int) (ChannelItem, bool) {
 	absoluteY := y + m.yOffset
 	if absoluteY < 0 || absoluteY >= len(m.cacheRows) {
@@ -1677,14 +1719,52 @@ func (m *Model) ClickAt(y int) (ChannelItem, bool) {
 	}
 	n := m.nav[r.navIdx]
 	if n.kind != navChannel {
-		// Threads row or section header — nothing to return; caller
-		// inspects IsThreadsSelected / IsSectionHeaderSelected.
+		// Threads / Activity row or section header — nothing to
+		// return; caller inspects IsThreadsSelected /
+		// IsActivitySelected / IsSectionHeaderSelected.
 		return ChannelItem{}, false
 	}
 	if n.fi < 0 || n.fi >= len(m.filtered) {
 		return ChannelItem{}, false
 	}
 	return m.items[m.filtered[n.fi]], true
+}
+
+// synthRow renders one synthetic sidebar destination (Threads, Activity)
+// with the same cursor / active / unread-badge treatment as a channel.
+func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected, activeBorder, bgAnsi string, dotStyle lipgloss.Style, isThreads, isActivity bool) renderRow {
+	label := " " + core
+	cursor := cursorSelected + core
+	active := activeBorder + core
+	if unread > 0 {
+		// Render "•N" as a single styled span so the dot glyph and the digits
+		// stay adjacent in the output (no ANSI reset splits them). Tests rely
+		// on the literal substring "•N" being searchable in View() output.
+		badge := " " + dotStyle.Render("•"+fmt.Sprintf("%d", unread))
+		label += badge
+		cursor += badge
+		active += badge
+	}
+	attrs := bgAnsi
+	if unread > 0 {
+		attrs += "\x1b[1m"
+	}
+	label = messages.ReapplyBgAfterResets(label, attrs)
+	cursor = messages.ReapplyBgAfterResets(cursor, attrs)
+	active = messages.ReapplyBgAfterResets(active, attrs)
+	baseStyle := styles.ChannelNormal
+	if unread > 0 {
+		baseStyle = styles.ChannelUnread
+	}
+	return renderRow{
+		normal:        baseStyle.Width(width - 2).Render(label),
+		selected:      styles.ChannelSelected.Width(width - 2).Render(cursor),
+		active:        styles.ChannelSelected.Width(width - 2).Render(active),
+		height:        1,
+		navIdx:        navIdx,
+		isThreadsRow:  isThreads,
+		isActivityRow: isActivity,
+	}
 }
 
 const (
