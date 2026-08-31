@@ -36,6 +36,8 @@
 //	ChannelLeaveFailedMsg         - leave API failed: toast.
 //	ChannelMutedMsg               - mute write result: roll back
 //	                                optimistic sidebar mute on error.
+//	ChannelChromeMsg              - bookmarks/pins fetch landed:
+//	                                update the message-pane header row.
 //	channelSearchDebounceMsg      - finder typing paused: issue one
 //	                                channels/search for the query
 //	                                the user stopped on.
@@ -277,6 +279,18 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 		}, true
 
+	case ChannelChromeMsg:
+		if m.ChannelID != a.activeChannelID {
+			return nil, true
+		}
+		if m.Gen != 0 && m.Gen != a.chromeGen {
+			return nil, true
+		}
+		for _, mm := range a.modelsForChannel(m.ChannelID) {
+			mm.SetHeaderChrome(m.Bookmarks, m.Pins)
+		}
+		return nil, true
+
 	case RemoteChannelsFoundMsg:
 		// Drop answers to a superseded query or to a workspace the
 		// user has since switched away from: SetBrowseable replaces
@@ -481,14 +495,14 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=1_fresh", m.ID)
 		tier = "1_fresh"
 		if len(cached) == 0 {
-			return nil, false
+			return withChromeFetch(a, m.ID, nil), false
 		}
 		channels := a.channels
 		chID := ids.ChannelID(m.ID)
 		latestTS := ids.MessageTS(cached[len(cached)-1].TS)
 		// MarkRead produces ChannelMarkedReadMsg, NOT MessagesLoadedMsg,
 		// so no authoritative permalink completion will follow.
-		return func() tea.Msg { return channels.MarkRead(chID, latestTS) }, false
+		return withChromeFetch(a, m.ID, func() tea.Msg { return channels.MarkRead(chID, latestTS) }), false
 
 	case len(cached) > 0:
 		// Tier 2: cache exists, verify in background. Covers
@@ -503,7 +517,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		a.statusbar.SetSyncing(true)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=2_verify", m.ID)
 		tier = "2_verify"
-		return fetchCmd(), true
+		return withChromeFetch(a, m.ID, fetchCmd()), true
 
 	default:
 		// Tier 3: no cache at all (genuine cold-start,
@@ -513,7 +527,42 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		a.statusbar.SetSyncing(false)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=3_spinner", m.ID)
 		tier = "3_spinner"
-		return tea.Batch(spinnerTickCmd(), fetchCmd()), true
+		return withChromeFetch(a, m.ID, tea.Batch(spinnerTickCmd(), fetchCmd())), true
+	}
+}
+
+// withChromeFetch batches the header bookmarks/pins fetch onto cmd
+// so it runs in parallel with the messages load (or alone on tier 1).
+func withChromeFetch(a *App, channelID string, cmd tea.Cmd) tea.Cmd {
+	chrome := a.chromeFetchCmd(channelID)
+	if chrome == nil {
+		return cmd
+	}
+	if cmd == nil {
+		return chrome
+	}
+	return tea.Batch(cmd, chrome)
+}
+
+func (a *App) chromeFetchCmd(channelID string) tea.Cmd {
+	if channelID == "" {
+		return nil
+	}
+	a.chromeGen++
+	gen := a.chromeGen
+	channels := a.channels
+	chID := ids.ChannelID(channelID)
+	return func() tea.Msg {
+		msg := channels.FetchChrome(chID)
+		cm, ok := msg.(ChannelChromeMsg)
+		if !ok {
+			return msg
+		}
+		if cm.ChannelID == "" {
+			cm.ChannelID = string(chID)
+		}
+		cm.Gen = gen
+		return cm
 	}
 }
 

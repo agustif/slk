@@ -305,10 +305,12 @@ type App struct {
 	fileDownloader *filedl.Downloader
 
 	// pickerKind records what the linkpicker modal is choosing:
-	// "links" (Enter dispatches OpenLinkMsg) or "files" (Enter
-	// dispatches DownloadFileMsg from pickerFiles).
+	// "links" (Enter dispatches OpenLinkMsg), "files" (Enter
+	// dispatches DownloadFileMsg from pickerFiles), or "pins"
+	// (Enter jumps to pickerPins[i]).
 	pickerKind  string
 	pickerFiles []messages.Attachment
+	pickerPins  []messages.Pin
 
 	// Reaction picker
 	reactionPicker *reactionpicker.Model
@@ -358,6 +360,10 @@ type App struct {
 	// thread-open completes when that channel's messages land. See
 	// reducer_links.go.
 	pendingLinkNav *pendingLinkNav
+
+	// chromeGen is bumped on every channel select so an in-flight
+	// ChannelChromeMsg from a previous channel is dropped.
+	chromeGen uint64
 
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.

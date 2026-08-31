@@ -1,0 +1,45 @@
+{
+  "ok": true,
+  "items": [
+    {
+      "channel": "C0123456789",
+      "created": 1508881078,
+      "created_by": "U0123456789",
+      "type": "message",
+      "message": {
+        "permalink": "https://example.slack.com/archives/C0123456789/p1508197641000151",
+        "pinned_to": ["C0123456789"],
+        "text": "What is the meaning of life?",
+        "ts": "1508197641.000151",
+        "type": "message",
+        "user": "U0123456789"
+      }
+    },
+    {
+      "channel": "C0123456789",
+      "created": 1508880991,
+      "created_by": "U0123456789",
+      "type": "message",
+      "message": {
+        "permalink": "https://example.slack.com/archives/C0123456789/p1508284197000015",
+        "pinned_to": ["C0123456789"],
+        "text": "The meaning of life is 42.",
+        "ts": "1503289197.000015",
+        "type": "message",
+        "user": "U0123456789"
+      }
+    },
+    {
+      "channel": "C0123456789",
+      "created": 1508880800,
+      "created_by": "U0123456789",
+      "type": "file",
+      "file": {
+        "id": "F0123456789",
+        "name": "roadmap.pdf",
+        "title": "Q3 roadmap",
+        "permalink": "https://example.slack.com/files/U0123456789/F0123456789/roadmap.pdf"
+      }
+    }
+  ]
+}

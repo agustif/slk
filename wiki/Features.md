@@ -89,6 +89,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Three-panel layout: workspace rail, channel sidebar, message pane
 - Public (`#`), private (`◆`), DM (`●`/`○` for presence), and group DM channels. 1:1 DMs show the peer's avatar (two sidebar rows when the face is cached) next to the presence glyph.
 - Channel topic shown under the name in the message-pane header (omitted when empty)
+- Channel header extras: bookmark titles (clickable, OSC-8) and a pin count (`📌 N`) on one row under the channel name; empty channels omit the row. Clicking a pin jumps to the most recent pinned message
 - **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. `:move` assigns the active channel to an existing section (`users.channelSections.channels.bulkUpdate`); `:section <name>` creates an empty section (`users.channelSections.create`). Rename, delete, and reorder still happen in the official client. Falls back to glob-based config sections when disabled or if the API is unavailable.
 - Star / unstar a channel with `*` — adds it to Slack's Starred sidebar section (hidden when empty). Message stars are not supported.
 - Collapsible sections — `Enter`/`Space` on a section header toggles it. The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded

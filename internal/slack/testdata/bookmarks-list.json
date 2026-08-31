@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "bookmarks": [
+    {
+      "id": "Bk01HANDBOOK",
+      "channel_id": "C0123456789",
+      "title": "Handbook",
+      "link": "https://example.com/handbook",
+      "emoji": ":books:",
+      "icon_url": "https://a.slack-edge.com/80588/img/emoji_2017_12_06/apple/open_book.png",
+      "type": "link",
+      "date_created": 1572461453,
+      "date_updated": 0,
+      "rank": "q",
+      "last_updated_by_user_id": "U0123456789",
+      "last_updated_by_team_id": "T0123456789"
+    },
+    {
+      "id": "Bk01STANDUP",
+      "channel_id": "C0123456789",
+      "title": "Standup notes",
+      "link": "https://docs.example.com/standup",
+      "type": "link",
+      "date_created": 1572461500,
+      "rank": "r"
+    },
+    {
+      "id": "Bk01KICKOFF",
+      "channel_id": "C0123456789",
+      "title": "Kickoff thread",
+      "link": "https://example.slack.com/archives/C0123456789/p1508197641000151",
+      "type": "message",
+      "date_created": 1572461600,
+      "rank": "s"
+    },
+    {
+      "id": "Bk01EMPTYTITLE",
+      "channel_id": "C0123456789",
+      "title": "",
+      "link": "https://example.com/skip-me",
+      "type": "link",
+      "date_created": 1572461700,
+      "rank": "t"
+    }
+  ]
+}

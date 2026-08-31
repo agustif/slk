@@ -73,6 +73,7 @@ func (a *App) splitWindow(dir wintree.Dir) tea.Cmd {
 		m.SetMessages(cloneMessageItems(src.Messages()))
 		m.SetLastReadTS(src.LastReadTS())
 		m.SetLoading(src.IsLoading())
+		m.SetHeaderChrome(src.Bookmarks(), src.Pins())
 	}
 	a.winModels[id] = m
 	a.focusedWin = id

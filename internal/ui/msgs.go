@@ -563,6 +563,16 @@ type MessageDeletedMsg struct {
 // picker modal.
 type OpenLinkMsg struct{ URL string }
 
+// ChannelChromeMsg delivers bookmarks and pins for the active
+// channel header extras row. Gen echoes App.chromeGen so a late
+// response from a previous channel select is dropped.
+type ChannelChromeMsg struct {
+	ChannelID string
+	Bookmarks []messages.Bookmark
+	Pins      []messages.Pin
+	Gen       uint64
+}
+
 // DownloadFileMsg requests download + OS-open of a file attachment.
 // Dispatched by the `d` keybinding (directly for single-file messages)
 // and by the picker modal for multi-file messages. Handled by
