@@ -1659,6 +1659,24 @@ func run() error {
 				}
 				return wctx.Client.GetPermalink(ctx, string(channelID), string(ts))
 			},
+			Pin: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.AddPin(ctx, string(channelID), string(ts))
+			},
+			Unpin: func(channelID ids.ChannelID, ts ids.MessageTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return wctx.Client.RemovePin(ctx, string(channelID), string(ts))
+			},
 		}))
 
 		app.SetUploader(func(channelID, threadTS, caption string, attachments []compose.PendingAttachment) tea.Cmd {
@@ -1775,7 +1793,7 @@ func run() error {
 					}
 				}()
 			},
-			SendReply: func(channelID ids.ChannelID, threadTS ids.ThreadTS, text string) tea.Msg {
+			SendReply: func(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, broadcast bool) tea.Msg {
 				chIDStr, threadTSStr := string(channelID), string(threadTS)
 				wctx := router.Active()
 				if wctx == nil {
@@ -1784,7 +1802,13 @@ func run() error {
 				client := wctx.Client
 				userNames := wctx.UserNames
 				ctx := context.Background()
-				ts, sentMrkdwn, err := client.SendReply(ctx, chIDStr, threadTSStr, text)
+				var ts, sentMrkdwn string
+				var err error
+				if broadcast {
+					ts, sentMrkdwn, err = client.SendReplyBroadcast(ctx, chIDStr, threadTSStr, text)
+				} else {
+					ts, sentMrkdwn, err = client.SendReply(ctx, chIDStr, threadTSStr, text)
+				}
 				if err != nil {
 					log.Printf("Warning: failed to send thread reply: %v", err)
 					return ui.ThreadReplySendFailedMsg{ChannelID: chIDStr, ThreadTS: threadTSStr, Reason: err.Error()}
@@ -1792,6 +1816,10 @@ func run() error {
 				userName := "you"
 				if resolved, ok := userNames[client.UserID()]; ok {
 					userName = resolved
+				}
+				subtype := ""
+				if broadcast {
+					subtype = "thread_broadcast"
 				}
 				return ui.ThreadReplySentMsg{
 					ChannelID: chIDStr,
@@ -1803,6 +1831,7 @@ func run() error {
 						Text:      sentMrkdwn,
 						Timestamp: formatTimestamp(ts, tsFormat),
 						ThreadTS:  threadTSStr,
+						Subtype:   subtype,
 					},
 				}
 			},
@@ -1862,6 +1891,44 @@ func run() error {
 					return ""
 				}
 				return state.LastReadTS
+			},
+			IsSubscribed: func(channelID ids.ChannelID, threadTS ids.ThreadTS) bool {
+				wctx := router.Active()
+				if wctx == nil {
+					return false
+				}
+				ok, err := db.IsThreadSubscribed(wctx.Client.TeamID(), string(channelID), string(threadTS))
+				if err != nil {
+					log.Printf("Warning: IsThreadSubscribed(%s, %s): %v", channelID, threadTS, err)
+					return false
+				}
+				return ok
+			},
+			Subscribe: func(channelID ids.ChannelID, threadTS ids.ThreadTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				ch, ts := string(channelID), string(threadTS)
+				if err := wctx.Client.SubscribeThread(ctx, ch, ts); err != nil {
+					return err
+				}
+				return db.UpsertThreadSubscription(wctx.Client.TeamID(), ch, ts, "", true)
+			},
+			Unsubscribe: func(channelID ids.ChannelID, threadTS ids.ThreadTS) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return fmt.Errorf("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				ch, ts := string(channelID), string(threadTS)
+				if err := wctx.Client.UnsubscribeThread(ctx, ch, ts); err != nil {
+					return err
+				}
+				return db.UpsertThreadSubscription(wctx.Client.TeamID(), ch, ts, "", false)
 			},
 		}))
 
@@ -3204,6 +3271,7 @@ func convertAndCacheHistory(client *slackclient.Client, channelID string, histor
 			ThreadTS:          m.ThreadTimestamp,
 			ReplyCount:        m.ReplyCount,
 			Subtype:           m.SubType,
+			Pinned:            len(m.PinnedTo) > 0,
 			Reactions:         reactions,
 			Attachments:       extractAttachments(m.Files),
 			Blocks:            extractBlocks(m.Blocks),
@@ -3487,6 +3555,7 @@ func enrichCachedRow(
 	var attachments []messages.Attachment
 	var blocks []blockkit.Block
 	var legacy []blockkit.LegacyAttachment
+	pinned := false
 	if m.RawJSON != "" {
 		var raw slack.Message
 		var unmarshalT0 time.Time
@@ -3505,6 +3574,7 @@ func enrichCachedRow(
 			attachments = extractAttachments(raw.Files)
 			blocks = extractBlocks(raw.Blocks)
 			legacy = extractLegacyAttachments(raw.Attachments)
+			pinned = len(raw.PinnedTo) > 0
 		}
 	}
 
@@ -3517,6 +3587,7 @@ func enrichCachedRow(
 		ThreadTS:          m.ThreadTS,
 		ReplyCount:        m.ReplyCount,
 		Subtype:           m.Subtype,
+		Pinned:            pinned,
 		Reactions:         reactions,
 		Attachments:       attachments,
 		Blocks:            blocks,
@@ -3635,6 +3706,7 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 			ThreadTS:          m.ThreadTimestamp,
 			ReplyCount:        m.ReplyCount,
 			Subtype:           m.SubType,
+			Pinned:            len(m.PinnedTo) > 0,
 			Reactions:         reactions,
 			Attachments:       extractAttachments(m.Files),
 			Blocks:            extractBlocks(m.Blocks),
@@ -3718,6 +3790,7 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 			ThreadTS:          m.ThreadTimestamp,
 			ReplyCount:        m.ReplyCount,
 			Subtype:           m.SubType,
+			Pinned:            len(m.PinnedTo) > 0,
 			Reactions:         reactions,
 			Attachments:       extractAttachments(m.Files),
 			Blocks:            extractBlocks(m.Blocks),

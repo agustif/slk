@@ -43,6 +43,9 @@ type SlackAPI interface {
 	DeleteMessage(channelID, timestamp string) (string, string, error)
 	AddReaction(name string, item slack.ItemRef) error
 	RemoveReaction(name string, item slack.ItemRef) error
+	AddPinContext(ctx context.Context, channel string, item slack.ItemRef) error
+	RemovePinContext(ctx context.Context, channel string, item slack.ItemRef) error
+	ListPinsContext(ctx context.Context, channel string) ([]slack.Item, *slack.Paging, error)
 	GetPermalinkContext(ctx context.Context, params *slack.PermalinkParameters) (string, error)
 	AuthTest() (*slack.AuthTestResponse, error)
 	JoinConversation(channelID string) (*slack.Channel, string, []string, error)
@@ -1076,10 +1079,23 @@ func (c *Client) GetCounts() (CountsSnapshot, error) {
 // SendReply posts a threaded reply to the specified message.
 // Returns the timestamp and the converted mrkdwn text actually sent.
 func (c *Client) SendReply(ctx context.Context, channelID, threadTS, text string) (string, string, error) {
+	return c.sendReply(ctx, channelID, threadTS, text, false)
+}
+
+// SendReplyBroadcast posts a threaded reply and also copies it to the
+// parent channel (Slack chat.postMessage reply_broadcast=true).
+func (c *Client) SendReplyBroadcast(ctx context.Context, channelID, threadTS, text string) (string, string, error) {
+	return c.sendReply(ctx, channelID, threadTS, text, true)
+}
+
+func (c *Client) sendReply(ctx context.Context, channelID, threadTS, text string, broadcast bool) (string, string, error) {
 	mr, block := mrkdwn.Convert(text)
 	opts := []slack.MsgOption{
 		slack.MsgOptionText(mr, false),
 		slack.MsgOptionTS(threadTS),
+	}
+	if broadcast {
+		opts = append(opts, slack.MsgOptionBroadcast())
 	}
 	if block != nil {
 		opts = append(opts, slack.MsgOptionBlocks(block))
@@ -1150,6 +1166,48 @@ func (c *Client) AddReaction(ctx context.Context, channelID, ts, emoji string) e
 // RemoveReaction removes an emoji reaction from a message.
 func (c *Client) RemoveReaction(ctx context.Context, channelID, ts, emoji string) error {
 	return c.api.RemoveReaction(emoji, slack.ItemRef{Channel: channelID, Timestamp: ts})
+}
+
+// AddPin pins a message in a channel (pins.add). already_pinned is
+// treated as success so a toggle that races with another client is
+// idempotent.
+func (c *Client) AddPin(ctx context.Context, channelID, ts string) error {
+	err := c.api.AddPinContext(ctx, channelID, slack.ItemRef{Channel: channelID, Timestamp: ts})
+	if err != nil && !slackErrIs(err, "already_pinned") {
+		return fmt.Errorf("pinning message: %w", err)
+	}
+	return nil
+}
+
+// RemovePin unpins a message in a channel (pins.remove). no_pin is
+// treated as success so a toggle that races with another client is
+// idempotent.
+func (c *Client) RemovePin(ctx context.Context, channelID, ts string) error {
+	err := c.api.RemovePinContext(ctx, channelID, slack.ItemRef{Channel: channelID, Timestamp: ts})
+	if err != nil && !slackErrIs(err, "no_pin") {
+		return fmt.Errorf("unpinning message: %w", err)
+	}
+	return nil
+}
+
+// ListPins returns the items currently pinned in a channel (pins.list).
+func (c *Client) ListPins(ctx context.Context, channelID string) ([]slack.Item, error) {
+	items, _, err := c.api.ListPinsContext(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("listing pins: %w", err)
+	}
+	return items, nil
+}
+
+func slackErrIs(err error, code string) bool {
+	if err == nil || code == "" {
+		return false
+	}
+	var se slack.SlackErrorResponse
+	if errors.As(err, &se) && se.Err == code {
+		return true
+	}
+	return strings.Contains(err.Error(), code)
 }
 
 // SetUserPresence sets the authenticated user's presence. Accepts "auto"
@@ -1858,6 +1916,46 @@ func (c *Client) callListThreadSubscriptions(ctx context.Context, currentTS stri
 		form.Set("current_ts", currentTS)
 	}
 	return c.postForm(ctx, "subscriptions.thread.getView", form)
+}
+
+// SubscribeThread follows a thread via Slack's internal
+// subscriptions.thread.add endpoint (the same family as
+// subscriptions.thread.getView / .mark). already_subscribed is treated
+// as success so a follow-toggle is idempotent.
+func (c *Client) SubscribeThread(ctx context.Context, channelID, threadTS string) error {
+	return c.setThreadSubscription(ctx, "subscriptions.thread.add", channelID, threadTS, "already_subscribed")
+}
+
+// UnsubscribeThread unfollows a thread via subscriptions.thread.remove.
+func (c *Client) UnsubscribeThread(ctx context.Context, channelID, threadTS string) error {
+	return c.setThreadSubscription(ctx, "subscriptions.thread.remove", channelID, threadTS, "not_subscribed")
+}
+
+func (c *Client) setThreadSubscription(ctx context.Context, method, channelID, threadTS, ignorable string) error {
+	if channelID == "" || threadTS == "" {
+		return fmt.Errorf("%s: channel and thread_ts required", method)
+	}
+	form := url.Values{}
+	form.Set("channel", channelID)
+	form.Set("thread_ts", threadTS)
+	body, err := c.postForm(ctx, method, form)
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("parsing %s: %w (body=%s)", method, err, truncateForLog(body))
+	}
+	if resp.OK {
+		return nil
+	}
+	if resp.Error == ignorable {
+		return nil
+	}
+	return fmt.Errorf("%s: %s", method, resp.Error)
 }
 
 // historyMethod is the API method name. It is also the key slackhttp

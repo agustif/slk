@@ -7,23 +7,23 @@
 // visibility). It also owns:
 //
 //   - Esc with active upload     -> "Upload in progress" toast (Esc
-//                                   doesn't cancel an in-flight
-//                                   upload).
+//     doesn't cancel an in-flight
+//     upload).
 //   - Esc with active edit       -> close any open compose picker
-//                                   first, else cancel the edit.
+//     first, else cancel the edit.
 //   - Esc otherwise              -> close any open compose picker
-//                                   first, else exit insert mode.
+//     first, else exit insert mode.
 //   - Ctrl+V                     -> smartPaste (clipboard image /
-//                                   file path / verbatim text).
+//     file path / verbatim text).
 //   - Ctrl+U                     -> clear compose (text +
-//                                   attachments + uploading flag).
+//     attachments + uploading flag).
 //   - Up / Down on first/last line -> jump to start/end of textarea.
 //   - Plain Enter                -> send (or commit edit, or upload-
-//                                   then-send if attachments present).
+//     then-send if attachments present).
 //   - Shift+Enter / Ctrl+J       -> insert literal newline.
 //   - Other keys                 -> forward to compose; throttled
-//                                   typing-indicator emit on every
-//                                   text keystroke.
+//     typing-indicator emit on every
+//     text keystroke.
 //
 // Compose-overlay pickers (emoji / @mention / #channel) get
 // priority on Up/Down/Enter: when a picker is active, those keys
@@ -146,8 +146,11 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 	// Plain Enter sends; Shift+Enter (and Ctrl+J as a fallback
 	// for terminals that don't disambiguate modifiers) inserts a
-	// newline.
-	isSend := code == tea.KeyEnter && !mod.Contains(tea.ModShift)
+	// newline. Ctrl+Enter in the thread compose also-sends to the
+	// parent channel (reply_broadcast).
+	isBroadcastSend := code == tea.KeyEnter && mod.Contains(tea.ModCtrl) &&
+		a.focusedPanel == PanelThread && a.threadVisible
+	isSend := code == tea.KeyEnter && !mod.Contains(tea.ModShift) && !isBroadcastSend
 	isNewline := (code == tea.KeyEnter && mod.Contains(tea.ModShift)) ||
 		(code == 'j' && mod == tea.ModCtrl)
 
@@ -167,7 +170,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.threadCompose, cmd = a.threadCompose.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			return cmd
 		}
-		if isSend {
+		if isSend || isBroadcastSend {
 			if len(a.threadCompose.Attachments()) > 0 {
 				cmd := a.submitWithAttachments(&a.threadCompose)
 				if a.threadCompose.Uploading() {
@@ -184,12 +187,14 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				a.threadCompose.Reset()
 				threadTS := a.threadPanel.ThreadTS()
 				channelID := a.threadPanel.ChannelID()
+				broadcast := isBroadcastSend
 				a.exitInsertAfterSend()
 				return func() tea.Msg {
 					return SendThreadReplyMsg{
 						ChannelID: channelID,
 						ThreadTS:  threadTS,
 						Text:      text,
+						Broadcast: broadcast,
 					}
 				}
 			}

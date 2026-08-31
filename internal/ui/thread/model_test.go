@@ -17,6 +17,39 @@ import (
 	"github.com/gammons/slk/internal/ui/styles"
 )
 
+func TestFollowingHeader(t *testing.T) {
+	m := New()
+	m.SetThread(messages.MessageItem{TS: "1.0", UserName: "alice", Text: "p"}, nil, "C1", "1.0")
+	out := ansi.Strip(m.View(10, 40))
+	if strings.Contains(out, "following") {
+		t.Fatalf("unfollowed header should not say following:\n%s", out)
+	}
+	m.SetFollowing(true)
+	out = ansi.Strip(m.View(10, 40))
+	if !strings.Contains(out, "following") {
+		t.Fatalf("expected following in header:\n%s", out)
+	}
+}
+
+func TestSetPinned_ParentAndReply(t *testing.T) {
+	m := New()
+	m.SetThread(
+		messages.MessageItem{TS: "1.0", UserName: "alice", Text: "p"},
+		[]messages.MessageItem{{TS: "2.0", UserName: "bob", Text: "r"}},
+		"C1", "1.0",
+	)
+	if !m.SetPinned("1.0", true) || !m.ParentMsg().Pinned {
+		t.Fatal("parent pin")
+	}
+	if !m.SetPinned("2.0", true) {
+		t.Fatal("reply pin")
+	}
+	out := ansi.Strip(m.View(20, 60))
+	if !strings.Contains(out, "📌 pinned") {
+		t.Fatalf("expected pinned marker:\n%s", out)
+	}
+}
+
 func TestSetThread(t *testing.T) {
 	m := New()
 

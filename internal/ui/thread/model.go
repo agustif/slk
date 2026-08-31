@@ -143,13 +143,18 @@ type Model struct {
 	// chromeCache holds the rendered "header + separator + parent message +
 	// separator" prefix that View() prepends to viewContent. Rebuilt only
 	// when its inputs (width, replyCount, parent identity, parent text,
-	// userNames, channelNames) change. On a plain j/k it is reused as-is.
+	// userNames, channelNames, following) change. On a plain j/k it is reused as-is.
 	chromeCache         string
 	chromeCacheValid    bool
 	chromeWidth         int
 	chromeReplyCount    int
+	chromeFollowing     bool
 	chromeUserNamesV    uint64 // version of the userNames map at build time
 	chromeChannelNamesV uint64 // version of the channelNames map at build time
+
+	// following is true when the current user is subscribed to this
+	// thread. Shown as a muted "following" marker in the header.
+	following bool
 
 	// userNamesV / channelNamesV are bumped every time SetUserNames /
 	// SetChannelNames replaces the map. Used by chromeCache (and any other
@@ -330,6 +335,43 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 	// the viewport scrolled to the top. Mirrors messages.Model.SetMessages.
 	m.hasSnapped = false
 	m.InvalidateCache()
+}
+
+// SetFollowing records whether the current user is following this
+// thread and invalidates the header chrome when the value changes.
+func (m *Model) SetFollowing(following bool) {
+	if m.following == following {
+		return
+	}
+	m.following = following
+	m.chromeCacheValid = false
+	m.dirty()
+}
+
+// Following reports whether the current user is following this thread.
+func (m *Model) Following() bool { return m.following }
+
+// SetPinned sets the pinned flag on the parent or a reply with ts.
+func (m *Model) SetPinned(ts string, pinned bool) bool {
+	if m.parent.TS == ts {
+		if m.parent.Pinned == pinned {
+			return true
+		}
+		m.parent.Pinned = pinned
+		m.InvalidateCache()
+		return true
+	}
+	for i := range m.replies {
+		if m.replies[i].TS == ts {
+			if m.replies[i].Pinned == pinned {
+				return true
+			}
+			m.replies[i].Pinned = pinned
+			m.InvalidateCache()
+			return true
+		}
+	}
+	return false
 }
 
 // SetUnreadBoundary sets the timestamp the user has already read up to in
@@ -1287,18 +1329,23 @@ func (m *Model) View(height, width int) string {
 	if !m.chromeCacheValid ||
 		m.chromeWidth != width ||
 		m.chromeReplyCount != chromeReplyCount ||
+		m.chromeFollowing != m.following ||
 		m.chromeUserNamesV != m.userNamesV ||
 		m.chromeChannelNamesV != m.channelNamesV {
 		replyLabel := "replies"
 		if chromeReplyCount == 1 {
 			replyLabel = "reply"
 		}
+		headerText := fmt.Sprintf("Thread  %d %s", chromeReplyCount, replyLabel)
+		if m.following {
+			headerText += "  following"
+		}
 		header := lipgloss.NewStyle().
 			Width(width).
 			Background(styles.Background).
 			Foreground(styles.TextPrimary).
 			Bold(true).
-			Render(fmt.Sprintf("Thread  %d %s", chromeReplyCount, replyLabel))
+			Render(headerText)
 		separator := lipgloss.NewStyle().
 			Width(width).
 			Background(styles.Background).
@@ -1309,6 +1356,7 @@ func (m *Model) View(height, width int) string {
 		m.chromeCacheValid = true
 		m.chromeWidth = width
 		m.chromeReplyCount = chromeReplyCount
+		m.chromeFollowing = m.following
 		m.chromeUserNamesV = m.userNamesV
 		m.chromeChannelNamesV = m.channelNamesV
 	}
@@ -1830,6 +1878,9 @@ func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelName
 
 func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit) {
 	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
+	if msg.Pinned {
+		line += " " + styles.Timestamp.Render("📌 pinned")
+	}
 
 	contentWidth := width - 4
 	if contentWidth < 20 {

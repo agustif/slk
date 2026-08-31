@@ -469,6 +469,26 @@ func (m *Model) MarkByThreadTSUnread(channelID, threadTS string) bool {
 	return false
 }
 
+// RemoveSummary drops the card matching (channelID, threadTS) if
+// present. Used after unfollow so the threads view reflects follow
+// state without waiting for the next ListFetch. Returns true when a
+// row was removed.
+func (m *Model) RemoveSummary(channelID, threadTS string) bool {
+	if channelID == "" || threadTS == "" {
+		return false
+	}
+	for i, s := range m.summaries {
+		if s.ChannelID == channelID && s.ThreadTS == threadTS {
+			m.summaries = append(m.summaries[:i], m.summaries[i+1:]...)
+			m.clampSelection()
+			m.hasSnapped = false
+			m.dirty()
+			return true
+		}
+	}
+	return false
+}
+
 // UnreadCount returns the number of summaries currently flagged as unread.
 func (m *Model) UnreadCount() int {
 	n := 0

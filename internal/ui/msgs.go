@@ -133,6 +133,23 @@ type (
 		ChannelID string
 		ThreadTS  string
 		Text      string
+		Broadcast bool
+	}
+	// PinToggledMsg is the result of pins.add / pins.remove for the
+	// selected message. The reducer applies Pinned locally and toasts.
+	PinToggledMsg struct {
+		ChannelID string
+		TS        string
+		Pinned    bool
+		Err       error
+	}
+	// FollowToggledMsg is the result of following or unfollowing the
+	// open thread. The reducer refreshes the threads list and toasts.
+	FollowToggledMsg struct {
+		ChannelID string
+		ThreadTS  string
+		Following bool
+		Err       error
 	}
 	ThreadReplySentMsg struct {
 		ChannelID string

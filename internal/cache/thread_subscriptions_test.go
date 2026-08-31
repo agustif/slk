@@ -4,6 +4,27 @@ import (
 	"testing"
 )
 
+func TestIsThreadSubscribed(t *testing.T) {
+	db := setupDBWithWorkspace(t)
+	ok, err := db.IsThreadSubscribed("T1", "C1", "1700000000.000100")
+	if err != nil {
+		t.Fatalf("IsThreadSubscribed empty: %v", err)
+	}
+	if ok {
+		t.Fatal("missing row should be unsubscribed")
+	}
+	mustUpsert(t, db, "T1", "C1", "1700000000.000100", "1700000000.000200", true)
+	ok, err = db.IsThreadSubscribed("T1", "C1", "1700000000.000100")
+	if err != nil || !ok {
+		t.Fatalf("active row: ok=%v err=%v", ok, err)
+	}
+	mustUpsert(t, db, "T1", "C1", "1700000000.000100", "1700000000.000200", false)
+	ok, err = db.IsThreadSubscribed("T1", "C1", "1700000000.000100")
+	if err != nil || ok {
+		t.Fatalf("tombstone should be unsubscribed: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestUpsertThreadSubscription_Insert(t *testing.T) {
 	db := setupDBWithWorkspace(t)
 	if err := db.UpsertThreadSubscription("T1", "C1", "1700000000.000100", "1700000000.000200", true); err != nil {

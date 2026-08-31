@@ -27,6 +27,23 @@ func sampleSummaries() []cache.ThreadSummary {
 	}
 }
 
+func TestRemoveSummary_DropsMatchingRow(t *testing.T) {
+	m := New(map[string]string{}, "USELF")
+	m.SetSummaries(sampleSummaries())
+	if !m.RemoveSummary("C1", "1.000000") {
+		t.Fatal("expected RemoveSummary to find C1/1.000000")
+	}
+	if n := len(m.Summaries()); n != 1 {
+		t.Fatalf("len = %d, want 1", n)
+	}
+	if m.Summaries()[0].ChannelID != "C2" {
+		t.Fatalf("remaining = %+v", m.Summaries()[0])
+	}
+	if m.RemoveSummary("C1", "1.000000") {
+		t.Fatal("second remove should miss")
+	}
+}
+
 func TestNew_StartsAtTop(t *testing.T) {
 	m := New(map[string]string{}, "USELF")
 	m.SetSummaries(sampleSummaries())

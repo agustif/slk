@@ -5,29 +5,29 @@
 // Owns the nine Update arms that drive the thread panel, the
 // threads-list view, and the thread-reply send path:
 //
-//   ThreadMarkedRemoteMsg       - apply a remote subscriptions.thread.mark
-//                                 echo to the local read state.
-//   threadFetchDebounceMsg      - debounced j/k stop: fire the actual
-//                                 thread fetch (drops stale generations
-//                                 and post-navigation ticks).
-//   ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
-//                                 panel, mark the thread as read, and
-//                                 refresh the sidebar badge.
-//   ThreadsViewActivatedMsg     - user opened the threads-list view:
-//                                 switch view + focus, kick a list
-//                                 fetch, open the highlighted thread.
-//   ThreadsListLoadedMsg        - threads-list fetch returned: push
-//                                 summaries + refresh badge, re-open
-//                                 the highlighted thread if visible.
-//   ThreadsListDirtyMsg         - a debounced "list might be stale"
-//                                 trigger: kick a refresh fetch.
-//   SendThreadReplyMsg          - user sent a reply: optimistic
-//                                 placeholder + chat.postMessage call.
-//   ThreadReplySentMsg          - reply landed: swap placeholder for
-//                                 authoritative message, bump parent
-//                                 reply count, mark threads list dirty.
-//   ThreadReplySendFailedMsg    - reply failed: roll back the
-//                                 placeholder + fire SendFailed toast.
+//	ThreadMarkedRemoteMsg       - apply a remote subscriptions.thread.mark
+//	                              echo to the local read state.
+//	threadFetchDebounceMsg      - debounced j/k stop: fire the actual
+//	                              thread fetch (drops stale generations
+//	                              and post-navigation ticks).
+//	ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
+//	                              panel, mark the thread as read, and
+//	                              refresh the sidebar badge.
+//	ThreadsViewActivatedMsg     - user opened the threads-list view:
+//	                              switch view + focus, kick a list
+//	                              fetch, open the highlighted thread.
+//	ThreadsListLoadedMsg        - threads-list fetch returned: push
+//	                              summaries + refresh badge, re-open
+//	                              the highlighted thread if visible.
+//	ThreadsListDirtyMsg         - a debounced "list might be stale"
+//	                              trigger: kick a refresh fetch.
+//	SendThreadReplyMsg          - user sent a reply: optimistic
+//	                              placeholder + chat.postMessage call.
+//	ThreadReplySentMsg          - reply landed: swap placeholder for
+//	                              authoritative message, bump parent
+//	                              reply count, mark threads list dirty.
+//	ThreadReplySendFailedMsg    - reply failed: roll back the
+//	                              placeholder + fire SendFailed toast.
 //
 // Free reducer (not controller-absorbed): these arms cooperate on
 // the thread panel, the threads-list view, the sidebar's threads
@@ -42,6 +42,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/ids"
@@ -105,6 +107,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 		}
 		a.threadPanel.SetThread(parentMsg, m.Replies, channelID, m.ThreadTS)
+		a.applyThreadFollowing(channelID, m.ThreadTS)
 
 		// Mark the thread as read now that the user has actually
 		// seen the replies. Server-side: fire-and-forget against
@@ -202,22 +205,32 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// mrkdwn.Convert rationale.
 		localTS := a.selfSend.NextLocalTS()
 		optimisticText, _ := mrkdwn.Convert(m.Text)
+		optimistic := messages.MessageItem{
+			TS:        localTS,
+			UserID:    a.currentUserID,
+			UserName:  a.userNameFor(a.currentUserID),
+			Text:      optimisticText,
+			Timestamp: a.nowFormatted(),
+			ThreadTS:  m.ThreadTS,
+		}
+		if m.Broadcast {
+			optimistic.Subtype = "thread_broadcast"
+		}
 		if a.threadVisible && m.ThreadTS == a.threadPanel.ThreadTS() && m.ChannelID == a.threadPanel.ChannelID() {
-			a.threadPanel.AddReply(messages.MessageItem{
-				TS:        localTS,
-				UserID:    a.currentUserID,
-				UserName:  a.userNameFor(a.currentUserID),
-				Text:      optimisticText,
-				Timestamp: a.nowFormatted(),
-				ThreadTS:  m.ThreadTS,
-			})
+			a.threadPanel.AddReply(optimistic)
+		}
+		if m.Broadcast {
+			for _, mm := range a.modelsForChannel(m.ChannelID) {
+				mm.AppendMessage(optimistic)
+			}
 		}
 		threads := a.threads
 		chID := ids.ChannelID(m.ChannelID)
 		ts := ids.ThreadTS(m.ThreadTS)
 		text := m.Text
+		broadcast := m.Broadcast
 		return func() tea.Msg {
-			result := threads.SendReply(chID, ts, text)
+			result := threads.SendReply(chID, ts, text, broadcast)
 			switch r := result.(type) {
 			case ThreadReplySentMsg:
 				r.LocalTS = localTS
@@ -259,6 +272,11 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		for _, mm := range a.modelsForChannel(m.ChannelID) {
 			mm.IncrementReplyCount(m.ThreadTS, m.Message.TS)
+			if m.Message.Subtype == "thread_broadcast" {
+				if !mm.SwapLocalSent(m.LocalTS, m.Message) {
+					mm.UpsertSelfSent(m.Message)
+				}
+			}
 		}
 		if c := a.scheduleThreadsDirty(); c != nil {
 			return c, true
@@ -271,10 +289,41 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if a.threadVisible && m.ThreadTS == a.threadPanel.ThreadTS() && m.ChannelID == a.threadPanel.ChannelID() && m.LocalTS != "" {
 			a.threadPanel.RemoveLocalSentReply(m.LocalTS)
 		}
+		if m.LocalTS != "" {
+			for _, mm := range a.modelsForChannel(m.ChannelID) {
+				mm.RemoveLocalSent(m.LocalTS)
+			}
+		}
 		reason := m.Reason
 		return func() tea.Msg {
 			return statusbar.SendFailedMsg{Reason: reason}
 		}, true
+
+	case FollowToggledMsg:
+		if m.Err != nil {
+			action := "Follow"
+			if !m.Following {
+				action = "Unfollow"
+			}
+			return toastWithClear(a, action+" failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		if a.threadVisible && a.threadPanel.ChannelID() == m.ChannelID && a.threadPanel.ThreadTS() == m.ThreadTS {
+			a.threadPanel.SetFollowing(m.Following)
+		}
+		if !m.Following {
+			if a.threadsView.RemoveSummary(m.ChannelID, m.ThreadTS) {
+				a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())
+			}
+		}
+		text := "Following thread"
+		if !m.Following {
+			text = "Unfollowing"
+		}
+		cmd := toastWithClear(a, text, 2*time.Second)
+		if dirty := a.scheduleThreadsDirty(); dirty != nil {
+			return tea.Batch(cmd, dirty), true
+		}
+		return cmd, true
 	}
 	return nil, false
 }

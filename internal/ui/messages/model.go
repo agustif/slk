@@ -39,6 +39,10 @@ type MessageItem struct {
 	// was also sent to the channel) so we can render a label above it.
 	Subtype string
 
+	// Pinned is true when this message is pinned in its channel
+	// (Slack pinned_to, or a local pin/unpin toggle).
+	Pinned bool
+
 	// Blocks holds parsed Slack Block Kit blocks. Rendered between
 	// the body Text and the file Attachments by Phase 5.
 	Blocks []blockkit.Block
@@ -1157,6 +1161,23 @@ func (m *Model) IncrementReplyCount(parentTS, replyTS string) {
 	}
 }
 
+// SetPinned sets the pinned flag on the message with the given TS.
+// Returns true if the message was found.
+func (m *Model) SetPinned(ts string, pinned bool) bool {
+	for i, msg := range m.messages {
+		if msg.TS == ts {
+			if m.messages[i].Pinned == pinned {
+				return true
+			}
+			m.messages[i].Pinned = pinned
+			m.cache = nil
+			m.dirty()
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateMessageInPlace finds a message by TS, replaces its text, and
 // marks it as edited. Returns true if the message was found.
 // Invalidates the render cache.
@@ -2142,6 +2163,10 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 	if msg.IsEdited {
 		editedMark = " " + styles.Timestamp.Render("(edited)")
 	}
+	var pinMark string
+	if msg.Pinned {
+		pinMark = " " + styles.Timestamp.Render("📌 pinned")
+	}
 
 	// Pre-attachment row count, so attachment rows can compute their
 	// absolute row index (used as the sixelRows key).
@@ -2321,7 +2346,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		attachmentLineCount = len(flat)
 	}
 
-	msgContent := broadcastLabel + line + editedMark + "\n" + text + bkBlock + attachmentLines + threadLine + reactionLine
+	msgContent := broadcastLabel + line + editedMark + pinMark + "\n" + text + bkBlock + attachmentLines + threadLine + reactionLine
 
 	// Translate per-pill specs into entry-relative reaction hit rects.
 	// reactionRowBase is the row index (within linesNormal) where the

@@ -15,6 +15,7 @@
 | `i` | Normal | Enter insert mode |
 | `Esc` | Insert / Command | Return to normal mode |
 | `Enter` | Insert | Send message |
+| `Ctrl+Enter` | Insert (thread compose) | Send reply and also post it to the channel |
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
 | `Ctrl+U` | Insert | Clear compose (text + pending attachments) |
@@ -37,6 +38,8 @@
 | `E` | Normal (message) | Edit your own message |
 | `D` | Normal (message) | Delete your own message (with confirmation) |
 | `U` | Normal (message) | Mark selected message and everything newer as unread |
+| `P` | Normal (message) | Pin / unpin the selected message |
+| `t` | Normal (thread panel) | Follow / unfollow the open thread |
 | `S` | Normal (thread) | Save thread to markdown file (`~/.local/share/slk/exports/` or `$XDG_DATA_HOME/slk/exports/`) |
 | `Y` / `C` | Normal (message) | Copy message permalink |
 | `O` / `v` | Normal (message) | Open full-screen image preview |

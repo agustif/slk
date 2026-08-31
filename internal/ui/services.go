@@ -26,6 +26,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -34,6 +35,11 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/reactionpicker"
 )
+
+// errServiceNoop is returned by service adapters when that method was
+// never wired. Callers treat it as a silent no-op rather than a user-
+// visible failure (same idea as Permalink returning ("", nil)).
+var errServiceNoop = errors.New("service not configured")
 
 // ReactionService is the App's interface to the Slack reaction API
 // and the user's recent-emoji-use history (frecency). Implementations
@@ -149,9 +155,20 @@ type ThreadService interface {
 	// the user has now seen. Best-effort and non-blocking.
 	Mark(channelID ids.ChannelID, threadTS ids.ThreadTS, ts ids.MessageTS)
 
-	// SendReply posts a reply to threadTS in channelID. Returns a
-	// tea.Msg (typically ThreadReplySentMsg or ThreadReplySendFailedMsg).
-	SendReply(channelID ids.ChannelID, threadTS ids.ThreadTS, text string) tea.Msg
+	// SendReply posts a reply to threadTS in channelID. broadcast=true
+	// also copies the reply to the parent channel (reply_broadcast).
+	// Returns a tea.Msg (typically ThreadReplySentMsg or ThreadReplySendFailedMsg).
+	SendReply(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, broadcast bool) tea.Msg
+
+	// IsSubscribed reports whether the current user is following
+	// (channelID, threadTS). False when unknown or unwired.
+	IsSubscribed(channelID ids.ChannelID, threadTS ids.ThreadTS) bool
+
+	// Subscribe follows a thread. Best-effort; callers toast on error.
+	Subscribe(channelID ids.ChannelID, threadTS ids.ThreadTS) error
+
+	// Unsubscribe unfollows a thread.
+	Unsubscribe(channelID ids.ChannelID, threadTS ids.ThreadTS) error
 
 	// ListFetch loads the involved-threads list for the workspace
 	// (Slack subscriptions.list). Returns a tea.Msg (typically
@@ -188,6 +205,9 @@ type ThreadServiceFuncs struct {
 	ListFetch           ThreadsListFetchFunc
 	EnsureSubscriptions func(teamID ids.TeamID)
 	ChannelLastRead     func(channelID ids.ChannelID) string
+	IsSubscribed        func(channelID ids.ChannelID, threadTS ids.ThreadTS) bool
+	Subscribe           func(channelID ids.ChannelID, threadTS ids.ThreadTS) error
+	Unsubscribe         func(channelID ids.ChannelID, threadTS ids.ThreadTS) error
 }
 
 // NewThreadService builds a ThreadService from a ThreadServiceFuncs
@@ -227,11 +247,32 @@ func (t threadAdapter) Mark(channelID ids.ChannelID, threadTS ids.ThreadTS, ts i
 	t.fns.Mark(channelID, threadTS, ts)
 }
 
-func (t threadAdapter) SendReply(channelID ids.ChannelID, threadTS ids.ThreadTS, text string) tea.Msg {
+func (t threadAdapter) SendReply(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, broadcast bool) tea.Msg {
 	if t.fns.SendReply == nil {
 		return nil
 	}
-	return t.fns.SendReply(channelID, threadTS, text)
+	return t.fns.SendReply(channelID, threadTS, text, broadcast)
+}
+
+func (t threadAdapter) IsSubscribed(channelID ids.ChannelID, threadTS ids.ThreadTS) bool {
+	if t.fns.IsSubscribed == nil {
+		return false
+	}
+	return t.fns.IsSubscribed(channelID, threadTS)
+}
+
+func (t threadAdapter) Subscribe(channelID ids.ChannelID, threadTS ids.ThreadTS) error {
+	if t.fns.Subscribe == nil {
+		return errServiceNoop
+	}
+	return t.fns.Subscribe(channelID, threadTS)
+}
+
+func (t threadAdapter) Unsubscribe(channelID ids.ChannelID, threadTS ids.ThreadTS) error {
+	if t.fns.Unsubscribe == nil {
+		return errServiceNoop
+	}
+	return t.fns.Unsubscribe(channelID, threadTS)
 }
 
 func (t threadAdapter) ListFetch(teamID ids.TeamID) tea.Msg {
@@ -340,6 +381,12 @@ type MessageService interface {
 	// keybind. Synchronous (HTTP); callers wrap in a goroutine to
 	// avoid blocking the Update loop.
 	Permalink(ctx context.Context, channelID ids.ChannelID, ts ids.MessageTS) (string, error)
+
+	// Pin pins the message identified by (channelID, ts).
+	Pin(channelID ids.ChannelID, ts ids.MessageTS) error
+
+	// Unpin unpins the message identified by (channelID, ts).
+	Unpin(channelID ids.ChannelID, ts ids.MessageTS) error
 }
 
 // MessageServiceFuncs is the closure bundle accepted by
@@ -351,6 +398,8 @@ type MessageServiceFuncs struct {
 	Delete     MessageDeleteFunc
 	MarkUnread MarkUnreadFunc
 	Permalink  PermalinkFetchFunc
+	Pin        func(channelID ids.ChannelID, ts ids.MessageTS) error
+	Unpin      func(channelID ids.ChannelID, ts ids.MessageTS) error
 }
 
 // NewMessageService builds a MessageService from a MessageServiceFuncs
@@ -401,6 +450,20 @@ func (m messageAdapter) Permalink(ctx context.Context, channelID ids.ChannelID, 
 		return "", nil
 	}
 	return m.fns.Permalink(ctx, channelID, ts)
+}
+
+func (m messageAdapter) Pin(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if m.fns.Pin == nil {
+		return errServiceNoop
+	}
+	return m.fns.Pin(channelID, ts)
+}
+
+func (m messageAdapter) Unpin(channelID ids.ChannelID, ts ids.MessageTS) error {
+	if m.fns.Unpin == nil {
+		return errServiceNoop
+	}
+	return m.fns.Unpin(channelID, ts)
 }
 
 // ChannelService is the App's interface to the Slack channels API,
