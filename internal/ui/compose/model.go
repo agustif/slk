@@ -30,6 +30,13 @@ type PendingAttachment struct {
 	Size     int64
 }
 
+// draft is one parked compose snapshot. Bytes in pending attachments
+// are shared with the live slice (attachments are not mutated in place).
+type draft struct {
+	text    string
+	pending []PendingAttachment
+}
+
 type Model struct {
 	input       textarea.Model
 	channelName string
@@ -84,6 +91,17 @@ type Model struct {
 	// pending lists attachments queued for the next send. Cleared on
 	// successful submit; preserved on failure for retry.
 	pending []PendingAttachment
+
+	// drafts is an in-memory per-conversation snapshot of the live
+	// textarea + pending attachments. v1 is process-local (not SQLite,
+	// not Slack-synced). Keyed by an App-supplied conversation ID:
+	// channel ID for the main compose, channelID+"\x00"+threadTS for
+	// the thread compose.
+	drafts map[string]draft
+	// draftKey is the conversation the live textarea currently belongs
+	// to. Empty means unbound (startup, or parked after CloseThread /
+	// workspace switch).
+	draftKey string
 
 	// uploading is true while attachments are mid-upload. Causes the
 	// chip row to render in muted style and the Update() to refuse
@@ -310,6 +328,88 @@ func (m *Model) MoveCursorToEnd() {
 }
 
 func (m *Model) Reset() {
+	m.clearLive()
+	m.uploading = false
+	// Send / Ctrl+U consumed this conversation's draft.
+	if m.draftKey != "" && m.drafts != nil {
+		delete(m.drafts, m.draftKey)
+	}
+	m.dirty()
+}
+
+// DraftKey returns the conversation ID the live textarea is bound to.
+// Empty when unbound. Intended for tests and App bind-before-swap.
+func (m *Model) DraftKey() string { return m.draftKey }
+
+// BindDraftKey attributes the live textarea to key without saving or
+// restoring. Used when App already knows the conversation (active
+// channel / open thread) but compose has not been SwapDraft'd onto it
+// yet — tests that set activeChannelID + SetValue, or the first switch
+// off a channel that was entered without a swap.
+//
+// No-op if a key is already bound, key is empty, or the live compose
+// is empty (nothing to attribute — avoids re-binding a parked empty
+// box onto the previous channel and then saving "" over a stored draft).
+func (m *Model) BindDraftKey(key string) {
+	if m.draftKey != "" || key == "" {
+		return
+	}
+	if m.input.Value() == "" && len(m.pending) == 0 {
+		return
+	}
+	m.draftKey = key
+}
+
+// SwapDraft parks the live compose under the current draft key (if
+// any) and loads key's snapshot (or empty). key "" parks: live box
+// is cleared and the model is unbound. Same-key is a no-op so a
+// reselect / reopen does not flicker the textarea.
+func (m *Model) SwapDraft(key string) {
+	if m.draftKey == key {
+		return
+	}
+	m.saveCurrentDraft()
+	m.draftKey = key
+	m.restoreDraft(key)
+}
+
+func (m *Model) saveCurrentDraft() {
+	if m.draftKey == "" {
+		return
+	}
+	if m.drafts == nil {
+		m.drafts = make(map[string]draft)
+	}
+	text := m.input.Value()
+	if text == "" && len(m.pending) == 0 {
+		delete(m.drafts, m.draftKey)
+		return
+	}
+	m.drafts[m.draftKey] = draft{text: text, pending: copyPending(m.pending)}
+}
+
+func (m *Model) restoreDraft(key string) {
+	if key != "" && m.drafts != nil {
+		if d, ok := m.drafts[key]; ok {
+			m.applyDraft(d)
+			return
+		}
+	}
+	m.applyDraft(draft{})
+}
+
+func (m *Model) applyDraft(d draft) {
+	m.clearLive()
+	if d.text != "" {
+		m.input.SetValue(d.text)
+		m.MoveCursorToEnd()
+	}
+	m.pending = copyPending(d.pending)
+	m.autoGrow()
+	m.dirty()
+}
+
+func (m *Model) clearLive() {
 	m.input.Reset()
 	m.input.SetHeight(1)
 	m.mentionActive = false
@@ -319,8 +419,17 @@ func (m *Model) Reset() {
 	m.emojiActive = false
 	m.emojiPicker.Close()
 	m.pending = nil
-	m.uploading = false
-	m.dirty()
+	// uploading is owned by Reset / SetUploading: parking a draft must
+	// not clear an in-flight upload flag.
+}
+
+func copyPending(in []PendingAttachment) []PendingAttachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]PendingAttachment, len(in))
+	copy(out, in)
+	return out
 }
 
 // visualLineCount returns the number of visual lines the text occupies,

@@ -272,6 +272,7 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 // RecordVisit, thread close, tiered cache load, mark-read) stay in
 // the reducer.
 func (a *App) retargetActiveChannel(id, name, chType string) {
+	a.swapChannelCompose(id)
 	a.activeChannelID = id
 	a.typingOut.ResetThrottle() // reset typing throttle for new channel
 	a.compose.SetChannel(name)
