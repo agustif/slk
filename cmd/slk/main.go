@@ -3740,22 +3740,25 @@ func fetchThreadReplies(client *slackclient.Client, channelID, threadTS string, 
 }
 
 // searchWorkspaceFunc builds the SearchService.SearchWorkspace
-// closure: a server-side search.messages query against the active
-// workspace. Always returns a WorkspaceSearchResultsMsg — a nil msg
-// would leave the ctrl+f modal spinner stuck (the reducer only exits
-// the loading state on a results msg).
-func searchWorkspaceFunc(router *workspaceRouter, db *cache.DB, tsFormat string) func(query string) tea.Msg {
-	return func(query string) tea.Msg {
+// closure: a server-side search.messages or search.files query against
+// the active workspace. Always returns a WorkspaceSearchResultsMsg —
+// a nil msg would leave the ctrl+f modal spinner stuck (the reducer
+// only exits the loading state on a results msg). Kind/Page/Gen are
+// echoed so a superseded page cannot land.
+func searchWorkspaceFunc(router *workspaceRouter, db *cache.DB, tsFormat string) func(req ui.WorkspaceSearchRequest) tea.Msg {
+	return func(req ui.WorkspaceSearchRequest) tea.Msg {
+		page := req.Page
+		if page < 1 {
+			page = 1
+		}
+		out := ui.WorkspaceSearchResultsMsg{Query: req.Query, Kind: req.Kind, Page: page, Gen: req.Gen}
 		wctx := router.Active()
 		if wctx == nil {
-			return ui.WorkspaceSearchResultsMsg{Query: query, Err: errors.New("no active workspace")}
+			out.Err = errors.New("no active workspace")
+			return out
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		res, err := wctx.Client.SearchMessages(ctx, query, 50)
-		if err != nil {
-			return ui.WorkspaceSearchResultsMsg{Query: query, Err: err}
-		}
 		// Read-only lookup: this closure runs in a bubbletea cmd
 		// goroutine, so it must not write wctx.UserNames (shared with
 		// the UI goroutine; see userResolver.Request).
@@ -3771,8 +3774,24 @@ func searchWorkspaceFunc(router *workspaceRouter, db *cache.DB, tsFormat string)
 			}
 			return "", false
 		}
-		items := searchResultItems(res.Matches, tsFormat, time.Now(), resolveUser, resolveChannel, wctx.UserGroups())
-		return ui.WorkspaceSearchResultsMsg{Query: query, Items: items, Total: res.Total}
+		if req.Kind == searchresults.KindFiles {
+			res, err := wctx.Client.SearchFiles(ctx, req.Query, 50, page)
+			if err != nil {
+				out.Err = err
+				return out
+			}
+			out.Items = searchFileItems(res.Matches, tsFormat, time.Now(), resolveUser, resolveChannel)
+			out.Total = res.Total
+			return out
+		}
+		res, err := wctx.Client.SearchMessages(ctx, req.Query, 50, page)
+		if err != nil {
+			out.Err = err
+			return out
+		}
+		out.Items = searchResultItems(res.Matches, tsFormat, time.Now(), resolveUser, resolveChannel, wctx.UserGroups())
+		out.Total = res.Total
+		return out
 	}
 }
 
@@ -3820,6 +3839,61 @@ func searchResultItems(matches []slack.SearchMessage, tsFormat string, now time.
 			Text:        messages.FlattenMrkdwnWithUserGroups(match.Text, resolveUser, resolveChannel, userGroups),
 			Timestamp:   formatSearchTimestamp(match.Timestamp, tsFormat, now),
 			IsDM:        isDM,
+		})
+	}
+	return items
+}
+
+// searchFileItems converts search.files matches into the modal's row
+// items. Filename is the snippet; user/channel fall back through the
+// supplied resolvers when the wire payload omitted a display name.
+func searchFileItems(matches []slackclient.SearchFileMatch, tsFormat string, now time.Time, resolveUser, resolveChannel func(id string) (string, bool)) []searchresults.Item {
+	items := make([]searchresults.Item, 0, len(matches))
+	for _, match := range matches {
+		channelName := match.ChannelName
+		if channelName == "" && match.ChannelID != "" {
+			if name, ok := resolveChannel(match.ChannelID); ok && name != "" {
+				channelName = name
+			} else {
+				channelName = match.ChannelID
+			}
+		}
+		isDM := strings.HasPrefix(match.ChannelID, "D")
+		if userIDShapeRe.MatchString(channelName) {
+			if name, ok := resolveUser(channelName); ok && name != "" {
+				channelName = name
+				isDM = true
+			}
+		}
+
+		userName := match.Username
+		if userName == "" && match.User != "" {
+			if name, ok := resolveUser(match.User); ok && name != "" {
+				userName = name
+			} else {
+				userName = match.User
+			}
+		}
+
+		name := match.DisplayName()
+		ts := ""
+		if match.Created > 0 {
+			ts = fmt.Sprintf("%d.000000", match.Created)
+		}
+		items = append(items, searchresults.Item{
+			ChannelID:   match.ChannelID,
+			ChannelName: channelName,
+			UserName:    userName,
+			TS:          ts,
+			Text:        name,
+			Timestamp:   formatSearchTimestamp(ts, tsFormat, now),
+			IsDM:        isDM,
+			Kind:        searchresults.KindFiles,
+			FileID:      match.ID,
+			FileName:    name,
+			FileURL:     match.DownloadURL(),
+			Permalink:   match.Permalink,
+			FileSize:    match.Size,
 		})
 	}
 	return items

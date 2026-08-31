@@ -1,0 +1,110 @@
+{
+  "ok": true,
+  "query": "deploy from:@grant in:#general",
+  "files": {
+    "total": 3,
+    "pagination": {
+      "total_count": 3,
+      "page": 1,
+      "per_page": 20,
+      "page_count": 1,
+      "first": 1,
+      "last": 3
+    },
+    "paging": {
+      "count": 20,
+      "total": 3,
+      "page": 1,
+      "pages": 1
+    },
+    "matches": [
+      {
+        "id": "F012FILEAAA",
+        "created": 1700000001,
+        "timestamp": 1700000001,
+        "name": "deploy-plan.pdf",
+        "title": "Deploy plan",
+        "mimetype": "application/pdf",
+        "filetype": "pdf",
+        "pretty_type": "PDF",
+        "user": "U0GRANT0001",
+        "username": "grant",
+        "editable": false,
+        "size": 24576,
+        "mode": "hosted",
+        "is_external": false,
+        "external_type": "",
+        "is_public": true,
+        "public_url_shared": false,
+        "display_as_bot": false,
+        "url_private": "https://files.slack.com/files-pri/T1-F012FILEAAA/deploy-plan.pdf",
+        "url_private_download": "https://files.slack.com/files-pri/T1-F012FILEAAA/download/deploy-plan.pdf",
+        "permalink": "https://team.slack.com/files/U0GRANT0001/F012FILEAAA/deploy-plan.pdf",
+        "permalink_public": "https://slack-files.com/T1-F012FILEAAA-pub",
+        "channels": ["C0GENERAL01"],
+        "groups": [],
+        "ims": [],
+        "comments_count": 0,
+        "unexpected_future_field": {"ignored": true},
+        "shares": {
+          "public": {
+            "C0GENERAL01": [
+              {
+                "reply_users": [],
+                "reply_users_count": 0,
+                "reply_count": 0,
+                "ts": "1700000002.000100",
+                "channel_name": "general",
+                "team_id": "T1"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "F012FILEBBB",
+        "created": 1690000000,
+        "timestamp": 1690000000,
+        "name": "runbook.md",
+        "title": "runbook.md",
+        "mimetype": "text/markdown",
+        "filetype": "markdown",
+        "pretty_type": "Markdown",
+        "user": "U0SAM000002",
+        "editable": false,
+        "size": 1024,
+        "mode": "hosted",
+        "url_private": "https://files.slack.com/files-pri/T1-F012FILEBBB/runbook.md",
+        "permalink": "https://team.slack.com/files/U0SAM000002/F012FILEBBB/runbook.md",
+        "channels": [],
+        "groups": ["G0PRIVATE01"],
+        "ims": [],
+        "shares": {
+          "private": {
+            "G0PRIVATE01": [
+              {
+                "ts": "1690000001.000100",
+                "channel_name": "ops-secret",
+                "team_id": "T1"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "F012FILECCC",
+        "created": 1680000000,
+        "timestamp": 1680000000,
+        "name": "notes.txt",
+        "title": "notes.txt",
+        "user": "U0AYUSH0003",
+        "username": "ayush",
+        "url_private_download": "https://files.slack.com/files-pri/T1-F012FILECCC/download/notes.txt",
+        "permalink": "https://team.slack.com/files/U0AYUSH0003/F012FILECCC/notes.txt",
+        "channels": [],
+        "groups": [],
+        "ims": ["D0DMCHAN01"]
+      }
+    ]
+  }
+}

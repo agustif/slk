@@ -54,12 +54,15 @@ func TestLookupUserCachedDoesNotMutateMap(t *testing.T) {
 
 func TestSearchWorkspaceNoActiveWorkspaceReturnsErr(t *testing.T) {
 	fn := searchWorkspaceFunc(newWorkspaceRouter(), nil, "15:04")
-	msg := fn("deploy")
+	msg := fn(ui.WorkspaceSearchRequest{Query: "deploy", Page: 1, Gen: 1})
 	res, ok := msg.(ui.WorkspaceSearchResultsMsg)
 	if !ok {
 		t.Fatalf("got %T, want ui.WorkspaceSearchResultsMsg", msg)
 	}
 	if res.Query != "deploy" || res.Err == nil {
 		t.Fatalf("res = %+v, want Query=%q and non-nil Err", res, "deploy")
+	}
+	if res.Gen != 1 || res.Page != 1 {
+		t.Fatalf("Gen/Page = %d/%d, want 1/1", res.Gen, res.Page)
 	}
 }

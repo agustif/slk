@@ -607,21 +607,23 @@ func (c channelAdapter) OpenConversation(userIDs []string, requestID uint64) tea
 
 // SearchService runs message searches. SearchChannel queries the local
 // FTS cache for one channel; SearchWorkspace queries Slack's
-// search.messages for the active workspace.
+// search.messages / search.files for the active workspace.
 type SearchService interface {
 	// SearchChannel returns a ChannelSearchResultsMsg for query in
 	// channelID's cached history.
 	SearchChannel(channelID ids.ChannelID, query string) tea.Msg
-	// SearchWorkspace returns a WorkspaceSearchResultsMsg for query
-	// across the active workspace (server-side).
-	SearchWorkspace(query string) tea.Msg
+	// SearchWorkspace returns a WorkspaceSearchResultsMsg for req
+	// across the active workspace (server-side). Kind selects
+	// messages vs files; Page is 1-indexed; Gen is echoed so a
+	// superseded in-flight page is dropped.
+	SearchWorkspace(req WorkspaceSearchRequest) tea.Msg
 }
 
 // SearchServiceFuncs is the closure bundle accepted by
 // NewSearchService. Any field may be nil; that operation no-ops.
 type SearchServiceFuncs struct {
 	SearchChannel   func(channelID ids.ChannelID, query string) tea.Msg
-	SearchWorkspace func(query string) tea.Msg
+	SearchWorkspace func(req WorkspaceSearchRequest) tea.Msg
 }
 
 // NewSearchService builds a SearchService from a SearchServiceFuncs
@@ -642,9 +644,9 @@ func (s searchAdapter) SearchChannel(channelID ids.ChannelID, query string) tea.
 	return s.fns.SearchChannel(channelID, query)
 }
 
-func (s searchAdapter) SearchWorkspace(query string) tea.Msg {
+func (s searchAdapter) SearchWorkspace(req WorkspaceSearchRequest) tea.Msg {
 	if s.fns.SearchWorkspace == nil {
 		return nil
 	}
-	return s.fns.SearchWorkspace(query)
+	return s.fns.SearchWorkspace(req)
 }

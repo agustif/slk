@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	slackclient "github.com/gammons/slk/internal/slack"
+	"github.com/gammons/slk/internal/ui/searchresults"
 	"github.com/slack-go/slack"
 )
 
@@ -176,6 +178,57 @@ func TestSearchResultItemsTimestampIncludesDate(t *testing.T) {
 				t.Errorf("Timestamp = %q, want %q", items[0].Timestamp, tc.want)
 			}
 		})
+	}
+}
+
+func TestSearchFileItemsParsesFilenameUserChannelPermalink(t *testing.T) {
+	matches := []slackclient.SearchFileMatch{
+		{
+			ID:                 "F1",
+			Name:               "deploy-plan.pdf",
+			User:               "U0GRANT0001",
+			Username:           "grant",
+			Created:            testNow.Unix(),
+			Permalink:          "https://team.slack.com/files/U0GRANT0001/F1/deploy-plan.pdf",
+			URLPrivateDownload: "https://files.slack.com/files-pri/T-F1/download/deploy-plan.pdf",
+			ChannelID:          "C1",
+			ChannelName:        "general",
+			Size:               24576,
+		},
+		{
+			ID:          "F2",
+			Name:        "notes.txt",
+			User:        "U0AC7857QKC",
+			Created:     1,
+			Permalink:   "https://team.slack.com/files/U0AC7857QKC/F2/notes.txt",
+			URLPrivate:  "https://files.slack.com/files-pri/T-F2/notes.txt",
+			ChannelID:   "D9XYZ",
+			ChannelName: "U0AC7857QKC",
+		},
+	}
+	items := searchFileItems(matches, "15:04", testNow, testResolveUser, testResolveChannel)
+	if len(items) != 2 {
+		t.Fatalf("len=%d", len(items))
+	}
+	a := items[0]
+	if a.FileName != "deploy-plan.pdf" || a.UserName != "grant" || a.ChannelName != "general" {
+		t.Errorf("item0 = %+v", a)
+	}
+	if a.Permalink != matches[0].Permalink || a.FileURL != matches[0].URLPrivateDownload {
+		t.Errorf("item0 links = %q %q", a.Permalink, a.FileURL)
+	}
+	if a.Kind != searchresults.KindFiles {
+		t.Errorf("kind = %v", a.Kind)
+	}
+	b := items[1]
+	if b.UserName != "ayush" {
+		t.Errorf("resolved user = %q", b.UserName)
+	}
+	if b.ChannelName != "ayush" || !b.IsDM {
+		t.Errorf("DM file channel = %+v", b)
+	}
+	if b.FileURL != matches[1].URLPrivate {
+		t.Errorf("download fallback = %q", b.FileURL)
 	}
 }
 

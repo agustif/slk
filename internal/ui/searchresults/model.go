@@ -1,7 +1,7 @@
-// Package searchresults is the workspace-wide message search modal
-// (ctrl+f). Unlike channelfinder it does not filter locally: Enter
-// submits the query to Slack's search.messages and the caller injects
-// results via SetResults/SetError.
+// Package searchresults is the workspace-wide search modal (ctrl+f).
+// Unlike channelfinder it does not filter locally: Enter submits the
+// query to Slack's search.messages / search.files and the caller
+// injects results via SetResults/AppendResults/SetError.
 package searchresults
 
 import (
@@ -17,9 +17,25 @@ import (
 	"github.com/muesli/reflow/truncate"
 )
 
+// Kind is the active results tab.
+type Kind int
+
+const (
+	KindMessages Kind = iota
+	KindFiles
+)
+
+func (k Kind) String() string {
+	if k == KindFiles {
+		return "Files"
+	}
+	return "Messages"
+}
+
 // Item is one search hit, rendered as a block: a "#channel  author
 // time" metadata line over two indented snippet lines. Built from
 // Slack's search response, so uncached channels/users display fine.
+// File hits also carry download/permalink fields used by Enter.
 type Item struct {
 	ChannelID   string
 	ChannelName string
@@ -29,16 +45,24 @@ type Item struct {
 	Text        string
 	Timestamp   string // pre-formatted for display
 	IsDM        bool   // render the channel as "@name" instead of "#name"
+
+	Kind      Kind // KindFiles: Enter downloads or opens permalink
+	FileID    string
+	FileName  string
+	FileURL   string // url_private(_download); empty => fall back to Permalink
+	Permalink string
+	FileSize  int64
 }
 
 // Action tells the mode handler what a keypress did.
 type Action int
 
 const (
-	ActionNone   Action = iota
-	ActionSubmit        // Enter on a non-empty query: run the search
-	ActionSelect        // Enter on a result row: jump to it
-	ActionClose         // Esc: modal closed
+	ActionNone     Action = iota
+	ActionSubmit          // Enter on a non-empty query, or Tab onto an uncached tab
+	ActionSelect          // Enter on a result row: jump / download / open
+	ActionLoadMore        // Enter on the trailing "Load more" row
+	ActionClose           // Esc: modal closed
 )
 
 type state int
@@ -50,6 +74,16 @@ const (
 	stateError
 )
 
+// tabCache holds the last successful page set for one Kind so Tab
+// can restore without a refetch while the query is unchanged.
+type tabCache struct {
+	loaded     bool
+	items      []Item
+	total      int
+	page       int
+	highlights []string
+}
+
 // Model is the workspace search modal.
 type Model struct {
 	visible  bool
@@ -59,6 +93,10 @@ type Model struct {
 	st       state
 	errMsg   string
 	total    int
+	kind     Kind
+	gen      uint64
+	paging   bool // true while a Load more request is in flight
+	tabs     [2]tabCache
 	// highlightTerms are the active query's folded terms (see
 	// text.Fold); word-prefix occurrences light up in snippet lines.
 	highlightTerms []string
@@ -76,7 +114,47 @@ func (m *Model) Open() {
 	m.st = stateInput
 	m.errMsg = ""
 	m.total = 0
+	m.kind = KindMessages
+	m.gen = 0
+	m.paging = false
+	m.tabs = [2]tabCache{}
 	m.highlightTerms = nil
+}
+
+// Kind is the active Messages/Files tab.
+func (m Model) Kind() Kind { return m.kind }
+
+// Gen is the in-flight request generation. The reducer drops results
+// whose Gen does not match, so a superseded page cannot land.
+func (m Model) Gen() uint64 { return m.gen }
+
+// Page is the last fully applied page for the active tab (1-indexed).
+func (m Model) Page() int {
+	if p := m.tabs[m.kind].page; p > 0 {
+		return p
+	}
+	return 1
+}
+
+// HasMore reports whether Slack's total exceeds the fetched list.
+func (m Model) HasMore() bool { return m.hasMore() }
+
+func (m Model) hasMore() bool { return m.total > len(m.items) }
+
+// LoadMoreSelected reports whether the highlight is on the trailing
+// Load more row (not a real Item).
+func (m Model) LoadMoreSelected() bool {
+	return m.st == stateResults && m.hasMore() && m.selected == len(m.items)
+}
+
+// rowCount is the navigable row count: result items plus the Load more
+// row when Slack reported more matches than were fetched.
+func (m Model) rowCount() int {
+	n := len(m.items)
+	if m.hasMore() {
+		n++
+	}
+	return n
 }
 
 // SetHighlightTerms sets (or clears, with nil/empty) the folded terms
@@ -103,7 +181,7 @@ func (m Model) Query() string { return m.query }
 // Loading reports whether a search is in flight.
 func (m Model) Loading() bool { return m.st == stateLoading }
 
-// SetResults installs server results for the in-flight query.
+// SetResults installs server results for the in-flight first page.
 func (m *Model) SetResults(items []Item, total int) {
 	if m.st != stateLoading {
 		return // defense against stale async injection; the caller also guards by query
@@ -112,15 +190,68 @@ func (m *Model) SetResults(items []Item, total int) {
 	m.total = total
 	m.selected = 0
 	m.st = stateResults
+	m.paging = false
+	m.errMsg = ""
+	m.tabs[m.kind] = tabCache{
+		loaded:     true,
+		items:      items,
+		total:      total,
+		page:       1,
+		highlights: slices.Clone(m.highlightTerms),
+	}
+}
+
+// AppendResults appends the next page onto the current tab. Ignored
+// unless a Load more request is in flight (stale pages no-op here
+// too; the reducer also drops by Gen).
+func (m *Model) AppendResults(items []Item, total int) {
+	if !m.paging {
+		return
+	}
+	if len(items) == 0 {
+		// Empty page: treat as exhausted so we don't loop Load more.
+		total = len(m.items)
+	}
+	m.items = append(m.items, items...)
+	m.total = total
+	m.paging = false
+	m.errMsg = ""
+	page := m.tabs[m.kind].page + 1
+	if page < 2 {
+		page = 2
+	}
+	m.tabs[m.kind] = tabCache{
+		loaded:     true,
+		items:      m.items,
+		total:      m.total,
+		page:       page,
+		highlights: slices.Clone(m.highlightTerms),
+	}
+	if m.hasMore() {
+		m.selected = len(m.items) // stay on Load more
+	} else if m.selected >= len(m.items) {
+		m.selected = len(m.items) - 1
+		if m.selected < 0 {
+			m.selected = 0
+		}
+	}
 }
 
 // SetError shows an error line; the query is preserved for retry.
+// A Load more failure stays on the results list (errMsg is shown on
+// the Load more row) so the already-fetched page is not discarded.
 func (m *Model) SetError(msg string) {
+	flat := flattenText(msg)
+	if m.paging {
+		m.paging = false
+		m.errMsg = flat
+		return
+	}
 	if m.st != stateLoading {
 		return // defense against stale async injection; the caller also guards by query
 	}
 	// Flatten so a multi-line error can't desync BoxSize from the render.
-	m.errMsg = flattenText(msg)
+	m.errMsg = flat
 	m.st = stateError
 }
 
@@ -133,13 +264,17 @@ func (m Model) Selected() (Item, bool) {
 }
 
 // HandleKey processes a normalized key string ("enter", "esc", "up",
-// "down", "backspace", "space", or a printable rune) and reports the
+// "down", "backspace", "space", "tab", or a printable rune) and reports the
 // action.
 func (m *Model) HandleKey(keyStr string) Action {
 	switch keyStr {
 	case "esc":
 		m.Close()
 		return ActionClose
+	case "tab":
+		return m.switchTab(1)
+	case "shift+tab":
+		return m.switchTab(-1)
 	case "enter":
 		if m.st == stateLoading {
 			// A search is already in flight; re-submitting would fire
@@ -147,6 +282,15 @@ func (m *Model) HandleKey(keyStr string) Action {
 			return ActionNone
 		}
 		if m.st == stateResults {
+			if m.LoadMoreSelected() {
+				if m.paging {
+					return ActionNone
+				}
+				m.gen++
+				m.paging = true
+				m.errMsg = ""
+				return ActionLoadMore
+			}
 			if _, ok := m.Selected(); ok {
 				return ActionSelect
 			}
@@ -155,40 +299,91 @@ func (m *Model) HandleKey(keyStr string) Action {
 		if m.query == "" {
 			return ActionNone
 		}
+		m.gen++
 		m.st = stateLoading
+		m.paging = false
 		return ActionSubmit
 	case "up", "ctrl+k", "ctrl+p":
 		if m.st == stateResults && m.selected > 0 {
 			m.selected--
 		}
 	case "down", "ctrl+j", "ctrl+n":
-		if m.st == stateResults && m.selected < len(m.items)-1 {
+		if m.st == stateResults && m.selected < m.rowCount()-1 {
 			m.selected++
 		}
 	case "backspace":
 		if m.query != "" {
 			r := []rune(m.query)
 			m.query = string(r[:len(r)-1])
-			m.st = stateInput
+			m.noteQueryEdit()
 		}
 	case "space":
 		// bubbletea v2's Key.String() renders a literal space as
 		// "space"; queries can be multi-term, so map it back.
 		m.query += " "
-		m.st = stateInput
+		m.noteQueryEdit()
 	default:
 		if len([]rune(keyStr)) == 1 {
 			m.query += keyStr
-			m.st = stateInput
+			m.noteQueryEdit()
 		}
 	}
 	return ActionNone
 }
 
+func (m *Model) noteQueryEdit() {
+	m.st = stateInput
+	m.paging = false
+	m.tabs = [2]tabCache{}
+	m.items = nil
+	m.total = 0
+	m.highlightTerms = nil
+	m.errMsg = ""
+}
+
+func (m *Model) switchTab(delta int) Action {
+	next := (int(m.kind) + delta) % 2
+	if next < 0 {
+		next = 1
+	}
+	if Kind(next) == m.kind {
+		return ActionNone
+	}
+	m.kind = Kind(next)
+	m.paging = false
+	m.errMsg = ""
+	if m.query == "" {
+		m.items = nil
+		m.total = 0
+		m.selected = 0
+		m.st = stateInput
+		return ActionNone
+	}
+	if td := m.tabs[m.kind]; td.loaded {
+		m.items = td.items
+		m.total = td.total
+		m.highlightTerms = slices.Clone(td.highlights)
+		m.selected = 0
+		m.st = stateResults
+		return ActionNone
+	}
+	m.gen++
+	m.st = stateLoading
+	m.items = nil
+	m.total = 0
+	m.selected = 0
+	return ActionSubmit
+}
+
 // listTopOffset is the box-local row of the first body row: top border
-// (1) + top padding (1) + title (1) + input (1) + blank separator (1).
-// Shared by renderBox (implicitly) and ClickRow's hit-testing.
-const listTopOffset = 5
+// (1) + top padding (1) + title (1) + input (1) + tabs (1) + blank
+// separator (1). Shared by renderBox (implicitly) and ClickRow's
+// hit-testing.
+const listTopOffset = 6
+
+// chromeBase is the non-body lines in the outer box: listTopOffset
+// plus bottom padding and bottom border.
+const chromeBase = 8
 
 // rowLines is how many screen lines each result row occupies: a
 // metadata line (#channel  author  time), two snippet lines, and a
@@ -259,11 +454,12 @@ func boxWidth(termWidth int) int {
 // and ClickRow all clamp identically (the rows*rowLines + chrome ≤
 // budget invariant).
 func (m Model) visibleRowCap(termHeight int) int {
-	// Chrome: top border + top padding + title + input + blank +
-	// bottom padding + bottom border = 7 (see BoxSize), plus the
-	// "showing K of N" footer when the server reported more matches.
-	chrome := 7
-	if m.total > len(m.items) {
+	// Chrome: top border + top padding + title + input + tabs + blank +
+	// bottom padding + bottom border = chromeBase (see BoxSize), plus
+	// the "showing K of N" footer when more matches remain. The Load
+	// more row is a regular result row, not extra chrome.
+	chrome := chromeBase
+	if m.hasMore() {
 		chrome++
 	}
 	budget := termHeight * 7 / 10
@@ -282,7 +478,7 @@ func (m Model) visibleRowCap(termHeight int) int {
 // applying the same scroll-window math the renderer uses.
 func (m *Model) visibleWindow(termHeight int) (int, int) {
 	maxVisible := m.visibleRowCap(termHeight)
-	total := len(m.items)
+	total := m.rowCount()
 	if maxVisible > total {
 		maxVisible = total
 	}
@@ -309,9 +505,9 @@ func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
 	if nRows < 1 {
 		nRows = 1
 	}
-	// height = top border + top padding + title + input + blank + rows +
-	// bottom padding + bottom border = nRows + 7.
-	return boxWidth(termWidth), nRows + 7
+	// height = top border + top padding + title + input + tabs + blank +
+	// rows + bottom padding + bottom border = nRows + chromeBase.
+	return boxWidth(termWidth), nRows + chromeBase
 }
 
 // View renders just the overlay box.
@@ -331,6 +527,30 @@ func (m Model) ViewOverlay(termWidth, termHeight int, background string) string 
 	}
 
 	return overlay.DimmedOverlay(termWidth, termHeight, background, box, 0.5)
+}
+
+func (m Model) renderTabs(innerWidth int) string {
+	bg := styles.Background
+	active := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary).Bold(true)
+	idle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
+
+	chip := func(k Kind) string {
+		label := k.String()
+		if td := m.tabs[k]; td.loaded {
+			label = fmt.Sprintf("%s (%d)", label, td.total)
+		}
+		if k == m.kind {
+			return active.Render(label)
+		}
+		return idle.Render(label)
+	}
+	line := chip(KindMessages) + "  " + chip(KindFiles)
+	if pad := innerWidth - lipgloss.Width(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	} else if lipgloss.Width(line) > innerWidth {
+		line = truncate.StringWithTail(line, uint(innerWidth), "…")
+	}
+	return line
 }
 
 func (m Model) renderBox(termWidth, termHeight int) string {
@@ -381,7 +601,8 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 		Foreground(styles.TextPrimary).
 		Render(inputText)
 
-	content := title + "\n" + input + "\n\n" + strings.Join(m.bodyLines(innerWidth, termHeight), "\n")
+	tabs := m.renderTabs(innerWidth)
+	content := title + "\n" + input + "\n" + tabs + "\n\n" + strings.Join(m.bodyLines(innerWidth, termHeight), "\n")
 
 	// Re-paint modal bg+fg after every ANSI reset emitted by inner styled
 	// spans so trailing cells don't inherit the dimmed app behind the
@@ -447,9 +668,9 @@ func splitAtWidth(s string, w int) (head, tail string) {
 	return head, s[len(head):]
 }
 
-// resultRows renders the visible window of result rows plus the
-// "showing K of N" footer when the server reported more matches than
-// were fetched. Each result is rowLines (4) screen lines: a metadata
+// resultRows renders the visible window of result rows plus a Load
+// more row and "showing K of N" footer when the server reported more
+// matches than were fetched. Each result is rowLines (4) screen lines: a metadata
 // line ("#channel  author  timestamp"), two 2-space-indented snippet
 // lines (the second truncated with "…" when more remains, or blank
 // when the snippet fits on one), and a blank separator.
@@ -460,7 +681,7 @@ func splitAtWidth(s string, w int) (head, tail string) {
 func (m Model) resultRows(innerWidth, termHeight int) []string {
 	bg := styles.Background
 
-	total := len(m.items)
+	total := m.rowCount()
 	startIdx, endIdx := m.visibleWindow(termHeight)
 	maxVisible := endIdx - startIdx
 
@@ -524,8 +745,12 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 
 	var rows []string
 	for i := startIdx; i < endIdx; i++ {
-		item := m.items[i]
 		isSelected := i == m.selected
+		if i >= len(m.items) {
+			rows = append(rows, m.loadMoreRow(contentWidth, showScrollbar, isSelected, i-startIdx, thumbStart, thumbEnd, thumbStyle, trackStyle)...)
+			continue
+		}
+		item := m.items[i]
 
 		// Render fragments separately (see channelfinder): a single
 		// outer style over pre-styled text would lose attributes
@@ -608,10 +833,60 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 		}
 	}
 
-	if m.total > len(m.items) {
+	if m.hasMore() {
 		footer := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).
 			Render(fmt.Sprintf("showing %d of %d", len(m.items), m.total))
 		rows = append(rows, footer)
 	}
 	return rows
+}
+
+func (m Model) loadMoreRow(contentWidth int, showScrollbar, isSelected bool, rel, thumbStart, thumbEnd int, thumbStyle, trackStyle lipgloss.Style) []string {
+	bg := styles.Background
+	label := "Load more"
+	if m.paging {
+		label = "Loading more…"
+	} else if m.errMsg != "" {
+		label = m.errMsg
+	}
+	detail := fmt.Sprintf("showing %d of %d", len(m.items), m.total)
+	nameStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary)
+	muted := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted)
+	if isSelected && m.errMsg == "" {
+		nameStyle = nameStyle.Foreground(styles.Primary).Bold(true)
+	}
+	if m.errMsg != "" {
+		nameStyle = lipgloss.NewStyle().Background(bg).Foreground(styles.Error)
+	}
+	line1 := nameStyle.Render(label)
+	if lipgloss.Width(line1) > contentWidth {
+		line1 = truncate.StringWithTail(line1, uint(contentWidth), "…")
+	}
+	line2 := "  " + muted.Render(detail)
+	if lipgloss.Width(line2) > contentWidth {
+		line2 = truncate.StringWithTail(line2, uint(contentWidth), "…")
+	}
+	out := make([]string, 0, rowLines)
+	for li, line := range []string{line1, line2, "", ""} {
+		separator := li >= 2
+		if pad := contentWidth - lipgloss.Width(line); pad > 0 {
+			line += strings.Repeat(" ", pad)
+		}
+		var row string
+		if isSelected && !separator {
+			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
+			row = indicator + line
+		} else {
+			row = " " + line
+		}
+		if showScrollbar {
+			if rel >= thumbStart && rel < thumbEnd {
+				row += thumbStyle.Render("█")
+			} else {
+				row += trackStyle.Render("│")
+			}
+		}
+		out = append(out, row)
+	}
+	return out
 }

@@ -26,7 +26,9 @@
 | `n` / `N` | Normal | Next / previous search match (wraps) |
 | `a` / `A` | Normal | Jump to next / previous unread channel (wraps) |
 | `Esc` | Normal (search active) | Clear active search |
-| `Ctrl+f` | Any | Search workspace (Slack server-side; supports modifiers like `from:@user`, `in:#channel`, `before:YYYY-MM-DD`) |
+| `Ctrl+f` | Any | Search workspace (Slack server-side; Messages/Files tabs; supports `from:@user`, `in:#channel`, `before:YYYY-MM-DD`) |
+| `Tab` / `Shift+Tab` | Workspace search | Switch Messages / Files |
+| `Enter` | Workspace search | Search; jump to a message; download a file (or open its permalink); load the next page |
 | `Ctrl+b` | Any | Toggle sidebar |
 | `Ctrl+]` | Any | Toggle thread panel |
 | `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder |

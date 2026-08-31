@@ -103,11 +103,25 @@ type (
 		Gen       uint64
 		Err       error
 	}
-	// WorkspaceSearchResultsMsg delivers server-side search.messages
-	// results for the ctrl+f modal. Total is Slack's reported total match
-	// count (may exceed len(Items); v1 fetches the first page only).
+	// WorkspaceSearchRequest is one ctrl+f overlay search: messages or
+	// files, a 1-indexed Slack page, and the overlay generation so a
+	// superseded in-flight page is dropped.
+	WorkspaceSearchRequest struct {
+		Query string
+		Kind  searchresults.Kind
+		Page  int
+		Gen   uint64
+	}
+
+	// WorkspaceSearchResultsMsg delivers server-side search.messages or
+	// search.files results for the ctrl+f modal. Total is Slack's
+	// reported total match count (may exceed len(Items)). Page/Gen/Kind
+	// echo the request so the reducer can reject a stale page.
 	WorkspaceSearchResultsMsg struct {
 		Query string
+		Kind  searchresults.Kind
+		Page  int
+		Gen   uint64
 		Items []searchresults.Item
 		Total int
 		Err   error
