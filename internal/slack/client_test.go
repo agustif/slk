@@ -152,6 +152,7 @@ type mockSlackAPI struct {
 	openConversationContextFn       func(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
 	searchMessagesFn                func(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, error)
 	getUserGroupsContextFn          func(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
+	leaveConversationFn             func(channelID string) (bool, error)
 }
 
 func (m *mockSlackAPI) GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
@@ -233,6 +234,13 @@ func (m *mockSlackAPI) AuthTest() (*slack.AuthTestResponse, error) {
 
 func (m *mockSlackAPI) JoinConversation(channelID string) (*slack.Channel, string, []string, error) {
 	return &slack.Channel{GroupConversation: slack.GroupConversation{Conversation: slack.Conversation{ID: channelID}}}, "", nil, nil
+}
+
+func (m *mockSlackAPI) LeaveConversation(channelID string) (bool, error) {
+	if m.leaveConversationFn != nil {
+		return m.leaveConversationFn(channelID)
+	}
+	return false, nil
 }
 
 func (m *mockSlackAPI) GetPermalinkContext(ctx context.Context, params *slack.PermalinkParameters) (string, error) {
@@ -3171,5 +3179,56 @@ func TestPostForm_BodyFieldOrderIsAlphabeticalThenEnvelope(t *testing.T) {
 			"If the lead is no longer alphabetical, postForm stopped using url.Values.Encode(): "+
 			"that is an improvement only if slack-go's bodies were fixed too, otherwise slk now "+
 			"emits two different body shapes. Update the residual-divergence table either way.", raw, want)
+	}
+}
+
+func TestLeaveChannel_Success(t *testing.T) {
+	var got string
+	mock := &mockSlackAPI{
+		leaveConversationFn: func(channelID string) (bool, error) {
+			got = channelID
+			return false, nil
+		},
+	}
+	c := &Client{api: mock}
+
+	if err := c.LeaveChannel(context.Background(), "C1"); err != nil {
+		t.Fatalf("LeaveChannel: %v", err)
+	}
+	if got != "C1" {
+		t.Errorf("LeaveConversation channel = %q, want C1", got)
+	}
+}
+
+func TestLeaveChannel_NotInChannelIsSuccess(t *testing.T) {
+	mock := &mockSlackAPI{
+		leaveConversationFn: func(channelID string) (bool, error) {
+			return true, nil // Slack not_in_channel
+		},
+	}
+	c := &Client{api: mock}
+
+	if err := c.LeaveChannel(context.Background(), "C1"); err != nil {
+		t.Fatalf("LeaveChannel: %v", err)
+	}
+}
+
+func TestLeaveChannel_ErrorWrapped(t *testing.T) {
+	mock := &mockSlackAPI{
+		leaveConversationFn: func(channelID string) (bool, error) {
+			return false, errors.New("restricted_action")
+		},
+	}
+	c := &Client{api: mock}
+
+	err := c.LeaveChannel(context.Background(), "C1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "leaving channel C1") {
+		t.Errorf("error = %q, want wrapping 'leaving channel C1'", err)
+	}
+	if !strings.Contains(err.Error(), "restricted_action") {
+		t.Errorf("error = %q, want wrapped restricted_action", err)
 	}
 }

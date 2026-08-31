@@ -603,6 +603,29 @@ type ChannelJoinFailedMsg struct {
 	Err  error
 }
 
+// LeaveChannelMsg is emitted when the user confirms :leave. The reducer
+// dispatches ChannelService.Leave, which returns ChannelLeftMsg or
+// ChannelLeaveFailedMsg.
+type LeaveChannelMsg struct {
+	ID   string
+	Name string
+}
+
+// ChannelLeftMsg is sent after conversations.leave succeeds. The App
+// removes the channel from the sidebar, switches to last-visited (or
+// Threads), and toasts.
+type ChannelLeftMsg struct {
+	ID   string
+	Name string
+}
+
+// ChannelLeaveFailedMsg is sent when the leave API call fails.
+type ChannelLeaveFailedMsg struct {
+	ID   string
+	Name string
+	Err  error
+}
+
 // previewLoadedMsg is dispatched after a preview thumb has been fetched.
 // The receiver constructs (or, when isCycle is set, swaps the image of)
 // an imgpkg.Preview and stores it on the App.

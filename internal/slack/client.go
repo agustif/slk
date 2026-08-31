@@ -46,6 +46,7 @@ type SlackAPI interface {
 	GetPermalinkContext(ctx context.Context, params *slack.PermalinkParameters) (string, error)
 	AuthTest() (*slack.AuthTestResponse, error)
 	JoinConversation(channelID string) (*slack.Channel, string, []string, error)
+	LeaveConversation(channelID string) (bool, error)
 	SetUserPresenceContext(ctx context.Context, presence string) error
 	GetUserPresenceContext(ctx context.Context, user string) (*slack.UserPresence, error)
 	SetSnoozeContext(ctx context.Context, minutes int) (*slack.DNDStatus, error)
@@ -600,6 +601,18 @@ func (c *Client) JoinChannel(ctx context.Context, channelID string) error {
 	_, _, _, err := c.api.JoinConversation(channelID)
 	if err != nil {
 		return fmt.Errorf("joining channel %s: %w", channelID, err)
+	}
+	return nil
+}
+
+// LeaveChannel leaves a public or private channel via conversations.leave.
+// Returns nil on success. Idempotent: leaving a channel you're already out
+// of (Slack's not_in_channel) is a no-op and returns no error here.
+// Does not apply to IMs / MPIMs — callers should not use this for DMs.
+func (c *Client) LeaveChannel(ctx context.Context, channelID string) error {
+	_, err := c.api.LeaveConversation(channelID)
+	if err != nil {
+		return fmt.Errorf("leaving channel %s: %w", channelID, err)
 	}
 	return nil
 }

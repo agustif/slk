@@ -104,6 +104,11 @@ type TypingSendFunc func(channelID string)
 // describing the result (typically ChannelJoinedMsg or ChannelJoinFailedMsg).
 type JoinChannelFunc func(channelID ids.ChannelID, channelName string) tea.Msg
 
+// LeaveChannelFunc is called to leave a public or private channel by ID.
+// Returns a tea.Msg describing the result (typically ChannelLeftMsg or
+// ChannelLeaveFailedMsg). Callers must not invoke this for DMs.
+type LeaveChannelFunc func(channelID ids.ChannelID, channelName string) tea.Msg
+
 // ChannelVisitRecorder is invoked from case ChannelSelectedMsg to let
 // main.go persist the visit (SQLite write + in-memory map update on
 // the WorkspaceContext). Always called regardless of FromHistory.

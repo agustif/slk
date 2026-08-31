@@ -25,12 +25,13 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":   cmdWorkspaceFinder,
-	"sp":   cmdSplit,
-	"vsp":  cmdVSplit,
-	"q":    cmdCloseWindow,
-	"only": cmdOnlyWindow,
-	"on":   cmdOnlyWindow,
+	"ws":    cmdWorkspaceFinder,
+	"sp":    cmdSplit,
+	"vsp":   cmdVSplit,
+	"q":     cmdCloseWindow,
+	"only":  cmdOnlyWindow,
+	"on":    cmdOnlyWindow,
+	"leave": cmdLeave,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
@@ -53,6 +54,65 @@ func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 	a.workspaceFinder.Open()
 	a.SetMode(ModeWorkspaceFinder)
 	return nil
+}
+
+// dmLeaveToast is the status-bar copy when :leave is used on a DM.
+// conversations.leave does not apply to IMs; we refuse rather than
+// guess at conversations.close.
+const dmLeaveToast = "Can't leave a DM; close it from Slack"
+
+func cmdLeave(a *App, _ []string) tea.Cmd {
+	return a.beginLeaveChannel()
+}
+
+// beginLeaveChannel opens the leave-channel confirm overlay, or toasts
+// when the current view is not a leavable channel (DMs, Threads,
+// Activity, nothing selected).
+func (a *App) beginLeaveChannel() tea.Cmd {
+	id, name, chType, ok := a.activeChannelMeta()
+	if !ok {
+		return toastWithClear(a, "No channel to leave", 2*time.Second)
+	}
+	if isDirectMessage(chType) {
+		return toastWithClear(a, dmLeaveToast, 2*time.Second)
+	}
+
+	title := "Leave #" + name + "?"
+	a.confirmPrompt.Open(
+		title,
+		"You can rejoin from the channel finder.",
+		func() tea.Msg {
+			return LeaveChannelMsg{ID: id, Name: name}
+		},
+	)
+	a.SetMode(ModeConfirm)
+	return nil
+}
+
+// activeChannelMeta returns the currently viewed channel. ok is false
+// in Threads/Activity or when no channel is selected.
+func (a *App) activeChannelMeta() (id, name, chType string, ok bool) {
+	if a.view != ViewChannels || a.activeChannelID == "" {
+		return "", "", "", false
+	}
+	id = a.activeChannelID
+	for _, it := range a.sidebar.Items() {
+		if it.ID == id {
+			return it.ID, it.Name, it.Type, true
+		}
+	}
+	if ch, found := a.wins.Channel(a.focusedWin); found && ch.ID == id && ch.ID != "" {
+		return ch.ID, ch.Name, ch.Type, true
+	}
+	return "", "", "", false
+}
+
+func isDirectMessage(chType string) bool {
+	switch chType {
+	case "dm", "group_dm", "app":
+		return true
+	}
+	return false
 }
 
 // executeCommand parses and runs one command line (without the

@@ -45,3 +45,13 @@ func TestHelp_StillListsWorkspaceFinderViaWS(t *testing.T) {
 		t.Fatal("help entries missing {Key: \":ws\", Desc: \"switch workspace\"}")
 	}
 }
+
+func TestHelp_ListsLeaveChannel(t *testing.T) {
+	entries := help.FromKeyMap(DefaultKeyMap())
+	for _, e := range entries {
+		if e.Key == ":leave" && e.Desc == "leave channel" {
+			return
+		}
+	}
+	t.Fatal("help entries missing {Key: \":leave\", Desc: \"leave channel\"}")
+}
