@@ -209,8 +209,9 @@ type App struct {
 	// activityCfg is the [activity] config defaults (limit + the
 	// session-start filter/sort/unread_only/density). Live TUI
 	// cycles live on activityView, not here.
-	activityCfg config.Activity
-	activityGen uint64
+	activityCfg   config.Activity
+	activityGen   uint64
+	activityCache activityMessageCache
 
 	threadsDirtyDebounce time.Duration
 	// fetchingOlder tracks in-flight older-history backfills per
@@ -804,6 +805,7 @@ func (a *App) updateReactionOnMessage(channelID, messageTS, emojiName, userID st
 		mm.UpdateReaction(messageTS, emojiName, userID, remove)
 	}
 	a.threadPanel.UpdateReaction(messageTS, emojiName, userID, remove)
+	a.activityView.ApplyReaction(channelID, messageTS, emojiName, userID == a.currentUserID, remove)
 }
 
 func (a *App) handleReactionNav(msg tea.KeyMsg) tea.Cmd {
@@ -846,6 +848,16 @@ func (a *App) handleThreadReactionNav(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+func (a *App) openPickerFor(channelID, ts string, existing []string) tea.Cmd {
+	if channelID == "" || ts == "" {
+		return nil
+	}
+	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
+	a.reactionPicker.Open(channelID, ts, existing)
+	a.SetMode(ModeReactionPicker)
+	return nil
+}
+
 func (a *App) openPickerFromMessage() tea.Cmd {
 	msg, ok := a.messagepane.SelectedMessage()
 	if !ok {
@@ -858,10 +870,7 @@ func (a *App) openPickerFromMessage() tea.Cmd {
 		}
 	}
 	a.messagepane.ExitReactionNav()
-	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
-	a.reactionPicker.Open(a.activeChannelID, msg.TS, existing)
-	a.SetMode(ModeReactionPicker)
-	return nil
+	return a.openPickerFor(a.activeChannelID, msg.TS, existing)
 }
 
 func (a *App) openPickerFromThread() tea.Cmd {
@@ -876,10 +885,51 @@ func (a *App) openPickerFromThread() tea.Cmd {
 		}
 	}
 	a.threadPanel.ExitReactionNav()
-	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
-	a.reactionPicker.Open(a.threadPanel.ChannelID(), reply.TS, existing)
-	a.SetMode(ModeReactionPicker)
-	return nil
+	return a.openPickerFor(a.threadPanel.ChannelID(), reply.TS, existing)
+}
+
+func (a *App) openPickerFromActivity() tea.Cmd {
+	it, ok := a.activityView.SelectedItem()
+	if !ok {
+		return nil
+	}
+	existing := append([]string(nil), it.OwnReactions...)
+	if it.HasReacted && it.Reaction != "" && !containsString(existing, it.Reaction) {
+		existing = append(existing, it.Reaction)
+	}
+	return a.openPickerFor(it.ChannelID, it.MessageTS, existing)
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) toggleActivityReaction(it activityview.Item) tea.Cmd {
+	emojiName := it.Reaction
+	if emojiName == "" || it.ChannelID == "" || it.MessageTS == "" {
+		return nil
+	}
+	// Unknown reaction set: Add, never blind-Remove.
+	remove := it.ReactionsKnown && it.HasReacted
+	a.updateReactionOnMessage(it.ChannelID, it.MessageTS, emojiName, a.currentUserID, remove)
+	channelID := ids.ChannelID(it.ChannelID)
+	ts := ids.MessageTS(it.MessageTS)
+	sent := ReactionSentMsg{ChannelID: it.ChannelID, MessageTS: it.MessageTS, Emoji: emojiName, UserID: a.currentUserID, Remove: remove}
+	if remove {
+		return func() tea.Msg {
+			sent.Err = a.reactions.Remove(channelID, ts, emojiName)
+			return sent
+		}
+	}
+	return func() tea.Msg {
+		sent.Err = a.reactions.Add(channelID, ts, emojiName)
+		return sent
+	}
 }
 
 // openReactionsView opens the read-only reactions list for the selected
@@ -2056,6 +2106,13 @@ func (a *App) SetActivityService(s ActivityService) {
 	a.activity = s
 }
 
+// SetActivityCache wires the cache-first parent-quote / reaction
+// lookup used to decorate Activity cards. Pass nil to disable
+// (tests; cards then show empty quotes).
+func (a *App) SetActivityCache(c activityMessageCache) {
+	a.activityCache = c
+}
+
 // SetActivityConfig seeds the Activity view from [activity] in
 // config.toml. Live f/F/s/u cycles do not write back here.
 func (a *App) SetActivityConfig(cfg config.Activity) {
@@ -2155,6 +2212,11 @@ func (a *App) SetEmojiContext(ctx messages.EmojiContext) {
 		Customs:  ctx.Customs,
 	})
 	a.threadCompose.SetEmojiContext(emojipicker.EmojiContext{
+		PlaceCtx: ctx.PlaceCtx,
+		Cells:    ctx.Cells,
+		Customs:  ctx.Customs,
+	})
+	a.activityView.SetEmojiContext(activityview.EmojiContext{
 		PlaceCtx: ctx.PlaceCtx,
 		Cells:    ctx.Cells,
 		Customs:  ctx.Customs,
@@ -2547,6 +2609,7 @@ func (a *App) SetCustomEmoji(customs map[string]string) {
 	// emojipicker.Model.SetEmojiCustoms for context.
 	a.compose.SetEmojiCustoms(customs)
 	a.threadCompose.SetEmojiCustoms(customs)
+	a.activityView.SetEmojiCustoms(customs)
 }
 
 // SetInitialChannel sets the active channel and its messages before the TUI starts.

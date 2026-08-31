@@ -2016,49 +2016,12 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		// target). Tracked separately because the index in pills can
 		// exceed len(msg.Reactions).
 		var pillEmojis []string
-		// Image-aware emoji-as-image path is active only when the
-		// process-global ImageMode is on AND a fetcher has been
-		// installed via SetEmojiContext. Otherwise the legacy
-		// glyph/shortcode-text branch renders.
-		imageOK := emojiutil.ImageModeActive() && m.emojiCtx.PlaceCtx.Fetcher != nil
 		pillCells := m.emojiCtx.Cells
 		if pillCells <= 0 {
 			pillCells = 2
 		}
 		for i, r := range msg.Reactions {
-			// Image path: pass r.Emoji directly (including any skin-tone
-			// suffix) — URLForShortcode composes the per-tone CDN URL
-			// natively. Stripping skin tone was a workaround for
-			// glyph-rendering width inconsistencies that no longer apply
-			// at the kitty-image cell footprint.
-			//
-			// Legacy path: still strip the suffix because the glyph
-			// renderer suffers the original width-inconsistency problem
-			// (multi-codepoint ZWJ / skin-tone sequences render at
-			// terminal-dependent widths and break border alignment).
-			// See internal/emoji/shouldrender.go for the rule.
-			var emojiStr string
-			var placedFlush func(io.Writer) error
-			if imageOK {
-				if url, ok := emojiutil.URLForShortcode(r.Emoji, m.emojiCtx.Customs); ok {
-					if placement, flush, ok := emojiutil.Place(m.emojiCtx.PlaceCtx, url, pillCells); ok {
-						emojiStr = placement
-						placedFlush = flush
-					}
-				}
-			}
-			if emojiStr == "" {
-				// Legacy fallback path (image mode off, no URL, or
-				// Place returned false). Strip skin tone here only —
-				// the glyph renderer still needs the workaround.
-				legacyName := emojiutil.StripSkinTone(r.Emoji)
-				resolved := emojiutil.Sprint(":" + legacyName + ":")
-				if emojiutil.ShouldRenderUnicode(resolved) {
-					emojiStr = resolved
-				} else {
-					emojiStr = ":" + legacyName + ":"
-				}
-			}
+			emojiStr, placedFlush, _ := emojiutil.RenderShortcode(r.Emoji, m.emojiCtx.PlaceCtx, pillCells, m.emojiCtx.Customs)
 			var style lipgloss.Style
 			if isSelected && m.reactionNavActive && i == m.reactionNavIndex {
 				style = styles.ReactionPillSelected

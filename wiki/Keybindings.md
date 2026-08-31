@@ -10,6 +10,10 @@
 | `s` | Normal (Activity) | Cycle Activity sort (newest ↔ unreads first) |
 | `u` | Normal (Activity) | Toggle Activity unread-only |
 | `Enter` | Normal (Activity) | Open the selected Activity item in its channel / thread |
+| `r` | Normal (Activity) | Open reaction picker on the selected item |
+| Click emoji | Activity card | Toggle your reaction on the parent message |
+| Click rest of card | Activity card | Open the message (same as Enter) |
+| Right-click | Activity card | Open reaction picker (terminals that report `MouseRight`; Apple Terminal may swallow right-click into its own menu) |
 | `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |

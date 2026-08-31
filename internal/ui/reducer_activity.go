@@ -2,20 +2,28 @@
 //
 // Activity-inbox reducer for App.Update.
 //
-//   ActivityViewActivatedMsg — user opened the Activity list:
-//     switch view + focus, kick a feed fetch.
-//   ActivityFeedLoadedMsg    — activity.feed returned: push items,
-//     drop stale generations / other workspaces.
-//   ActivityCountsMsg        — client.counts activity_v2 badge.
+//	ActivityViewActivatedMsg — user opened the Activity list:
+//	  switch view + focus, kick a feed fetch.
+//	ActivityFeedLoadedMsg    — activity.feed returned: push items,
+//	  drop stale generations / other workspaces.
+//	ActivityCountsMsg        — client.counts activity_v2 badge.
 package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/ids"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/activityview"
 )
+
+// activityMessageCache is the cache-first parent-quote / reaction
+// lookup used to decorate Activity cards. *cache.DB satisfies it.
+type activityMessageCache interface {
+	GetMessage(channelID, ts string) (cache.Message, error)
+	GetReactions(messageTS, channelID string) ([]cache.ReactionRow, error)
+}
 
 var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
@@ -115,9 +123,36 @@ func (a *App) decorateActivityItems(in []slackclient.ActivityItem) []activityvie
 				item.ActorName = name
 			}
 		}
+		a.decorateActivityParent(&item)
 		out[i] = item
 	}
 	return out
+}
+
+func (a *App) decorateActivityParent(item *activityview.Item) {
+	if a.activityCache == nil || item.ChannelID == "" || item.MessageTS == "" {
+		return
+	}
+	if msg, err := a.activityCache.GetMessage(item.ChannelID, item.MessageTS); err == nil && !msg.IsDeleted {
+		item.ParentText = msg.Text
+	}
+	rs, err := a.activityCache.GetReactions(item.MessageTS, item.ChannelID)
+	if err != nil {
+		return
+	}
+	item.ReactionsKnown = true
+	for _, r := range rs {
+		for _, uid := range r.UserIDs {
+			if uid != a.currentUserID {
+				continue
+			}
+			item.OwnReactions = append(item.OwnReactions, r.Emoji)
+			if r.Emoji == item.Reaction {
+				item.HasReacted = true
+			}
+			break
+		}
+	}
 }
 
 func (a *App) openSelectedActivityCmd() tea.Cmd {

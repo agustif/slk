@@ -1739,6 +1739,7 @@ func run() error {
 				}
 			},
 		}))
+		app.SetActivityCache(db)
 
 		app.SetThreadService(ui.NewThreadService(ui.ThreadServiceFuncs{
 			Fetch: func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/config"
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -187,5 +189,133 @@ func TestEmptyState(t *testing.T) {
 	out = m.View(10, 40)
 	if !strings.Contains(out, "loading activity") {
 		t.Errorf("loading view:\n%s", out)
+	}
+}
+
+func reactionItem() Item {
+	return Item{
+		ActivityItem: slackclient.ActivityItem{
+			Key: "r1", Type: "message_reaction", Unread: false,
+			ChannelID: "C1", MessageTS: "1.0", FeedTS: "1.0",
+			ActorID: "U1", Reaction: "eyes",
+		},
+		ChannelName: "eng", ChannelType: "channel", ActorName: "Alice",
+		ParentText: "hello parent",
+	}
+}
+
+func TestView_ReactionRendersEyesGlyph(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{reactionItem()})
+	out := ansi.Strip(m.View(16, 70))
+	if !strings.Contains(out, "👀") {
+		t.Errorf("detailed reaction card missing eyes glyph:\n%s", out)
+	}
+	if !strings.Contains(out, "reacted") {
+		t.Errorf("detailed reaction card missing 'reacted':\n%s", out)
+	}
+	if !strings.Contains(out, "hello parent") {
+		t.Errorf("detailed reaction card missing parent quote:\n%s", out)
+	}
+	if strings.Contains(out, "Reacted :eyes:") {
+		t.Errorf("should not print shortcode Reacted :eyes::\n%s", out)
+	}
+}
+
+func TestView_CustomEmojiFallback(t *testing.T) {
+	m := New()
+	it := reactionItem()
+	it.Reaction = "not-a-real-emoji"
+	m.SetItems([]Item{it})
+	out := ansi.Strip(m.View(16, 70))
+	if !strings.Contains(out, ":not-a-real-emoji:") {
+		t.Errorf("custom/unknown shortcode should fall back to :name::\n%s", out)
+	}
+}
+
+func TestView_CompactReactionLayout(t *testing.T) {
+	m := New()
+	m.SetDensity(config.ActivityDensityCompact)
+	m.SetItems([]Item{reactionItem()})
+	out := ansi.Strip(m.View(12, 70))
+	if !strings.Contains(out, "Alice") || !strings.Contains(out, "👀") || !strings.Contains(out, "eng") {
+		t.Errorf("compact reaction missing Alice/eyes/#eng:\n%s", out)
+	}
+	if !strings.Contains(out, "hello parent") {
+		t.Errorf("compact reaction missing quote:\n%s", out)
+	}
+}
+
+func TestClickAt_ReactionVsBody(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{reactionItem()})
+	out := m.View(16, 70)
+	lines := strings.Split(out, "\n")
+	if len(lines) <= toolbarLines {
+		t.Fatalf("too few lines:\n%s", out)
+	}
+	header := ansi.Strip(lines[toolbarLines])
+	idx := strings.Index(header, "👀")
+	if idx < 0 {
+		t.Fatalf("eyes glyph not in header %q", header)
+	}
+	col := lipgloss.Width(header[:idx])
+	if kind := m.ClickAt(toolbarLines, col); kind != ClickReaction {
+		t.Errorf("click on eyes = %v, want ClickReaction", kind)
+	}
+	if kind := m.ClickAt(toolbarLines, 2); kind != ClickItem {
+		t.Errorf("click on body = %v, want ClickItem", kind)
+	}
+}
+
+func TestHitTestReaction_MatchesClickAt(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{reactionItem()})
+	_ = m.View(16, 70)
+	if len(m.reactionHits) == 0 {
+		t.Fatal("expected a reaction hitbox after View")
+	}
+	h := m.reactionHits[0]
+	row := toolbarLines + h.absLine
+	emoji, ok := m.HitTestReaction(row, h.x0)
+	if !ok || emoji != "eyes" {
+		t.Errorf("HitTestReaction(%d,%d) = (%q,%v), want eyes", row, h.x0, emoji, ok)
+	}
+	if _, ok := m.HitTestReaction(row, 2); ok {
+		t.Error("body column should not be a reaction hit")
+	}
+}
+
+func TestHandleEmojiImageReady_Dirties(t *testing.T) {
+	m := New()
+	v := m.Version()
+	m.HandleEmojiImageReady("https://example.com/x.png")
+	if m.Version() == v {
+		t.Error("HandleEmojiImageReady must dirty so the panel cache does not keep blank holes")
+	}
+	v = m.Version()
+	m.SetEmojiContext(EmojiContext{Cells: 2})
+	if m.Version() == v {
+		t.Error("SetEmojiContext must dirty")
+	}
+	v = m.Version()
+	m.SetEmojiCustoms(map[string]string{"partyparrot": "https://e.example/p.gif"})
+	if m.Version() == v {
+		t.Error("SetEmojiCustoms must dirty")
+	}
+}
+
+func TestApplyReaction_TogglesHasReacted(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{reactionItem()})
+	m.ApplyReaction("C1", "1.0", "eyes", true, false)
+	it, _ := m.SelectedItem()
+	if !it.HasReacted || !it.ReactionsKnown {
+		t.Errorf("after add: HasReacted=%v ReactionsKnown=%v", it.HasReacted, it.ReactionsKnown)
+	}
+	m.ApplyReaction("C1", "1.0", "eyes", true, true)
+	it, _ = m.SelectedItem()
+	if it.HasReacted {
+		t.Error("after remove: HasReacted still true")
 	}
 }

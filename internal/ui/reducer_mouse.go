@@ -5,18 +5,18 @@
 // Owns the two remaining mouse Update arms that act as multi-panel
 // routers:
 //
-//   tea.MouseWheelMsg  - viewport scroll for the panel under the
-//                        cursor (sidebar, messages pane / threads
-//                        view, thread panel). Decoupled from j/k
-//                        selection. Triggers maybeFetchOlderHistory
-//                        on the messages pane when the viewport
-//                        hits the top.
-//   tea.MouseClickMsg  - panel-router: workspace rail (switch
-//                        workspace), sidebar (channel select /
-//                        threads view), messages pane (threads
-//                        click / reaction hit-test / image hit-test
-//                        / drag begin), thread panel (reaction
-//                        hit-test / drag begin).
+//	tea.MouseWheelMsg  - viewport scroll for the panel under the
+//	                     cursor (sidebar, messages pane / threads
+//	                     view, thread panel). Decoupled from j/k
+//	                     selection. Triggers maybeFetchOlderHistory
+//	                     on the messages pane when the viewport
+//	                     hits the top.
+//	tea.MouseClickMsg  - panel-router: workspace rail (switch
+//	                     workspace), sidebar (channel select /
+//	                     threads view), messages pane (threads
+//	                     click / reaction hit-test / image hit-test
+//	                     / drag begin), thread panel (reaction
+//	                     hit-test / drag begin).
 //
 // Free reducer (not controller-absorbed) because both arms route
 // across multiple sub-models: the sidebar, messagepane, threadPanel,
@@ -175,6 +175,13 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 	if a.bootstrap.IsLoading() {
 		return nil
 	}
+	// Right-click on an Activity card opens the reaction picker when
+	// the terminal reports MouseRight. Apple Terminal (and some other
+	// macOS terminals) may swallow right-click for their own context
+	// menu, so `r` remains the reliable keyboard path.
+	if m.Button == tea.MouseRight {
+		return reduceActivityRightClick(a, m)
+	}
 	if m.Button != tea.MouseLeft {
 		return nil
 	}
@@ -270,6 +277,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 				return nil
 			}
 			switch a.activityView.ClickAt(py, px) {
+			case activityview.ClickReaction:
+				it, ok := a.activityView.SelectedItem()
+				if !ok {
+					return nil
+				}
+				return a.toggleActivityReaction(it)
 			case activityview.ClickItem:
 				return a.openSelectedActivityCmd()
 			case activityview.ClickControls:
@@ -345,4 +358,19 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	return nil
+}
+
+func reduceActivityRightClick(a *App, m tea.MouseClickMsg) tea.Cmd {
+	if a.mode.IsModalOverlay() || a.view != ViewActivity {
+		return nil
+	}
+	panel, px, py, ok := a.panelAt(m.X, m.Y)
+	if !ok || panel != PanelMessages || py < 0 {
+		return nil
+	}
+	kind := a.activityView.ClickAtCard(py, px)
+	if kind == activityview.ClickNone {
+		return nil
+	}
+	return a.openPickerFromActivity()
 }
