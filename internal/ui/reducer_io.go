@@ -29,6 +29,8 @@
 //	statusbar.CopiedClearMsg          - 2/3s expiry tick
 //	statusbar.PermalinkCopiedMsg      - "Copied permalink"
 //	statusbar.PermalinkCopyFailedMsg  - "Failed to copy link"
+//	statusbar.MessageCopiedMsg        - "Copied message"
+//	prefixTimeoutMsg                  - cancel pending gg/yy prefix
 //	statusbar.MarkedUnreadMsg         - "Marked unread"
 //	statusbar.MarkUnreadFailedMsg     - "Mark unread failed: ..."
 //	statusbar.EditFailedMsg           - "Edit failed: ..."
@@ -108,6 +110,16 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case statusbar.PermalinkCopyFailedMsg:
 		_ = m
 		return toastWithClear(a, "Failed to copy link", 2*time.Second), true
+
+	case statusbar.MessageCopiedMsg:
+		_ = m
+		return toastWithClear(a, "Copied message", 2*time.Second), true
+
+	case prefixTimeoutMsg:
+		if a.pendingPrefix == m.prefix && a.prefixGen == m.gen {
+			a.pendingPrefix = 0
+		}
+		return nil, true
 
 	case statusbar.MarkedUnreadMsg:
 		_ = m

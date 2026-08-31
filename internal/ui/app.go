@@ -148,6 +148,14 @@ type App struct {
 	// any mode change disarms (see SetMode).
 	pendingWinCmd bool
 
+	// pendingPrefix is a vim-style two-key prefix waiting for a repeat
+	// of the same key: 'g' for gg (top), 'y' for yy (yank message text).
+	// Zero when idle. Cleared by any other key, SetMode, or a matching
+	// prefixTimeoutMsg. prefixGen invalidates stale timeout ticks so a
+	// timeout from an earlier prefix cannot cancel a newer one.
+	pendingPrefix rune
+	prefixGen     uint64
+
 	// layout owns the per-frame layout geometry (horizontal bands for
 	// mouse hit-testing + per-pane content heights for pageSize). See
 	// internal/ui/panellayout.go.
@@ -1070,6 +1078,51 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 	}
 }
 
+// yankSelectedMessage copies the selected message's plain text (author
+// + body, Slack mrkdwn stripped) to the clipboard via OSC 52. Single
+// `y` is only a prefix; this runs on the completing `yy`.
+func (a *App) yankSelectedMessage() tea.Cmd {
+	var msg messages.MessageItem
+	var ok bool
+	switch a.focusedPanel {
+	case PanelMessages:
+		msg, ok = a.messagepane.SelectedMessage()
+	case PanelThread:
+		reply := a.threadPanel.SelectedReply()
+		if reply != nil {
+			msg, ok = *reply, true
+		}
+	}
+	if !ok {
+		return nil
+	}
+	text := msg.YankText(a.userNames, a.channelNames, a.userGroups)
+	if text == "" {
+		return nil
+	}
+	write := a.clipboardWrite
+	return func() tea.Msg {
+		return tea.Batch(
+			write(text),
+			func() tea.Msg { return statusbar.MessageCopiedMsg{} },
+		)()
+	}
+}
+
+// keyPrefixTimeout is the vim-style window in which a second g/y
+// completes gg/yy. A matching prefixTimeoutMsg after this duration
+// cancels the pending prefix without performing the action.
+const keyPrefixTimeout = time.Second
+
+func (a *App) armPrefix(r rune) tea.Cmd {
+	a.pendingPrefix = r
+	a.prefixGen++
+	gen := a.prefixGen
+	return tea.Tick(keyPrefixTimeout, func(time.Time) tea.Msg {
+		return prefixTimeoutMsg{prefix: r, gen: gen}
+	})
+}
+
 // openLinksOfSelected implements the `o` keybinding: collect the
 // links in the selected message (messages pane or thread panel).
 // 0 links -> toast; 1 link -> dispatch OpenLinkMsg directly; 2+ ->
@@ -1411,6 +1464,26 @@ func (a *App) handleGoToBottom() tea.Cmd {
 	return nil
 }
 
+func (a *App) handleGoToTop() tea.Cmd {
+	switch a.focusedPanel {
+	case PanelSidebar:
+		a.sidebar.GoToTop()
+	case PanelMessages:
+		if a.view == ViewThreads {
+			a.threadsView.GoToTop()
+			return a.openSelectedThreadCmd(false)
+		}
+		if a.view == ViewActivity {
+			a.activityView.GoToTop()
+			return nil
+		}
+		a.messagepane.GoToTop()
+	case PanelThread:
+		a.threadPanel.GoToTop()
+	}
+	return nil
+}
+
 // pageSize returns the number of lines to scroll for a full-page jump in the
 // currently-focused panel. Falls back to a sensible default if the layout
 // hasn't been measured yet (i.e. before the first render).
@@ -1649,6 +1722,7 @@ func (a *App) SetMode(mode Mode) {
 		a.pendingWinCmd = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}
+	a.pendingPrefix = 0
 	if mode == ModeInsert {
 		a.clearSelections()
 	}
