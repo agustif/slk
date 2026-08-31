@@ -141,6 +141,9 @@ var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 				a.SetChannels(items)
 			}
 		}
+		if m.HasStatus {
+			a.sidebar.UpdateUserStatus(m.UserID, m.Status)
+		}
 		return nil, true
 
 	case UserExternalMsg:
@@ -230,6 +233,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.SetUserNames(m.UserNames)
 		a.SetCustomEmoji(m.CustomEmoji)
 		a.SetUserGroups(m.UserGroups)
+		a.sidebar.SetUserStatuses(m.UserStatuses)
 		// Route through the setter so messagepane/threadPanel also learn
 		// the current user — production never calls SetCurrentUserID
 		// otherwise, which would leave live self-reactions unstyled.
@@ -336,6 +340,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// by a stale peer from the workspace we're leaving. The new
 	// workspace's own presence_change events repopulate it.
 	a.sidebar.ResetPresence()
+	a.sidebar.ResetUserStatuses()
 	a.SetChannels(m.Channels)
 	a.channelFinder.SetItems(m.FinderItems)
 	// SetExternalUsers re-pushes user-names; calling SetUserNames
@@ -344,6 +349,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.SetUserNames(m.UserNames)
 	a.SetCustomEmoji(m.CustomEmoji)
 	a.SetUserGroups(m.UserGroups)
+	a.sidebar.SetUserStatuses(m.UserStatuses)
 	// Route through the setter so messagepane/threadPanel also learn the
 	// current user (see WorkspaceReadyMsg above).
 	a.SetCurrentUserID(m.UserID)

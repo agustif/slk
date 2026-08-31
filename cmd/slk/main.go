@@ -51,6 +51,7 @@ import (
 	"github.com/gammons/slk/internal/ui/statusbar"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
+	"github.com/gammons/slk/internal/ui/userprofile"
 	"github.com/gammons/slk/internal/ui/workspace"
 	versionpkg "github.com/gammons/slk/internal/version"
 	"github.com/gammons/slk/internal/wake"
@@ -229,6 +230,9 @@ type WorkspaceContext struct {
 	// in connectWorkspace alongside UserResolver (it depends on the
 	// resolver to trigger external-user lookups for newly-seen IDs).
 	Membership *membership.Manager
+
+	statusMu     sync.Mutex
+	userStatuses map[string]slackclient.UserStatus
 }
 
 // UserGroups returns this workspace's usergroup ID -> handle map, or an
@@ -245,6 +249,37 @@ func (w *WorkspaceContext) UserGroups() map[string]string {
 // workspace. The caller must not mutate the map afterwards.
 func (w *WorkspaceContext) SetUserGroups(groups map[string]string) {
 	w.userGroups.Store(&groups)
+}
+
+// StoreUserStatus records a user's custom Slack status. Safe for
+// concurrent callers (boot, users.info, optimistic set).
+func (w *WorkspaceContext) StoreUserStatus(userID string, st slackclient.UserStatus) {
+	if w == nil || userID == "" {
+		return
+	}
+	w.statusMu.Lock()
+	defer w.statusMu.Unlock()
+	if w.userStatuses == nil {
+		w.userStatuses = make(map[string]slackclient.UserStatus)
+	}
+	w.userStatuses[userID] = st
+}
+
+// SnapshotUserStatuses copies the userID -> custom status map.
+func (w *WorkspaceContext) SnapshotUserStatuses() map[string]slackclient.UserStatus {
+	if w == nil {
+		return nil
+	}
+	w.statusMu.Lock()
+	defer w.statusMu.Unlock()
+	if len(w.userStatuses) == 0 {
+		return nil
+	}
+	out := make(map[string]slackclient.UserStatus, len(w.userStatuses))
+	for id, st := range w.userStatuses {
+		out[id] = st
+	}
+	return out
 }
 
 // workspaceRouter holds the program-wide "active workspace" pointer.
@@ -329,6 +364,8 @@ type userResolver struct {
 	pendingMu  sync.Mutex
 	pending    map[string]struct{}
 	flushTimer *time.Timer
+
+	storeStatus func(userID string, st slackclient.UserStatus)
 }
 
 func newUserResolver(
@@ -448,12 +485,18 @@ func (r *userResolver) resolveOne(userID string) {
 		IsBot:       isBot,
 		IsExternal:  isExternal,
 	})
+	st := slackclient.UserStatusFromSlack(u)
+	if r.storeStatus != nil {
+		r.storeStatus(userID, st)
+	}
 	if r.send != nil {
 		r.send(ui.UserResolvedMsg{
 			TeamID:      r.teamID,
 			UserID:      userID,
 			DisplayName: name,
 			IsBot:       isBot,
+			Status:      st,
+			HasStatus:   true,
 		})
 	}
 	if isExternal && r.send != nil {
@@ -1322,6 +1365,61 @@ func run() error {
 		}()
 	})
 
+	app.SetCustomStatusSetter(func(st slackclient.UserStatus) {
+		wctx := workspaces[activeTeamID]
+		if wctx == nil || wctx.Client == nil {
+			return
+		}
+		if wctx.UserID != "" {
+			wctx.StoreUserStatus(wctx.UserID, st)
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err := wctx.Client.SetUserCustomStatus(ctx, st)
+			if err != nil && p != nil {
+				p.Send(ui.ToastMsg{Text: "Status change failed: " + err.Error()})
+			}
+		}()
+	})
+
+	app.SetProfileFetcher(func(userID string) tea.Cmd {
+		return func() tea.Msg {
+			wctx := workspaces[activeTeamID]
+			if wctx == nil || wctx.Client == nil {
+				return ui.UserProfileLoadedMsg{UserID: userID, Err: fmt.Errorf("no workspace")}
+			}
+			u, err := wctx.Client.GetUserProfile(userID)
+			if err != nil {
+				return ui.UserProfileLoadedMsg{UserID: userID, Err: err}
+			}
+			st := slackclient.UserStatusFromSlack(u)
+			wctx.StoreUserStatus(userID, st)
+			display := u.Profile.DisplayName
+			if display == "" {
+				display = u.RealName
+			}
+			if display == "" {
+				display = u.Name
+			}
+			return ui.UserProfileLoadedMsg{
+				UserID: userID,
+				Profile: userprofile.Profile{
+					UserID:      u.ID,
+					DisplayName: display,
+					RealName:    u.RealName,
+					Handle:      u.Name,
+					Title:       u.Profile.Title,
+					Status:      st,
+					TZ:          u.TZ,
+					TZLabel:     u.TZLabel,
+					TZOffset:    u.TZOffset,
+					Presence:    u.Presence,
+				},
+			}
+		}
+	})
+
 	// wireCallbacks installs all App callbacks once at startup. Each
 	// callback reads router.Active() at invocation time, so the
 	// effective workspace tracks the user's current Ctrl-N selection
@@ -1954,6 +2052,7 @@ func run() error {
 			UserID:           wctx.UserID,
 			CustomEmoji:      wctx.CustomEmoji,
 			UserGroups:       wctx.UserGroups(),
+			UserStatuses:     wctx.SnapshotUserStatuses(),
 			SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 			ActivityUnread:   wctx.ActivityUnread,
 		}
@@ -2148,6 +2247,7 @@ func run() error {
 				UserID:           wctx.UserID,
 				CustomEmoji:      wctx.CustomEmoji,  // from conversations.view, or filled by the goroutine below
 				UserGroups:       wctx.UserGroups(), // empty at this point; filled by the goroutine below
+				UserStatuses:     wctx.SnapshotUserStatuses(),
 				SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 				InitialActive:    isInitial,
 				LastChannelID:    mostRecentlyVisitedChannel(wctx.LastVisitedByChannel),
@@ -2413,6 +2513,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		},
 		wctx.Edge, wctx.EdgeHealth.Degraded,
 	)
+	wctx.UserResolver.storeStatus = wctx.StoreUserStatus
 
 	// Per-workspace channel-membership manager. *slackclient.Client
 	// structurally satisfies membership.ConversationMemberAPI; the

@@ -706,6 +706,36 @@ func TestApplyBootUsers_FillsTheMapsTheSidebarReads(t *testing.T) {
 	}
 }
 
+func TestApplyBootUsers_StoresCustomStatus(t *testing.T) {
+	wctx := &WorkspaceContext{
+		UserNames:         map[string]string{},
+		UserNamesByHandle: map[string]string{},
+		BotUserIDs:        map[string]bool{},
+		AvatarURLs:        &sync.Map{},
+	}
+	applyBootUsers(wctx, &bootstrap.Result{
+		Self: boot.Self{
+			ID: "USELF",
+			Profile: boot.SelfProfile{
+				StatusText: "on a call", StatusEmoji: ":phone:", StatusExpiration: 99,
+			},
+		},
+		Users: []boot.User{
+			{ID: "U1", Name: "pat", Profile: boot.UserProfile{
+				DisplayName: "Pat", StatusText: "focus", StatusEmoji: ":dart:", StatusExpiration: 50,
+			}},
+			{ID: "U2", Name: "sam"},
+		},
+	})
+	got := wctx.SnapshotUserStatuses()
+	if got["U1"].Text != "focus" || got["U1"].Emoji != ":dart:" || got["U1"].Expiration != 50 {
+		t.Errorf("U1 status = %+v", got["U1"])
+	}
+	if got["USELF"].Text != "on a call" || got["USELF"].Emoji != ":phone:" {
+		t.Errorf("self status = %+v", got["USELF"])
+	}
+}
+
 // ---------------------------------------------------------------------
 // bootMutedChannels
 // ---------------------------------------------------------------------

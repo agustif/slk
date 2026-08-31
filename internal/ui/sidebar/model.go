@@ -10,6 +10,7 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/debuglog"
 	emojiutil "github.com/gammons/slk/internal/emoji"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -199,6 +200,15 @@ type Model struct {
 	// item exists (startup race) so they apply once the item is set.
 	presenceByUser map[string]string
 
+	// statusByUser is the custom Slack status for DM peers, keyed by
+	// DMUserID. Populated from boot users and users.info, and re-applied
+	// on SetItems the same way presence is. Cleared on workspace switch
+	// via ResetUserStatuses.
+	statusByUser map[string]slackclient.UserStatus
+
+	emojiPlace   emojiutil.PlaceContext
+	emojiCustoms map[string]string
+
 	// Flat list of navigable stops in display order: threads row,
 	// section headers, and channel rows belonging to expanded sections.
 	// cursor indexes into nav and is the single source of truth for what
@@ -246,7 +256,7 @@ type Model struct {
 	threadsActive bool
 	// activityActive is the same indicator for the Activity inbox row.
 	activityActive bool
-	nowFn         func() time.Time
+	nowFn          func() time.Time
 
 	// snappedSelection lets View() avoid snapping yOffset back to the
 	// selected row on every render. While snappedSelection == cursor,
@@ -755,6 +765,84 @@ func (m *Model) SetItems(items []ChannelItem) {
 	m.dirty()
 }
 
+// SetUserStatuses replaces the per-user custom-status map. Pass nil to clear.
+func (m *Model) SetUserStatuses(statuses map[string]slackclient.UserStatus) {
+	if len(statuses) == 0 {
+		m.statusByUser = nil
+		m.cacheValid = false
+		m.dirty()
+		return
+	}
+	m.statusByUser = make(map[string]slackclient.UserStatus, len(statuses))
+	for id, st := range statuses {
+		m.statusByUser[id] = st
+	}
+	m.cacheValid = false
+	m.dirty()
+}
+
+// UpdateUserStatus records one user's custom status (optimistic self-set
+// and UserResolvedMsg). Survives later SetItems rebuilds.
+func (m *Model) UpdateUserStatus(userID string, st slackclient.UserStatus) {
+	if userID == "" {
+		return
+	}
+	if m.statusByUser == nil {
+		m.statusByUser = make(map[string]slackclient.UserStatus)
+	}
+	m.statusByUser[userID] = st
+	m.cacheValid = false
+	m.dirty()
+}
+
+// ResetUserStatuses drops remembered custom statuses. Called on workspace
+// switch alongside ResetPresence.
+func (m *Model) ResetUserStatuses() {
+	m.statusByUser = nil
+	m.cacheValid = false
+	m.dirty()
+}
+
+// StatusForUser returns the remembered custom status for userID.
+func (m *Model) StatusForUser(userID string) (slackclient.UserStatus, bool) {
+	if m.statusByUser == nil {
+		return slackclient.UserStatus{}, false
+	}
+	st, ok := m.statusByUser[userID]
+	return st, ok
+}
+
+// PresenceForUser returns live or item-seeded presence for a DM peer.
+func (m *Model) PresenceForUser(userID string) string {
+	if userID == "" {
+		return ""
+	}
+	if p, ok := m.presenceByUser[userID]; ok {
+		return p
+	}
+	for _, it := range m.items {
+		if it.DMUserID == userID {
+			return it.Presence
+		}
+	}
+	return ""
+}
+
+// SetEmojiContext configures status-emoji image rendering. Optional.
+func (m *Model) SetEmojiContext(place emojiutil.PlaceContext, customs map[string]string) {
+	m.emojiPlace = place
+	m.emojiCustoms = customs
+	m.cacheValid = false
+	m.dirty()
+}
+
+// SetEmojiCustoms updates the workspace custom-emoji map used for status glyphs.
+func (m *Model) SetEmojiCustoms(customs map[string]string) {
+	m.emojiCustoms = customs
+	m.cacheValid = false
+	m.dirty()
+}
+
 // applyPresence overwrites each DM item's Presence with the authoritative
 // live value from presenceByUser, so a rebuild that supplies stale/default
 // presence doesn't clobber the real state. No-op when no presence is known.
@@ -948,6 +1036,43 @@ func (m *Model) VisibleItems() []ChannelItem {
 // presenceByUser (even when no item matches yet) makes the value survive
 // later SetItems rebuilds and applies it to items that appear afterward
 // (startup race).
+// dmStatusSuffix returns a muted " emoji" (or truncated text) suffix for
+// a DM/app row whose counterpart has a non-expired custom status. The
+// unread dot is reserved separately; suffix width is subtracted from
+// the name budget by the caller.
+func (m *Model) dmStatusSuffix(item ChannelItem, maxNameLen int) (string, int) {
+	if item.DMUserID == "" || (item.Type != "dm" && item.Type != "app") {
+		return "", 0
+	}
+	st, ok := m.statusByUser[item.DMUserID]
+	if !ok || !st.Active(m.now()) {
+		return "", 0
+	}
+	glyph := emojiutil.StatusGlyph(st.Emoji, m.emojiCustoms, m.emojiPlace)
+	body := glyph
+	if body == "" {
+		body = strings.TrimSpace(st.Text)
+	}
+	if body == "" {
+		return "", 0
+	}
+	// Keep the unread column intact: at most ~1/3 of the name budget,
+	// and never more than 12 cells.
+	budget := maxNameLen / 3
+	if budget > 12 {
+		budget = 12
+	}
+	if budget < 2 {
+		return "", 0
+	}
+	if lipgloss.Width(body) > budget {
+		body = truncate.StringWithTail(body, uint(budget), "…")
+	}
+	styled := lipgloss.NewStyle().Foreground(styles.TextMuted).Render(body)
+	suffix := " " + styled
+	return suffix, lipgloss.Width(suffix)
+}
+
 func (m *Model) UpdatePresenceByUser(userID, presence string) {
 	if userID == "" {
 		return
@@ -1423,6 +1548,17 @@ func (m *Model) buildCache(width int) {
 		if maxNameLen < 5 {
 			maxNameLen = 5
 		}
+		statusSuffix, statusW := m.dmStatusSuffix(item, maxNameLen)
+		if statusW > 0 {
+			maxNameLen -= statusW
+			if maxNameLen < 3 {
+				statusSuffix, statusW = "", 0
+				maxNameLen = (width - 2) - 8
+				if maxNameLen < 5 {
+					maxNameLen = 5
+				}
+			}
+		}
 		if lipgloss.Width(name) > maxNameLen {
 			name = truncate.StringWithTail(name, uint(maxNameLen), "…")
 		}
@@ -1432,9 +1568,9 @@ func (m *Model) buildCache(width int) {
 		// View() picks: selected if cursor is on this row, else active
 		// if this row's channelID matches activeID, else normal. The
 		// cursor takes precedence so j/k feedback stays unambiguous.
-		labelNormal := " " + prefix + name + " " + unreadDot
-		labelSelected := cursorSelected + prefix + name + " " + unreadDot
-		labelActive := activeBorder + prefix + name + " " + unreadDot
+		labelNormal := " " + prefix + name + statusSuffix + " " + unreadDot
+		labelSelected := cursorSelected + prefix + name + statusSuffix + " " + unreadDot
+		labelActive := activeBorder + prefix + name + statusSuffix + " " + unreadDot
 
 		// Re-apply theme attrs after ANSI resets emitted by inline styled
 		// glyphs (cursor, prefix, unread dot) so the outer lipgloss
