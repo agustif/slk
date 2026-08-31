@@ -19,9 +19,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/gammons/slk/internal/debuglog"
-	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/debuglog"
+	imgpkg "github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 // ImageContext bundles the dependencies a Renderer needs. Configured

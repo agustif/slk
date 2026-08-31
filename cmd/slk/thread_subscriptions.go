@@ -8,10 +8,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/debuglog"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/debuglog"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui"
 )
 
 // threadSubscriptionLister is the one call this file makes:

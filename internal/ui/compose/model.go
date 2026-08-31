@@ -10,12 +10,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/gammons/slk/internal/emoji"
-	"github.com/gammons/slk/internal/ui/channelpicker"
-	"github.com/gammons/slk/internal/ui/emojipicker"
-	"github.com/gammons/slk/internal/ui/mentionpicker"
-	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/gammons/slk/internal/usergroups"
+	"github.com/agustif/slk/internal/emoji"
+	"github.com/agustif/slk/internal/ui/channelpicker"
+	"github.com/agustif/slk/internal/ui/emojipicker"
+	"github.com/agustif/slk/internal/ui/mentionpicker"
+	"github.com/agustif/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/usergroups"
 )
 
 // PendingAttachment is a file (or in-memory image) waiting to be

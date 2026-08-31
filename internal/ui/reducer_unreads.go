@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/unreadsview"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/unreadsview"
 )
 
 var reduceUnreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {

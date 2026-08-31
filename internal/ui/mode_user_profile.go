@@ -3,7 +3,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/userprofile"
+	"github.com/agustif/slk/internal/ui/userprofile"
 )
 
 func handleUserProfileMode(a *App, msg tea.KeyMsg) tea.Cmd {

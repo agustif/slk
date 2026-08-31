@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gammons/slk/internal/text"
+	"github.com/agustif/slk/internal/text"
 )
 
 // Sort atoms for [sidebar.sort]. Each atom is one comparison key.

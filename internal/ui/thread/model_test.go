@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/gammons/slk/internal/config"
-	emojiutil "github.com/gammons/slk/internal/emoji"
-	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/imgrender"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/config"
+	emojiutil "github.com/agustif/slk/internal/emoji"
+	imgpkg "github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/ui/imgrender"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 func TestFollowingHeader(t *testing.T) {

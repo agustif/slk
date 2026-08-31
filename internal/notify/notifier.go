@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gammons/slk/internal/usergroups"
+	"github.com/agustif/slk/internal/usergroups"
 	"github.com/gen2brain/beeep"
 )
 

@@ -111,7 +111,7 @@ nfpms:
   - id: slk
     package_name: slk
     vendor: Grant Ammons
-    homepage: https://github.com/gammons/slk
+    homepage: https://github.com/agustif/slk
     maintainer: Grant Ammons <grant@grant.dev>
     description: |-
       A blazingly fast Slack TUI.
@@ -131,7 +131,7 @@ nfpms:
 
 release:
   github:
-    owner: gammons
+    owner: agustif
     name: slk
   draft: false
   prerelease: auto
@@ -160,7 +160,7 @@ release:
     pre-releases are opt-in only, and nothing you already have installed
     will move to this by itself.
 
-    - **Go:** `go install github.com/gammons/slk/cmd/slk@{{ .Tag }}`
+    - **Go:** `go install github.com/agustif/slk/cmd/slk@{{ .Tag }}`
     - **Linux/macOS:** download the `.tar.gz`, extract, and place `slk` in your `$PATH`
     - **Windows:** download the `.zip`, extract `slk.exe`, add to `PATH`
 
@@ -181,7 +181,7 @@ release:
     ```
 
     Please report anything you find at
-    https://github.com/gammons/slk/issues -- including "it seemed fine",
+    https://github.com/agustif/slk/issues -- including "it seemed fine",
     which is genuinely useful and almost never gets sent.
     {{- else }}
     **Install**
@@ -191,59 +191,11 @@ release:
     - **Fedora/RHEL:** `sudo rpm -i slk_*.rpm`
     - **Alpine:** `sudo apk add --allow-untrusted slk_*.apk`
     - **Windows:** download the `.zip`, extract `slk.exe`, add to `PATH`
-    - **Go:** `go install github.com/gammons/slk/cmd/slk@{{ .Tag }}`
+    - **Go:** `go install github.com/agustif/slk/cmd/slk@{{ .Tag }}`
 
     Verify downloads with `checksums.txt`.
     {{- end }}
 
-# Homebrew tap.
-#
-# Casks, not formulas: goreleaser deprecated `brews` in v2.10 and the
-# historical formula was a hack for installing pre-compiled binaries.
-# Users still install with:
-#
-#     brew install gammons/tap/slk
-#
-# Two consequences of the move worth knowing:
-#
-#   1. The cask serves macOS AND Linux (Homebrew supports casks on Linux);
-#      goreleaser generates on_macos and on_linux stanzas pointing at the
-#      per-OS/arch tarballs.
-#   2. The old pre-v0.13.0 formula was deleted from the tap and a
-#      tap_migrations.json containing {"slk": "slk"} added, so `brew
-#      upgrade` moves existing formula installs to the cask.
-#
-# The token is a fine-grained PAT scoped to the homebrew-tap repo with
-# contents:write, stored as HOMEBREW_TAP_GITHUB_TOKEN in this repo's
-# Actions secrets.
-homebrew_casks:
-  - name: slk
-    repository:
-      owner: gammons
-      name: homebrew-tap
-      branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: goreleaser
-      email: goreleaser@gammons.dev
-    commit_msg_template: "slk: brew cask update for {{ .ProjectName }} version {{ .Tag }}"
-    homepage: https://github.com/gammons/slk
-    description: A blazingly fast, keyboard-driven Slack TUI
-    # Helps `brew audit` when the homepage and the download domain differ.
-    url:
-      verified: github.com/gammons/slk
-    # Skip the prerelease tags goreleaser auto-flags so the tap only
-    # tracks stable releases.
-    skip_upload: auto
-    binaries:
-      - slk
-    # slk's binaries are not signed or notarized, so macOS quarantines
-    # them on download and Gatekeeper refuses to run them. Stripping the
-    # attribute at install time is what goreleaser's migration guide
-    # prescribes for unsigned casks.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slk"]
-          end
+# Homebrew for this fork is the tap github.com/agustif/homebrew-slk
+# (`brew install --HEAD agustif/slk/slk`). Do not upload casks to
+# gammons/homebrew-tap — that is upstream.

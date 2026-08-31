@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	slk "github.com/gammons/slk/internal/slack"
+	slk "github.com/agustif/slk/internal/slack"
 )
 
 // VIPStore is the per-workspace set of Slack VIP people/apps

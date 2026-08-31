@@ -7,8 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/overlay"
+	"github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/ui/overlay"
 )
 
 // TestDimmedOverlayDropsKittyPlaceholders guards issue #18.

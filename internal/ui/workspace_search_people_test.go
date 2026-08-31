@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/ui/searchresults"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/searchresults"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 func peopleSearchTestApp(t *testing.T) (*App, *[]searchresults.Kind) {

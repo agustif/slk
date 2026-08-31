@@ -12,10 +12,10 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/ids"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/activityview"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/ids"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/activityview"
 )
 
 // activityMessageCache is the cache-first parent-quote / reaction

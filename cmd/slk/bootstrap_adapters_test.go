@@ -16,12 +16,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gammons/slk/internal/bootstrap"
-	"github.com/gammons/slk/internal/cache"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/slack/boot"
-	"github.com/gammons/slk/internal/slack/edge"
-	"github.com/gammons/slk/internal/slackhttp"
+	"github.com/agustif/slk/internal/bootstrap"
+	"github.com/agustif/slk/internal/cache"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/slack/boot"
+	"github.com/agustif/slk/internal/slack/edge"
+	"github.com/agustif/slk/internal/slackhttp"
 )
 
 // newTestClient returns a real *slackclient.Client whose every request

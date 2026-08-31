@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/linkpicker"
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/linkpicker"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func (a *App) handleHeaderChromeHit(hit messages.ChromeHit) tea.Cmd {

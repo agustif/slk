@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gammons/slk/internal/slack/edge"
+	"github.com/agustif/slk/internal/slack/edge"
 )
 
 type fakeChannelSearch struct {

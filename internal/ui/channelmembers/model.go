@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gammons/slk/internal/text"
+	"github.com/agustif/slk/internal/text"
 )
 
 // Member is one row in the overlay. Presence is the live value from

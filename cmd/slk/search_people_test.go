@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gammons/slk/internal/slack/edge"
-	"github.com/gammons/slk/internal/ui/searchresults"
+	"github.com/agustif/slk/internal/slack/edge"
+	"github.com/agustif/slk/internal/ui/searchresults"
 )
 
 type fakeUserSearch struct {

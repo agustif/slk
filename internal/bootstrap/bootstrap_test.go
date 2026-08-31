@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gammons/slk/internal/slack/boot"
+	"github.com/agustif/slk/internal/slack/boot"
 )
 
 // The names the fake records. They are the API method names rather than

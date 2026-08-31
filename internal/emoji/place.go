@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	imgpkg "github.com/gammons/slk/internal/image"
+	imgpkg "github.com/agustif/slk/internal/image"
 )
 
 // PlaceFetcher is the subset of *image.Fetcher's API that Place uses.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
+	"github.com/agustif/slk/internal/cache"
 	"github.com/slack-go/slack"
 )
 

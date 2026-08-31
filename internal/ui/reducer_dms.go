@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 var reduceDMs reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	emojiutil "github.com/gammons/slk/internal/emoji"
-	"github.com/gammons/slk/internal/ui/messages"
+	emojiutil "github.com/agustif/slk/internal/emoji"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 // ThreadToMarkdown converts a parent message and its replies into a

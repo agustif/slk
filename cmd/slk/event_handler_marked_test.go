@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
+	"github.com/agustif/slk/internal/cache"
 )
 
 func TestOnChannelMarked_WritesReadState(t *testing.T) {

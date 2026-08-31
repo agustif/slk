@@ -38,11 +38,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/activityview"
-	"github.com/gammons/slk/internal/ui/draftsview"
-	"github.com/gammons/slk/internal/ui/laterview"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/unreadsview"
+	"github.com/agustif/slk/internal/ui/activityview"
+	"github.com/agustif/slk/internal/ui/draftsview"
+	"github.com/agustif/slk/internal/ui/laterview"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/unreadsview"
 )
 
 // sidebarHeaderDoubleClick is the window in which a second left-click

@@ -19,7 +19,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
+	"github.com/agustif/slk/internal/ids"
 )
 
 func (a *App) setThreadFetcherForTest(fn ThreadFetchFunc) {

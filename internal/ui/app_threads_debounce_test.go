@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/ids"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/ids"
 )
 
 // newTestAppWithThreadsView is the threads-view analogue of

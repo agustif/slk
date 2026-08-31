@@ -1,88 +1,43 @@
 # Installation
 
-Grab a prebuilt binary from the [latest release](https://github.com/gammons/slk/releases/latest), or use one of the methods below.
+Install **this fork** ([agustif/slk](https://github.com/agustif/slk)). Commands that mention `gammons/slk`, `gammons/tap`, or AUR `slk` install [upstream](https://github.com/gammons/slk) instead.
 
-The shell snippets resolve the latest version automatically.
+Use Go `@main` (not `@latest`). Existing Git tags are from upstream; `@latest` would not be this tree until the fork cuts its own release.
 
-## Linux
+## Homebrew (macOS and Linux)
 
-### Debian / Ubuntu
-
-```bash
-VERSION=$(curl -fsSL https://api.github.com/repos/gammons/slk/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//')
-curl -fsSLO "https://github.com/gammons/slk/releases/latest/download/slk_${VERSION}_linux_amd64.deb"
-sudo dpkg -i "slk_${VERSION}_linux_amd64.deb"
-```
-
-### Fedora / RHEL
+The formula lives in a dedicated tap, [agustif/homebrew-slk](https://github.com/agustif/homebrew-slk) (`brew tap agustif/slk` clones that repo). It is **not** [gammons/tap](https://github.com/gammons/homebrew-tap).
 
 ```bash
-VERSION=$(curl -fsSL https://api.github.com/repos/gammons/slk/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//')
-sudo rpm -i "https://github.com/gammons/slk/releases/latest/download/slk_${VERSION}_linux_amd64.rpm"
+# Drop the upstream cask if it is already installed (same binary name):
+brew uninstall --cask slk 2>/dev/null || true
+
+brew install --HEAD agustif/slk/slk
 ```
 
-### Alpine
+That auto-taps `agustif/homebrew-slk` and builds this fork’s `main` from source.
+
+Update later with `brew upgrade --fetch-HEAD slk`.
+
+## Arch Linux
+
+AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This fork ships a `slk-git` PKGBUILD:
 
 ```bash
-VERSION=$(curl -fsSL https://api.github.com/repos/gammons/slk/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//')
-curl -fsSLO "https://github.com/gammons/slk/releases/latest/download/slk_${VERSION}_linux_amd64.apk"
-sudo apk add --allow-untrusted "slk_${VERSION}_linux_amd64.apk"
+git clone https://github.com/agustif/slk.git
+cd slk/packaging/aur
+makepkg -si
 ```
 
-### Arch Linux
-
-slk is available in the AUR as [`slk`](https://aur.archlinux.org/packages/slk)
-(community-maintained; builds from source):
-
-```bash
-yay -S slk    # or: paru -S slk
-```
-
-### Tarball (any distro)
-
-Swap `x86_64` for `arm64` on ARM:
-
-```bash
-VERSION=$(curl -fsSL https://api.github.com/repos/gammons/slk/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//')
-curl -fsSL "https://github.com/gammons/slk/releases/latest/download/slk_${VERSION}_linux_x86_64.tar.gz" | tar xz
-sudo mv slk /usr/local/bin/
-```
-
-## macOS
-
-### Homebrew (macOS and Linux)
-
-```bash
-brew install --cask gammons/tap/slk
-```
-
-The cask carries per-OS/arch tarballs and serves both macOS and Linux.
-Anyone who installed via the old pre-v0.13.0 formula is migrated to the
-cask automatically on `brew upgrade` (the formula was removed from the tap
-and a `tap_migrations.json` entry added); if that ever fails, run
-`brew uninstall slk && brew install --cask gammons/tap/slk` once.
-
-### Tarball
-
-```bash
-VERSION=$(curl -fsSL https://api.github.com/repos/gammons/slk/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//')
-# Apple Silicon
-curl -fsSL "https://github.com/gammons/slk/releases/latest/download/slk_${VERSION}_darwin_arm64.tar.gz" | tar xz
-# Intel
-curl -fsSL "https://github.com/gammons/slk/releases/latest/download/slk_${VERSION}_darwin_x86_64.tar.gz" | tar xz
-
-sudo mv slk /usr/local/bin/
-```
-
-## Windows
-
-Download the `windows_x86_64.zip` from the [latest release](https://github.com/gammons/slk/releases/latest), extract `slk.exe`, and add it to your `PATH`.
+That provides `slk` and conflicts with the upstream AUR package.
 
 ## Go
 
 ```bash
-go install github.com/gammons/slk/cmd/slk@latest
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@main
 ```
+
+The module path is `github.com/agustif/slk`. The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`).
 
 ## Build from source
 
@@ -105,17 +60,22 @@ On Linux, `Ctrl+V` paste-to-upload needs slightly different setup depending on y
 slk auto-detects the session via `WAYLAND_DISPLAY` at startup. On headless Linux (or when neither dependency is met), slk runs but `Ctrl+V` smart-paste is disabled.
 
 ```bash
-git clone https://github.com/gammons/slk.git
+git clone https://github.com/agustif/slk.git
 cd slk
 make build       # binary at bin/slk
 ```
 
-## Verify your download
+## Windows
 
-```bash
-curl -fsSLO https://github.com/gammons/slk/releases/latest/download/checksums.txt
-sha256sum -c checksums.txt --ignore-missing
+Clone and build (this fork has no Windows release zip yet):
+
+```powershell
+git clone https://github.com/agustif/slk.git
+cd slk
+go build -ldflags="-s -w" -trimpath -o slk.exe ./cmd/slk
 ```
+
+Add `slk.exe` to your `PATH`.
 
 ## Next steps
 

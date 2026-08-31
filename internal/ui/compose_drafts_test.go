@@ -3,8 +3,8 @@ package ui
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/compose"
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/compose"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func TestChannelDrafts_SwitchDoesNotLeakAndRestores(t *testing.T) {

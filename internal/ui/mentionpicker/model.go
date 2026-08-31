@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/gammons/slk/internal/text"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/text"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 const MaxVisible = 7

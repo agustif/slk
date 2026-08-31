@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func newTestThread() *Model {

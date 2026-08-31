@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gammons/slk/internal/debuglog"
-	"github.com/gammons/slk/internal/slack/mrkdwn"
-	"github.com/gammons/slk/internal/slackhttp"
+	"github.com/agustif/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/slack/mrkdwn"
+	"github.com/agustif/slk/internal/slackhttp"
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
 )

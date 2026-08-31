@@ -20,11 +20,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.design/x/clipboard"
 
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/compose"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/reactionpicker"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/compose"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/reactionpicker"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 // SwitchWorkspaceFunc is called to switch the active workspace.

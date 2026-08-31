@@ -6,9 +6,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/gammons/slk/internal/config"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/config"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 // hlSGR derives the open/close SGR sequences of the search-highlight

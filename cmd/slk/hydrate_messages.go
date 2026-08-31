@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gammons/slk/internal/cache"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/cache"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui"
+	"github.com/agustif/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
 )
 

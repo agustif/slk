@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gammons/slk/internal/slackhttp"
+	"github.com/agustif/slk/internal/slackhttp"
 )
 
 // SavedCounts is client.counts' saved object and saved.list's counts:

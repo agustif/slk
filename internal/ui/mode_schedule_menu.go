@@ -10,7 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/schedulemenu"
+	"github.com/agustif/slk/internal/ui/schedulemenu"
 )
 
 func handleScheduleMenuMode(a *App, msg tea.KeyMsg) tea.Cmd {

@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func TestTogglePin_FromMessagesPane(t *testing.T) {

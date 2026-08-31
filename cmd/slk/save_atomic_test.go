@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gammons/slk/internal/config"
+	"github.com/agustif/slk/internal/config"
 )
 
 // TestConfigSavers_ReaderNeverSeesPartialFile is the regression guard

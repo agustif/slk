@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/channelfinder"
-	"github.com/gammons/slk/internal/ui/contextmenu"
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/channelfinder"
+	"github.com/agustif/slk/internal/ui/contextmenu"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func openContextMenuOnMessage(t *testing.T) *App {

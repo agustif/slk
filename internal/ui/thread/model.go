@@ -10,17 +10,17 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/gammons/slk/internal/debuglog"
-	emojiutil "github.com/gammons/slk/internal/emoji"
+	"github.com/agustif/slk/internal/debuglog"
+	emojiutil "github.com/agustif/slk/internal/emoji"
 
-	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/imgrender"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/messages/blockkit"
-	"github.com/gammons/slk/internal/ui/scrollbar"
-	"github.com/gammons/slk/internal/ui/selection"
-	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/gammons/slk/internal/usergroups"
+	imgpkg "github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/ui/imgrender"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/messages/blockkit"
+	"github.com/agustif/slk/internal/ui/scrollbar"
+	"github.com/agustif/slk/internal/ui/selection"
+	"github.com/agustif/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/usergroups"
 )
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}

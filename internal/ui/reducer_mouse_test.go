@@ -8,9 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/help"
-	"github.com/gammons/slk/internal/ui/sidebar"
-	"github.com/gammons/slk/internal/ui/wintree"
+	"github.com/agustif/slk/internal/ui/help"
+	"github.com/agustif/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/wintree"
 )
 
 // TestReduceMouseWheel_ScrollsActiveModal verifies that when a modal

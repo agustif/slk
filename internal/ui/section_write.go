@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/sectionpicker"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/sectionpicker"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 func cmdMove(a *App, args []string) tea.Cmd {

@@ -59,10 +59,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/debuglog"
-	"github.com/gammons/slk/internal/ui/imgrender"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/statusbar"
+	"github.com/agustif/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/ui/imgrender"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/statusbar"
 )
 
 // copiedClearAfter schedules a CopiedClearMsg `d` from now. The

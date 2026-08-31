@@ -7,7 +7,7 @@ import (
 	"image/color"
 	"regexp"
 
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 var hexColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)

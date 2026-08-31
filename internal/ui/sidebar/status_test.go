@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	slackclient "github.com/gammons/slk/internal/slack"
+	slackclient "github.com/agustif/slk/internal/slack"
 )
 
 func TestDMStatusSuffix_ActiveEmoji(t *testing.T) {

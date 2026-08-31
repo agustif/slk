@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	slkemoji "github.com/gammons/slk/internal/emoji"
-	imgpkg "github.com/gammons/slk/internal/image"
+	slkemoji "github.com/agustif/slk/internal/emoji"
+	imgpkg "github.com/agustif/slk/internal/image"
 )
 
 // TestPickerRendersFireGlyph guards the composition-safe emoji

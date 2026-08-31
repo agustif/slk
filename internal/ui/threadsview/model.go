@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/gammons/slk/internal/avatar"
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/styles"
-	"github.com/gammons/slk/internal/usergroups"
+	"github.com/agustif/slk/internal/avatar"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/usergroups"
 	"github.com/muesli/reflow/truncate"
 )
 

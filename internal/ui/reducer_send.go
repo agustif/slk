@@ -54,13 +54,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/debuglog"
-	"github.com/gammons/slk/internal/ids"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/slack/mrkdwn"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/sectionpicker"
-	"github.com/gammons/slk/internal/ui/statusbar"
+	"github.com/agustif/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/ids"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/slack/mrkdwn"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/sectionpicker"
+	"github.com/agustif/slk/internal/ui/statusbar"
 )
 
 var reduceSend reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {

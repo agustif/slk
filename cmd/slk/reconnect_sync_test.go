@@ -11,10 +11,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/cache"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/slack/membership"
-	"github.com/gammons/slk/internal/ui"
+	"github.com/agustif/slk/internal/cache"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/slack/membership"
+	"github.com/agustif/slk/internal/ui"
 )
 
 // captureSender records every tea.Msg dispatched to it. Substituted

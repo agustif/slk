@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/config"
-	"github.com/gammons/slk/internal/text"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/config"
+	"github.com/agustif/slk/internal/text"
 )
 
 func (m *Model) SetSort(sort config.SidebarSort, vip []string) {

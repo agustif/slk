@@ -6,9 +6,9 @@ package main
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/ui"
-	"github.com/gammons/slk/internal/ui/searchresults"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/ui"
+	"github.com/agustif/slk/internal/ui/searchresults"
 )
 
 // TestSearchWorkspaceNoActiveWorkspaceReturnsErr verifies the

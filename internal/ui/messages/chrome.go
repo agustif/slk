@@ -7,7 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 // Bookmark is a channel-header bookmark (title + URL).

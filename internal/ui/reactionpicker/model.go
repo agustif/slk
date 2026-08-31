@@ -8,12 +8,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/muesli/reflow/truncate"
 
-	slkemoji "github.com/gammons/slk/internal/emoji"
-	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/text"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/overlay"
-	"github.com/gammons/slk/internal/ui/styles"
+	slkemoji "github.com/agustif/slk/internal/emoji"
+	imgpkg "github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/text"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/overlay"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 // EmojiEntry represents an emoji with its name and Unicode character.

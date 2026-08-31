@@ -15,7 +15,7 @@
 package ui
 
 import (
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 // renderRail returns the composed workspace-rail panel,

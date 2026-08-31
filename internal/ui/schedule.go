@@ -12,8 +12,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/compose"
-	"github.com/gammons/slk/internal/ui/schedulemenu"
+	"github.com/agustif/slk/internal/ui/compose"
+	"github.com/agustif/slk/internal/ui/schedulemenu"
 )
 
 const maxScheduleAhead = 120 * 24 * time.Hour

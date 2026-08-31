@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gammons/slk/internal/slackhttp"
+	"github.com/agustif/slk/internal/slackhttp"
 )
 
 // TestTryDownload_NoCustomUserAgent verifies two related facts about

@@ -26,8 +26,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/messages"
+	imgpkg "github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 // previewSpinnerTickInterval is the redraw cadence for the loading

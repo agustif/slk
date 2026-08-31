@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gammons/slk/internal/config"
-	"github.com/gammons/slk/internal/service"
-	slk "github.com/gammons/slk/internal/slack"
+	"github.com/agustif/slk/internal/config"
+	"github.com/agustif/slk/internal/service"
+	slk "github.com/agustif/slk/internal/slack"
 	"github.com/slack-go/slack"
 )
 

@@ -10,10 +10,10 @@ package ui
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/imgrender"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/sidebar"
-	"github.com/gammons/slk/internal/ui/wintree"
+	"github.com/agustif/slk/internal/ui/imgrender"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/wintree"
 )
 
 func TestGlobalFanout_UserNamesReachAllWindows(t *testing.T) {

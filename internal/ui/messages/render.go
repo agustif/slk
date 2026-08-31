@@ -10,8 +10,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	emojiutil "github.com/gammons/slk/internal/emoji"
-	"github.com/gammons/slk/internal/ui/styles"
+	emojiutil "github.com/agustif/slk/internal/emoji"
+	"github.com/agustif/slk/internal/ui/styles"
 	"github.com/rivo/uniseg"
 )
 

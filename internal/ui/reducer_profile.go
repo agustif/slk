@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/statusbar"
+	"github.com/agustif/slk/internal/ui/statusbar"
 )
 
 var reduceProfile reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {

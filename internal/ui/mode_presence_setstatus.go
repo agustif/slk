@@ -3,7 +3,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	slackclient "github.com/gammons/slk/internal/slack"
+	slackclient "github.com/agustif/slk/internal/slack"
 )
 
 func handlePresenceSetStatusMode(a *App, msg tea.KeyMsg) tea.Cmd {

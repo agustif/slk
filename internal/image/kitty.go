@@ -12,7 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gammons/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/debuglog"
 	"golang.org/x/image/draw"
 )
 

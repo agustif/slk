@@ -3,8 +3,8 @@ package sidebar
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/config"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/config"
 )
 
 func filteredIDs(m Model) []string {

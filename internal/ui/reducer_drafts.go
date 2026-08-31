@@ -5,9 +5,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/draftsview"
+	"github.com/agustif/slk/internal/ids"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/draftsview"
 )
 
 type pendingDraftOpen struct {

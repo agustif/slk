@@ -6,7 +6,7 @@ import (
 
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	slackclient "github.com/gammons/slk/internal/slack"
+	slackclient "github.com/agustif/slk/internal/slack"
 )
 
 // removeWorkspace presents an interactive picker of configured

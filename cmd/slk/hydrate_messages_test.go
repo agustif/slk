@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
+	"github.com/agustif/slk/internal/cache"
 )
 
 func TestHydrateMessages_EmptyCachedTextIsMiss(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gammons/slk/internal/cache"
-	slackclient "github.com/gammons/slk/internal/slack"
+	"github.com/agustif/slk/internal/cache"
+	slackclient "github.com/agustif/slk/internal/slack"
 	"github.com/slack-go/slack"
 )
 

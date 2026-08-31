@@ -8,9 +8,9 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/gammons/slk/internal/config"
-	imgpkg "github.com/gammons/slk/internal/image"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/config"
+	imgpkg "github.com/agustif/slk/internal/image"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 func TestComputeImageTarget_NoThumbs_ReturnsZero(t *testing.T) {

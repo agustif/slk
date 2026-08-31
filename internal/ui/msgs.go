@@ -17,15 +17,15 @@ import (
 	"image"
 	"time"
 
-	"github.com/gammons/slk/internal/cache"
-	emojiutil "github.com/gammons/slk/internal/emoji"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/channelfinder"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/searchresults"
-	"github.com/gammons/slk/internal/ui/sidebar"
-	"github.com/gammons/slk/internal/ui/unreadsview"
-	"github.com/gammons/slk/internal/ui/userprofile"
+	"github.com/agustif/slk/internal/cache"
+	emojiutil "github.com/agustif/slk/internal/emoji"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/channelfinder"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/searchresults"
+	"github.com/agustif/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/unreadsview"
+	"github.com/agustif/slk/internal/ui/userprofile"
 )
 
 // EmojiImageReadyMsg re-exports emoji.EmojiImageReadyMsg so reducers

@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func TestSummarizeMessages_Empty(t *testing.T) {

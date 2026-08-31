@@ -31,11 +31,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/channelfinder"
-	"github.com/gammons/slk/internal/ui/draftsview"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/reactionpicker"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/channelfinder"
+	"github.com/agustif/slk/internal/ui/draftsview"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/reactionpicker"
 )
 
 // errServiceNoop is returned by service adapters when that method was

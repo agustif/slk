@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/help"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/help"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 type testSectionsProvider struct {

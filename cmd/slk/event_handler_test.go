@@ -3,10 +3,10 @@ package main
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/config"
-	"github.com/gammons/slk/internal/ui/channelfinder"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/config"
+	"github.com/agustif/slk/internal/ui/channelfinder"
+	"github.com/agustif/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
 )
 

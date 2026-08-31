@@ -14,13 +14,13 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/gammons/slk/internal/avatar"
-	"github.com/gammons/slk/internal/config"
-	slkemoji "github.com/gammons/slk/internal/emoji"
-	imgpkg "github.com/gammons/slk/internal/image"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/agustif/slk/internal/avatar"
+	"github.com/agustif/slk/internal/config"
+	slkemoji "github.com/agustif/slk/internal/emoji"
+	imgpkg "github.com/agustif/slk/internal/image"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
 

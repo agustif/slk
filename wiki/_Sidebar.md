@@ -19,4 +19,4 @@
 
 ---
 
-[Marketing site](https://getslk.sh) · [Source](https://github.com/gammons/slk)
+[This fork](https://github.com/agustif/slk) · [Upstream](https://github.com/gammons/slk)

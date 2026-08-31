@@ -20,7 +20,7 @@ import (
 
 	"github.com/slack-go/slack"
 
-	imgpkg "github.com/gammons/slk/internal/image"
+	imgpkg "github.com/agustif/slk/internal/image"
 )
 
 // Block is a Slack Block Kit layout block. The unexported blockType()

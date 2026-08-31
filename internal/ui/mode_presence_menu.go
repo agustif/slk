@@ -15,8 +15,8 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/presencemenu"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/presencemenu"
 )
 
 func handlePresenceMenuMode(a *App, msg tea.KeyMsg) tea.Cmd {

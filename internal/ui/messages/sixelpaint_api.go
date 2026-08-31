@@ -1,7 +1,7 @@
 package messages
 
 import (
-	imgpkg "github.com/gammons/slk/internal/image"
+	imgpkg "github.com/agustif/slk/internal/image"
 )
 
 // SixelPlacements returns the placements the most recent View wants

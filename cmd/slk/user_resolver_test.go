@@ -13,9 +13,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/slack/edge"
-	"github.com/gammons/slk/internal/ui"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/slack/edge"
+	"github.com/agustif/slk/internal/ui"
+	"github.com/agustif/slk/internal/ui/sidebar"
 	"github.com/slack-go/slack"
 )
 

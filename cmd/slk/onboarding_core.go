@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/slackdesktop"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/slackdesktop"
 )
 
 // minter matches slackclient.MintToken; injected for testing.

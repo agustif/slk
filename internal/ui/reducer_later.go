@@ -12,9 +12,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ids"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/laterview"
+	"github.com/agustif/slk/internal/ids"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/laterview"
 )
 
 var reduceLater reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {

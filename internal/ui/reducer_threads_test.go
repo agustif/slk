@@ -5,7 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/gammons/slk/internal/ids"
+	"github.com/agustif/slk/internal/ids"
 )
 
 // TestApp_WorkspaceReadyAndActivationBothEnsureSubscriptions pins where

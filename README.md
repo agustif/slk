@@ -104,27 +104,38 @@ See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-**This fork** (the OG-parity tree). The Go module path is still `github.com/gammons/slk`, so clone and build:
+These commands install **this fork** (`agustif/slk`). Use `@main` (not `@latest`): Git tags still point at upstream history, so `@latest` is the wrong tree until this fork cuts its own release.
+
+**Homebrew** (macOS and Linux) — tap is [agustif/homebrew-slk](https://github.com/agustif/homebrew-slk), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
+
+```bash
+brew install --HEAD agustif/slk/slk
+```
+
+**Arch** — AUR package `slk` is upstream. Build this fork’s PKGBUILD:
+
+```bash
+git clone https://github.com/agustif/slk.git
+cd slk/packaging/aur
+makepkg -si
+```
+
+**Go:**
+
+```bash
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@main
+```
+
+**From source:**
 
 ```bash
 git clone https://github.com/agustif/slk.git
 cd slk
 go build -ldflags="-s -w" -trimpath -o slk ./cmd/slk
-# optional:
 mv -f slk ~/.local/bin/slk
 ```
 
-Homebrew / AUR / `go install github.com/gammons/slk/cmd/slk@latest` install **upstream** [gammons/slk](https://github.com/gammons/slk), not this fork.
-
-**Upstream packages** (no fork features):
-
-```bash
-brew install --cask gammons/tap/slk   # macOS / Linux
-yay -S slk                            # Arch AUR
-go install -ldflags="-s -w" -trimpath github.com/gammons/slk/cmd/slk@latest
-```
-
-More upstream packaging notes: [Installation](wiki/Installation.md).
+Details, Wayland/X11 paste deps, and Windows: [Installation](wiki/Installation.md).
 
 ## Setup
 

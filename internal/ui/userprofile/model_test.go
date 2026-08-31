@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	slackclient "github.com/gammons/slk/internal/slack"
+	slackclient "github.com/agustif/slk/internal/slack"
 )
 
 func TestOpenClose(t *testing.T) {

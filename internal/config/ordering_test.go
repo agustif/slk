@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	slack "github.com/gammons/slk/internal/slack"
+	slack "github.com/agustif/slk/internal/slack"
 )
 
 func TestOrderTokens(t *testing.T) {

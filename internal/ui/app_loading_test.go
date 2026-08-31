@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/workspace"
+	"github.com/agustif/slk/internal/ui/workspace"
 )
 
 func TestSetLoadingWorkspacesSeedsConnectingEntries(t *testing.T) {

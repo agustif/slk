@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	"github.com/gammons/slk/internal/config"
+	"github.com/agustif/slk/internal/config"
 )
 
 // colorEqual compares two color.Color values.

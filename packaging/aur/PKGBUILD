@@ -1,0 +1,37 @@
+# Maintainer: Agusti F. <https://github.com/agustif>
+# AUR `slk` is upstream gammons/slk. This package is the OG-parity fork.
+pkgname=slk-git
+pkgver=r0.0.0
+pkgrel=1
+pkgdesc='A blazingly fast Slack TUI (agustif OG-parity fork)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/agustif/slk'
+license=('MIT')
+makedepends=('go' 'git')
+optdepends=(
+  'wl-clipboard: Ctrl+V paste-to-upload on Wayland'
+  'libx11: Ctrl+V paste-to-upload on X11 (needed at build time)'
+)
+provides=('slk')
+conflicts=('slk')
+source=("git+${url}.git#branch=main")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd slk
+  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd slk
+  export CGO_ENABLED=0
+  export GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
+  go build -ldflags='-s -w' -o slk ./cmd/slk
+}
+
+package() {
+  cd slk
+  install -Dm755 slk "$pkgdir/usr/bin/slk"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

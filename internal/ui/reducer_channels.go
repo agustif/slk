@@ -70,9 +70,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/debuglog"
-	"github.com/gammons/slk/internal/ids"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {

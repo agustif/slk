@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	emojiutil "github.com/gammons/slk/internal/emoji"
-	slackclient "github.com/gammons/slk/internal/slack"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/overlay"
-	"github.com/gammons/slk/internal/ui/styles"
+	emojiutil "github.com/agustif/slk/internal/emoji"
+	slackclient "github.com/agustif/slk/internal/slack"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/overlay"
+	"github.com/agustif/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
 

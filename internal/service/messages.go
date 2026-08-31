@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/gammons/slk/internal/cache"
+	"github.com/agustif/slk/internal/cache"
 )
 
 type MessageService struct {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gammons/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/debuglog"
 )
 
 // ProbeKittyGraphics sends a tiny image upload with response requested

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/sidebar"
 )
 
 // Anchor validation: an in-flight FetchOlder keyed to the OLD buffer's

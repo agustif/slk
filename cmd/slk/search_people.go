@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/gammons/slk/internal/debuglog"
-	"github.com/gammons/slk/internal/slack/edge"
-	"github.com/gammons/slk/internal/ui/searchresults"
+	"github.com/agustif/slk/internal/debuglog"
+	"github.com/agustif/slk/internal/slack/edge"
+	"github.com/agustif/slk/internal/ui/searchresults"
 )
 
 // userSearcher is edgeapi's users/search, the endpoint that replaces

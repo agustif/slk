@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/config"
-	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/config"
+	"github.com/agustif/slk/internal/ui/messages"
 )
 
 func TestSidebarView(t *testing.T) {

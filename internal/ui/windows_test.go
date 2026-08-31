@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/wintree"
+	"github.com/agustif/slk/internal/ui/wintree"
 )
 
 func newWideTestApp(t *testing.T) *App {

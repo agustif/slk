@@ -12,10 +12,10 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/muesli/reflow/truncate"
 
-	slkemoji "github.com/gammons/slk/internal/emoji"
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/overlay"
-	"github.com/gammons/slk/internal/ui/styles"
+	slkemoji "github.com/agustif/slk/internal/emoji"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/overlay"
+	"github.com/agustif/slk/internal/ui/styles"
 )
 
 // ReactionGroup is one emoji and the resolved display names of the users who

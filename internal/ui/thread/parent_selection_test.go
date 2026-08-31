@@ -3,8 +3,8 @@ package thread
 import (
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/selection"
+	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/selection"
 )
 
 // The parent message is a selectable row: MoveUp from the first reply

@@ -38,9 +38,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gammons/slk/internal/cache"
-	"github.com/gammons/slk/internal/slack/boot"
-	"github.com/gammons/slk/internal/slack/edge"
+	"github.com/agustif/slk/internal/cache"
+	"github.com/agustif/slk/internal/slack/boot"
+	"github.com/agustif/slk/internal/slack/edge"
 )
 
 // UserBooter fetches and parses client.userBoot.

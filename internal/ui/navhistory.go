@@ -19,7 +19,7 @@
 // continues to work for white-box tests.
 package ui
 
-import "github.com/gammons/slk/internal/ids"
+import "github.com/agustif/slk/internal/ids"
 
 // navStack is a per-workspace browser-style back/forward history of
 // channel IDs. cursor points at the current entry; len(entries)==0

@@ -12,7 +12,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	imgpkg "github.com/gammons/slk/internal/image"
+	imgpkg "github.com/agustif/slk/internal/image"
 )
 
 func TestRenderLegacyEmptyReturnsZero(t *testing.T) {

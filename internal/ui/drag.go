@@ -31,7 +31,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/statusbar"
+	"github.com/agustif/slk/internal/ui/statusbar"
 )
 
 // dragState captures an in-progress mouse drag. The originating panel

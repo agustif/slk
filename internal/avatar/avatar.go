@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	imgpkg "github.com/gammons/slk/internal/image"
+	imgpkg "github.com/agustif/slk/internal/image"
 )
 
 const (
