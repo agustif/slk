@@ -1413,6 +1413,51 @@ func (c *Client) GetMutedChannelsRaw(ctx context.Context) ([]byte, error) {
 	return c.postForm(ctx, "users.prefs.get", nil)
 }
 
+// SetChannelMuted writes the authenticated user's mute flag for
+// channelID. Empty channelID is a no-op.
+//
+// Live mute state lives in the JSON-encoded all_notifications_prefs
+// blob (channels[id].muted), not the legacy flat muted_channels pref.
+// The official web client mutates that blob via the undocumented
+// users.prefs.setNotifications delta (name=muted, channel_id=…,
+// global=false, sync=false) rather than replacing the whole pref; this
+// matches that form. Slack then broadcasts pref_change for
+// all_notifications_prefs, which MuteStore.ApplyPrefChange reconciles.
+//
+// The endpoint is undocumented and may break if Slack changes the API.
+func (c *Client) SetChannelMuted(ctx context.Context, channelID string, muted bool) error {
+	if channelID == "" {
+		return nil
+	}
+	// Attested as the official client's _x_reason on this endpoint
+	// (prefs-store/setChannelNotificationOverride) from public
+	// users.prefs.setNotifications captures. Not in slk's 2026-07-30
+	// HARs — those sessions never muted a channel.
+	ctx = slackhttp.WithReason(ctx, "prefs-store/setChannelNotificationOverride")
+	form := url.Values{
+		"name":       {"muted"},
+		"value":      {strconv.FormatBool(muted)},
+		"channel_id": {channelID},
+		"global":     {"false"},
+		"sync":       {"false"},
+	}
+	body, err := c.postForm(ctx, "users.prefs.setNotifications", form)
+	if err != nil {
+		return err
+	}
+	var parsed struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return fmt.Errorf("parsing users.prefs.setNotifications response: %w (body=%q)", err, truncateForLog(body))
+	}
+	if !parsed.OK {
+		return fmt.Errorf("users.prefs.setNotifications returned ok=false (error=%q, body=%q)", parsed.Error, truncateForLog(body))
+	}
+	return nil
+}
+
 // shouldReloadResponse is the subset of client.shouldReload's response
 // slk reads. The full response also carries should_reload,
 // build_version_enabled, client_min_version,

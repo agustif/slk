@@ -1662,6 +1662,96 @@ func TestGetMutedChannels_ApiError(t *testing.T) {
 	}
 }
 
+func TestSetChannelMuted_PostsSetNotificationsForm(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotForm url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+		}
+		gotForm = r.PostForm
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv)
+	if err := c.SetChannelMuted(context.Background(), "C123", true); err != nil {
+		t.Fatalf("SetChannelMuted: %v", err)
+	}
+	if !strings.HasSuffix(gotPath, "/users.prefs.setNotifications") {
+		t.Errorf("path: got %q, want suffix /users.prefs.setNotifications", gotPath)
+	}
+	if gotAuth != "" {
+		t.Errorf("auth: got %q, want empty (token belongs in form body)", gotAuth)
+	}
+	want := map[string]string{
+		"token":      "xoxc-test",
+		"name":       "muted",
+		"value":      "true",
+		"channel_id": "C123",
+		"global":     "false",
+		"sync":       "false",
+	}
+	for k, v := range want {
+		if got := gotForm.Get(k); got != v {
+			t.Errorf("form %s: got %q, want %q", k, got, v)
+		}
+	}
+}
+
+func TestSetChannelMuted_UnmuteSendsFalse(t *testing.T) {
+	var gotValue string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotValue = r.PostForm.Get("value")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetChannelMuted(context.Background(), "C1", false); err != nil {
+		t.Fatalf("SetChannelMuted: %v", err)
+	}
+	if gotValue != "false" {
+		t.Errorf("value = %q, want false", gotValue)
+	}
+}
+
+func TestSetChannelMuted_EmptyChannelIDNoRequest(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetChannelMuted(context.Background(), "", true); err != nil {
+		t.Errorf("expected nil err, got %v", err)
+	}
+	if called {
+		t.Error("expected no HTTP call when channelID is empty")
+	}
+}
+
+func TestSetChannelMuted_ApiError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"invalid_auth"}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	err := c.SetChannelMuted(context.Background(), "C1", true)
+	if err == nil {
+		t.Fatal("expected error for ok=false response")
+	}
+	if !strings.Contains(err.Error(), "invalid_auth") {
+		t.Errorf("error = %v, want it to mention invalid_auth", err)
+	}
+}
+
 func TestSendReply_BuildsRichTextBlock(t *testing.T) {
 	api, getForm, closeFn := newTestSlackAPI(t, `{"ok":true,"ts":"1700000000.000200","channel":"C1"}`)
 	defer closeFn()

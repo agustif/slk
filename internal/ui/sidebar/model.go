@@ -924,6 +924,28 @@ func (m *Model) Items() []ChannelItem {
 	return m.items
 }
 
+// SetMuted updates the IsMuted flag on the item with the given ID
+// and invalidates the row cache so dimming / unread-dot treatment
+// refresh. Returns false if the channel is not in the list.
+func (m *Model) SetMuted(channelID string, muted bool) bool {
+	if channelID == "" {
+		return false
+	}
+	for i := range m.items {
+		if m.items[i].ID != channelID {
+			continue
+		}
+		if m.items[i].IsMuted == muted {
+			return true
+		}
+		m.items[i].IsMuted = muted
+		m.cacheValid = false
+		m.dirty()
+		return true
+	}
+	return false
+}
+
 func (m *Model) SetFilter(filter string) {
 	m.filter = filter
 	m.rebuildFilter()

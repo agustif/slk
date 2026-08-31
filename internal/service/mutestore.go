@@ -87,6 +87,33 @@ func (s *MuteStore) IsMuted(channelID string) bool {
 	return s.muted[channelID]
 }
 
+// SetMuted applies a local optimistic mute/unmute for channelID and
+// marks the store ready so subsequent IsMuted reads reflect the
+// toggle even if Bootstrap has not yet succeeded. Returns true when
+// the muted set actually changed. pref_change events remain
+// authoritative: ApplyPrefChange wholesale-replaces the set.
+func (s *MuteStore) SetMuted(channelID string, muted bool) bool {
+	if channelID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.muted == nil {
+		s.muted = map[string]bool{}
+	}
+	was := s.muted[channelID]
+	s.ready = true
+	if was == muted {
+		return false
+	}
+	if muted {
+		s.muted[channelID] = true
+	} else {
+		delete(s.muted, channelID)
+	}
+	return true
+}
+
 // MutedChannels returns a snapshot of every channel ID currently
 // recorded as muted. Empty when the store is not ready. The returned
 // slice is a copy and safe to mutate.

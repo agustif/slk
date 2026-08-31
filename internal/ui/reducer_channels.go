@@ -2,38 +2,40 @@
 //
 // Channel-lifecycle reducer for App.Update (Phase 4j).
 //
-// Owns the nine Update arms that drive the channel-selection
+// Owns the Update arms that drive the channel-selection
 // lifecycle and channel-list mutations:
 //
-//   ChannelSelectedMsg            - user picked a channel: reset
-//                                   view state, mark visit,
-//                                   dispatch by cache freshness
-//                                   tier (fresh / verify-in-bg /
-//                                   spinner).
-//   MessagesLoadedMsg             - initial messages fetch landed:
-//                                   replace pane contents (nil =
-//                                   network failure, keep cache).
-//   OlderMessagesLoadedMsg        - history backfill landed:
-//                                   prepend (anchor-validated: dropped
-//                                   if the buffer was replaced
-//                                   mid-flight).
-//   ChannelMarkedRemoteMsg        - WS echo of a remote mark:
-//                                   apply locally.
-//   ChannelMarkedReadMsg          - optimistic mark-read echo:
-//                                   refresh sidebar read state.
-//   ChannelMembershipMsg          - membership fetch landed:
-//                                   push to the cache used by
-//                                   mention picker / DM resolution.
-//   ChannelJoinedMsg              - finder-driven join succeeded:
-//                                   add to sidebar + open it.
-//   ChannelJoinFailedMsg          - finder-driven join failed:
-//                                   log warning (toast TBD).
-//   channelSearchDebounceMsg      - finder typing paused: issue one
-//                                   channels/search for the query
-//                                   the user stopped on.
-//   RemoteChannelsFoundMsg        - that search answered: merge the
-//                                   non-joined matches into the
-//                                   finder, unless superseded.
+//	ChannelSelectedMsg            - user picked a channel: reset
+//	                                view state, mark visit,
+//	                                dispatch by cache freshness
+//	                                tier (fresh / verify-in-bg /
+//	                                spinner).
+//	MessagesLoadedMsg             - initial messages fetch landed:
+//	                                replace pane contents (nil =
+//	                                network failure, keep cache).
+//	OlderMessagesLoadedMsg        - history backfill landed:
+//	                                prepend (anchor-validated: dropped
+//	                                if the buffer was replaced
+//	                                mid-flight).
+//	ChannelMarkedRemoteMsg        - WS echo of a remote mark:
+//	                                apply locally.
+//	ChannelMarkedReadMsg          - optimistic mark-read echo:
+//	                                refresh sidebar read state.
+//	ChannelMembershipMsg          - membership fetch landed:
+//	                                push to the cache used by
+//	                                mention picker / DM resolution.
+//	ChannelJoinedMsg              - finder-driven join succeeded:
+//	                                add to sidebar + open it.
+//	ChannelJoinFailedMsg          - finder-driven join failed:
+//	                                log warning (toast TBD).
+//	ChannelMutedMsg               - mute write result: roll back
+//	                                optimistic sidebar mute on error.
+//	channelSearchDebounceMsg      - finder typing paused: issue one
+//	                                channels/search for the query
+//	                                the user stopped on.
+//	RemoteChannelsFoundMsg        - that search answered: merge the
+//	                                non-joined matches into the
+//	                                finder, unless superseded.
 //
 // Free reducer (not controller-absorbed): these arms cooperate on
 // the sidebar, messagepane, statusbar, channelFinder, navHistory,
@@ -230,6 +232,13 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// Nothing fancy yet -- could surface a status-bar toast
 		// in future.
 		log.Printf("warning: failed to join channel %s: %v", m.Name, m.Err)
+		return nil, true
+
+	case ChannelMutedMsg:
+		if m.Err != nil {
+			a.sidebar.SetMuted(m.ChannelID, !m.Muted)
+			return toastWithClear(a, "Mute failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
 		return nil, true
 
 	case channelSearchDebounceMsg:
