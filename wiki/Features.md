@@ -98,6 +98,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Triggers on DMs, mentions, and configurable keywords
 - Suppressed when you're focused on the relevant channel
 - Suppressed entirely while you're in DND/snooze
+- Suppressed during configured quiet hours (`quiet_hours` in config.toml; local 24h window, overnight wrap supported)
 
 ## Status & DND
 

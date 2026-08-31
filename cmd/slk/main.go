@@ -4129,6 +4129,7 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 		if h.activeChannelID != nil {
 			activeChID = h.activeChannelID()
 		}
+		now := time.Now()
 		ctx := notify.NotifyContext{
 			CurrentUserID:   h.currentUserID,
 			ActiveChannelID: activeChID,
@@ -4136,8 +4137,9 @@ func (h *rtmEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subty
 			OnMention:       h.notifyCfg.OnMention,
 			OnDM:            h.notifyCfg.OnDM,
 			OnKeyword:       h.notifyCfg.OnKeyword,
-			IsDND:           h.wsCtx != nil && h.wsCtx.DNDEnabled && (h.wsCtx.DNDEndTS.IsZero() || time.Now().Before(h.wsCtx.DNDEndTS)),
+			IsDND:           h.wsCtx != nil && h.wsCtx.DNDEnabled && (h.wsCtx.DNDEndTS.IsZero() || now.Before(h.wsCtx.DNDEndTS)),
 			IsMuted:         h.wsCtx != nil && h.wsCtx.MuteStore != nil && h.wsCtx.MuteStore.IsMuted(channelID),
+			IsQuiet:         notify.InQuietHours(h.notifyCfg.QuietHours, now),
 		}
 		chType := h.channelTypes[channelID]
 		// Pass the raw userID (not authorID): ShouldNotify's self-message

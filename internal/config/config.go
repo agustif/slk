@@ -3,26 +3,28 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
 
 type Config struct {
-	General       General                      `toml:"general"`
-	Appearance    Appearance                   `toml:"appearance"`
-	Animations    Animations                   `toml:"animations"`
-	Notifications Notifications                `toml:"notifications"`
-	Cache         CacheConfig                  `toml:"cache"`
-	Sidebar       Sidebar                      `toml:"sidebar"`
-	Activity      Activity                     `toml:"activity"`
-	Sections      map[string]SectionDef        `toml:"sections"`
-	Theme         Theme                        `toml:"theme"`
-	Workspaces    map[string]Workspace         `toml:"workspaces"`
+	General       General               `toml:"general"`
+	Appearance    Appearance            `toml:"appearance"`
+	Animations    Animations            `toml:"animations"`
+	Notifications Notifications         `toml:"notifications"`
+	Cache         CacheConfig           `toml:"cache"`
+	Sidebar       Sidebar               `toml:"sidebar"`
+	Activity      Activity              `toml:"activity"`
+	Sections      map[string]SectionDef `toml:"sections"`
+	Theme         Theme                 `toml:"theme"`
+	Workspaces    map[string]Workspace  `toml:"workspaces"`
 }
 
 // SectionDef defines a sidebar section with channel name patterns.
@@ -112,11 +114,15 @@ type Animations struct {
 }
 
 type Notifications struct {
-	Enabled    bool     `toml:"enabled"`
-	OnMention  bool     `toml:"on_mention"`
-	OnDM       bool     `toml:"on_dm"`
-	OnKeyword  []string `toml:"on_keyword"`
-	QuietHours string   `toml:"quiet_hours"`
+	Enabled   bool     `toml:"enabled"`
+	OnMention bool     `toml:"on_mention"`
+	OnDM      bool     `toml:"on_dm"`
+	OnKeyword []string `toml:"on_keyword"`
+	// QuietHours is a local 24h window "HH:MM-HH:MM" during which desktop
+	// notifications are suppressed. Overnight ranges (start after end,
+	// e.g. "22:00-08:00") wrap midnight. Empty disables. Invalid values
+	// are cleared on Load.
+	QuietHours string `toml:"quiet_hours"`
 	// NotifyCommand, when set, runs instead of the built-in OS notification.
 	// It is executed via `sh -c` with the notification's title and body exposed
 	// as $SLK_TITLE and $SLK_BODY. Example:
@@ -448,8 +454,41 @@ func Load(path string) (Config, error) {
 	}
 
 	cfg.Activity = cfg.Activity.Normalized()
+	cfg.Notifications.QuietHours = ClampQuietHours(cfg.Notifications.QuietHours)
 
 	return cfg, nil
+}
+
+// ClampQuietHours returns spec if it is empty (disabled) or a valid
+// "HH:MM-HH:MM" 24h window, and "" for anything else. Invalid values
+// are logged rather than failing Load.
+func ClampQuietHours(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if !validQuietHours(s) {
+		log.Printf("config: invalid quiet_hours %q; ignoring (want HH:MM-HH:MM)", s)
+		return ""
+	}
+	return s
+}
+
+func validQuietHours(s string) bool {
+	start, end, found := strings.Cut(s, "-")
+	if !found || start == "" || end == "" || strings.Contains(end, "-") {
+		return false
+	}
+	return validHHMM(start) && validHHMM(end)
+}
+
+func validHHMM(s string) bool {
+	// Require zero-padded HH:MM; time.Parse("15:04") also accepts "9:00".
+	if len(s) != 5 {
+		return false
+	}
+	_, err := time.Parse("15:04", s)
+	return err == nil
 }
 
 // WorkspaceByTeamID returns the configured Workspace for the given
