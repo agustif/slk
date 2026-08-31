@@ -223,7 +223,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		}
 		if item, ok := a.sidebar.ClickAt(sidebarY); ok {
 			return func() tea.Msg {
-				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type}
+				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type, Topic: item.Topic}
 			}
 		}
 		// ClickAt returns ok=false for the synthetic Threads row;

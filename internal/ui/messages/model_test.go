@@ -96,6 +96,90 @@ func TestHeaderGlyph_ByChannelType(t *testing.T) {
 	}
 }
 
+// TestSetChannel_TopicAppearsInChrome pins the message-pane header:
+// a non-empty topic is a second chrome line (WordWrap'd to width);
+// an empty topic keeps the name-only single line.
+func TestSetChannel_TopicAppearsInChrome(t *testing.T) {
+	longTopic := "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
+	cases := []struct {
+		name          string
+		channel       string
+		topic         string
+		width         int
+		wantContains  []string
+		wantAbsent    []string
+		wantChromeMin int
+		wantChromeMax int
+	}{
+		{
+			name:          "empty topic is name-only chrome",
+			channel:       "general",
+			topic:         "",
+			width:         60,
+			wantContains:  []string{"# general"},
+			wantChromeMin: 1,
+			wantChromeMax: 1,
+		},
+		{
+			name:          "short topic on second line",
+			channel:       "general",
+			topic:         "daily standup",
+			width:         60,
+			wantContains:  []string{"# general", "daily standup"},
+			wantChromeMin: 2,
+			wantChromeMax: 2,
+		},
+		{
+			name:          "long topic wraps",
+			channel:       "eng",
+			topic:         longTopic,
+			width:         24,
+			wantContains:  []string{"# eng", "alpha", "juliet"},
+			wantChromeMin: 3,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(nil, "")
+			m.SetChannel(tc.channel, tc.topic)
+			out := m.View(20, tc.width)
+			for _, want := range tc.wantContains {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q in chrome:\n%s", want, out)
+				}
+			}
+			for _, absent := range tc.wantAbsent {
+				if strings.Contains(out, absent) {
+					t.Errorf("unexpected %q in chrome:\n%s", absent, out)
+				}
+			}
+			if m.chromeHeight < tc.wantChromeMin {
+				t.Errorf("chromeHeight = %d, want >= %d", m.chromeHeight, tc.wantChromeMin)
+			}
+			if tc.wantChromeMax > 0 && m.chromeHeight > tc.wantChromeMax {
+				t.Errorf("chromeHeight = %d, want <= %d", m.chromeHeight, tc.wantChromeMax)
+			}
+		})
+	}
+
+	t.Run("clearing topic drops extra chrome line", func(t *testing.T) {
+		m := New(nil, "")
+		m.SetChannel("general", "daily standup")
+		_ = m.View(20, 60)
+		if m.chromeHeight < 2 {
+			t.Fatalf("precondition: topic chromeHeight = %d, want >= 2", m.chromeHeight)
+		}
+		m.SetChannel("random", "")
+		out := m.View(20, 60)
+		if strings.Contains(out, "daily standup") {
+			t.Errorf("leftover topic after empty SetChannel:\n%s", out)
+		}
+		if m.chromeHeight != 1 {
+			t.Errorf("chromeHeight after empty topic = %d, want 1", m.chromeHeight)
+		}
+	})
+}
+
 // TestAppendMessage_AlwaysScrollsToBottom asserts that an incoming
 // message scrolls the view to the bottom even when the user has
 // scrolled up (selection is not at the last index). This matches

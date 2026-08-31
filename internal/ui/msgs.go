@@ -56,6 +56,12 @@ type (
 		// callers don't yet know the type — the UI then falls
 		// back to a default `#` glyph.
 		Type string
+		// Topic is the Slack channel topic shown under the name in
+		// the message-pane header. Empty means no extra header line.
+		// Callers that have a sidebar item should copy it; the
+		// ChannelSelectedMsg reducer also looks the topic up from
+		// sidebar items when this is empty.
+		Topic string
 		// FromHistory marks navigations synthesized by Ctrl+H /
 		// Ctrl+K. The case ChannelSelectedMsg handler suppresses
 		// pushing onto navHistory when this is true so back/forward

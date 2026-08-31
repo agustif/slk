@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/sidebar"
 )
 
 // Anchor validation: an in-flight FetchOlder keyed to the OLD buffer's
@@ -123,4 +125,79 @@ func TestMessagesAroundLoaded_TargetMissingToasts(t *testing.T) {
 	if !found {
 		t.Fatal("expected ToastMsg when TargetTS is missing from the loaded window")
 	}
+}
+
+// ChannelSelectedMsg should pass the sidebar/cache topic through to
+// SetChannel so the message-pane header shows it. An empty topic
+// leaves the header as a single channel-name line.
+func TestChannelSelected_PassesTopicFromCache(t *testing.T) {
+	cases := []struct {
+		name         string
+		items        []sidebar.ChannelItem
+		msg          ChannelSelectedMsg
+		wantContains string
+		wantAbsent   string
+	}{
+		{
+			name: "sidebar topic shown when msg has none",
+			items: []sidebar.ChannelItem{
+				{ID: "C1", Name: "general", Type: "channel", Topic: "daily standup notes"},
+			},
+			msg:          ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"},
+			wantContains: "daily standup notes",
+		},
+		{
+			name: "msg topic used when set",
+			items: []sidebar.ChannelItem{
+				{ID: "C1", Name: "general", Type: "channel"},
+			},
+			msg:          ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel", Topic: "from selection msg"},
+			wantContains: "from selection msg",
+		},
+		{
+			name: "empty topic omits extra header line",
+			items: []sidebar.ChannelItem{
+				{ID: "C1", Name: "general", Type: "channel"},
+			},
+			msg:        ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"},
+			wantAbsent: "daily standup notes",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := NewApp()
+			app.SetChannels(tc.items)
+			app.Update(tc.msg)
+			out := app.messagepane.View(20, 60)
+			if tc.wantContains != "" && !strings.Contains(out, tc.wantContains) {
+				t.Errorf("missing topic %q in header:\n%s", tc.wantContains, out)
+			}
+			if tc.wantAbsent != "" && strings.Contains(out, tc.wantAbsent) {
+				t.Errorf("unexpected %q in header:\n%s", tc.wantAbsent, out)
+			}
+			if !strings.Contains(out, "# "+tc.msg.Name) {
+				t.Errorf("missing channel name in header:\n%s", out)
+			}
+		})
+	}
+
+	t.Run("switching to empty-topic channel drops previous topic", func(t *testing.T) {
+		app := NewApp()
+		app.SetChannels([]sidebar.ChannelItem{
+			{ID: "C1", Name: "general", Type: "channel", Topic: "daily standup notes"},
+			{ID: "C2", Name: "random", Type: "channel"},
+		})
+		app.Update(ChannelSelectedMsg{ID: "C1", Name: "general", Type: "channel"})
+		if out := app.messagepane.View(20, 60); !strings.Contains(out, "daily standup notes") {
+			t.Fatalf("precondition: topic missing after first select:\n%s", out)
+		}
+		app.Update(ChannelSelectedMsg{ID: "C2", Name: "random", Type: "channel"})
+		out := app.messagepane.View(20, 60)
+		if strings.Contains(out, "daily standup notes") {
+			t.Errorf("leftover topic after switching to empty-topic channel:\n%s", out)
+		}
+		if !strings.Contains(out, "# random") {
+			t.Errorf("missing new channel name in header:\n%s", out)
+		}
+	})
 }

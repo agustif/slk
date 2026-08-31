@@ -98,6 +98,7 @@ func TestBuildChannelItem_Channel(t *testing.T) {
 		GroupConversation: slack.GroupConversation{
 			Conversation: slack.Conversation{ID: "C1"},
 			Name:         "general",
+			Topic:        slack.Topic{Value: "company announcements"},
 		},
 	}
 	item, _ := buildChannelItem(ch, wctx, cfg, "T1")
@@ -106,6 +107,9 @@ func TestBuildChannelItem_Channel(t *testing.T) {
 	}
 	if item.Name != "general" {
 		t.Errorf("Name = %q, want general", item.Name)
+	}
+	if item.Topic != "company announcements" {
+		t.Errorf("Topic = %q, want company announcements", item.Topic)
 	}
 }
 
