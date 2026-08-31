@@ -1520,6 +1520,35 @@ func run() error {
 				}
 				return ui.ChannelJoinedMsg{ID: chIDStr, Name: channelName}
 			},
+			Leave: func(channelID ids.ChannelID, channelName string) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil {
+					return nil
+				}
+				ctx := context.Background()
+				if err := wctx.Client.LeaveChannel(ctx, chIDStr); err != nil {
+					return ui.ChannelLeaveFailedMsg{ID: chIDStr, Name: channelName, Err: err}
+				}
+				// Drop from the workspace channel list so Lookup skips
+				// it, and mark the finder entry unjoined so it can be
+				// rejoined without a workspace switch. Copy into a new
+				// slice — wctx.Channels may alias the sidebar's items.
+				kept := make([]sidebar.ChannelItem, 0, len(wctx.Channels))
+				for _, ch := range wctx.Channels {
+					if ch.ID != chIDStr {
+						kept = append(kept, ch)
+					}
+				}
+				wctx.Channels = kept
+				for i := range wctx.FinderItems {
+					if wctx.FinderItems[i].ID == chIDStr {
+						wctx.FinderItems[i].Joined = false
+						break
+					}
+				}
+				return ui.ChannelLeftMsg{ID: chIDStr, Name: channelName}
+			},
 		}))
 
 		app.SetSearchService(ui.NewSearchService(ui.SearchServiceFuncs{

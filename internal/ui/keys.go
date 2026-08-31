@@ -46,6 +46,7 @@ type KeyMap struct {
 	NextUnread          key.Binding
 	PrevUnread          key.Binding
 	WorkspaceFinder     key.Binding
+	LeaveChannel        key.Binding
 	NewMessage          key.Binding
 	ThemeSwitcher       key.Binding
 	ThemeSwitcherGlobal key.Binding
@@ -117,6 +118,7 @@ func DefaultKeyMap() KeyMap {
 		// matches but keeps the help-overlay entry pointing at :ws
 		// (1-9 also switch workspaces directly).
 		WorkspaceFinder:     key.NewBinding(key.WithHelp(":ws", "switch workspace")),
+		LeaveChannel:        key.NewBinding(key.WithHelp(":leave", "leave channel")),
 		NewMessage:          key.NewBinding(key.WithKeys("ctrl+n"), key.WithHelp("ctrl+n", "new message")),
 		ThemeSwitcher:       key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "switch theme (per workspace)")),
 		ThemeSwitcherGlobal: key.NewBinding(key.WithKeys("ctrl+shift+y"), key.WithHelp("ctrl+shift+y", "set default theme")),

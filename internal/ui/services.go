@@ -410,7 +410,7 @@ func (m messageAdapter) Permalink(ctx context.Context, channelID ids.ChannelID, 
 //
 // Largest service in the App. Mixes three concerns that happen to
 // share the channel-as-domain-object boundary:
-//   - Slack API: Fetch, FetchOlder, MarkRead, Join.
+//   - Slack API: Fetch, FetchOlder, MarkRead, Join, Leave.
 //   - Local cache: ReadCache, SyncedAt.
 //   - Session bookkeeping: Lookup, RecordVisit, MembershipFetch.
 //
@@ -459,6 +459,11 @@ type ChannelService interface {
 	// or ChannelJoinFailedMsg).
 	Join(channelID ids.ChannelID, channelName string) tea.Msg
 
+	// Leave sends conversations.leave for channelID. channelName is
+	// for log context. Returns a tea.Msg (typically ChannelLeftMsg
+	// or ChannelLeaveFailedMsg). Not valid for DMs.
+	Leave(channelID ids.ChannelID, channelName string) tea.Msg
+
 	// RecordVisit persists a visit to channelID (SQLite write +
 	// WorkspaceContext last-visited map update). Fired once per
 	// ChannelSelectedMsg regardless of FromHistory.
@@ -501,6 +506,7 @@ type ChannelServiceFuncs struct {
 	MarkRead         func(channelID ids.ChannelID, ts ids.MessageTS) tea.Msg
 	Lookup           ChannelLookupFunc
 	Join             JoinChannelFunc
+	Leave            LeaveChannelFunc
 	RecordVisit      ChannelVisitRecorder
 	MembershipFetch  func(channelID ids.ChannelID)
 	OpenConversation func(userIDs []string, requestID uint64) tea.Cmd
@@ -575,6 +581,13 @@ func (c channelAdapter) Join(channelID ids.ChannelID, channelName string) tea.Ms
 		return nil
 	}
 	return c.fns.Join(channelID, channelName)
+}
+
+func (c channelAdapter) Leave(channelID ids.ChannelID, channelName string) tea.Msg {
+	if c.fns.Leave == nil {
+		return nil
+	}
+	return c.fns.Leave(channelID, channelName)
 }
 
 func (c channelAdapter) RecordVisit(channelID ids.ChannelID) {

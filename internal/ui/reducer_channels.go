@@ -2,38 +2,44 @@
 //
 // Channel-lifecycle reducer for App.Update (Phase 4j).
 //
-// Owns the nine Update arms that drive the channel-selection
+// Owns the Update arms that drive the channel-selection
 // lifecycle and channel-list mutations:
 //
-//   ChannelSelectedMsg            - user picked a channel: reset
-//                                   view state, mark visit,
-//                                   dispatch by cache freshness
-//                                   tier (fresh / verify-in-bg /
-//                                   spinner).
-//   MessagesLoadedMsg             - initial messages fetch landed:
-//                                   replace pane contents (nil =
-//                                   network failure, keep cache).
-//   OlderMessagesLoadedMsg        - history backfill landed:
-//                                   prepend (anchor-validated: dropped
-//                                   if the buffer was replaced
-//                                   mid-flight).
-//   ChannelMarkedRemoteMsg        - WS echo of a remote mark:
-//                                   apply locally.
-//   ChannelMarkedReadMsg          - optimistic mark-read echo:
-//                                   refresh sidebar read state.
-//   ChannelMembershipMsg          - membership fetch landed:
-//                                   push to the cache used by
-//                                   mention picker / DM resolution.
-//   ChannelJoinedMsg              - finder-driven join succeeded:
-//                                   add to sidebar + open it.
-//   ChannelJoinFailedMsg          - finder-driven join failed:
-//                                   log warning (toast TBD).
-//   channelSearchDebounceMsg      - finder typing paused: issue one
-//                                   channels/search for the query
-//                                   the user stopped on.
-//   RemoteChannelsFoundMsg        - that search answered: merge the
-//                                   non-joined matches into the
-//                                   finder, unless superseded.
+//	ChannelSelectedMsg            - user picked a channel: reset
+//	                                view state, mark visit,
+//	                                dispatch by cache freshness
+//	                                tier (fresh / verify-in-bg /
+//	                                spinner).
+//	MessagesLoadedMsg             - initial messages fetch landed:
+//	                                replace pane contents (nil =
+//	                                network failure, keep cache).
+//	OlderMessagesLoadedMsg        - history backfill landed:
+//	                                prepend (anchor-validated: dropped
+//	                                if the buffer was replaced
+//	                                mid-flight).
+//	ChannelMarkedRemoteMsg        - WS echo of a remote mark:
+//	                                apply locally.
+//	ChannelMarkedReadMsg          - optimistic mark-read echo:
+//	                                refresh sidebar read state.
+//	ChannelMembershipMsg          - membership fetch landed:
+//	                                push to the cache used by
+//	                                mention picker / DM resolution.
+//	ChannelJoinedMsg              - finder-driven join succeeded:
+//	                                add to sidebar + open it.
+//	ChannelJoinFailedMsg          - finder-driven join failed:
+//	                                log warning (toast TBD).
+//	LeaveChannelMsg               - user confirmed :leave: dispatch
+//	                                ChannelService.Leave.
+//	ChannelLeftMsg                - leave succeeded: drop from sidebar,
+//	                                switch to last-visited or Threads,
+//	                                toast.
+//	ChannelLeaveFailedMsg         - leave API failed: toast.
+//	channelSearchDebounceMsg      - finder typing paused: issue one
+//	                                channels/search for the query
+//	                                the user stopped on.
+//	RemoteChannelsFoundMsg        - that search answered: merge the
+//	                                non-joined matches into the
+//	                                finder, unless superseded.
 //
 // Free reducer (not controller-absorbed): these arms cooperate on
 // the sidebar, messagepane, statusbar, channelFinder, navHistory,
@@ -54,6 +60,7 @@
 package ui
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -232,6 +239,18 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		log.Printf("warning: failed to join channel %s: %v", m.Name, m.Err)
 		return nil, true
 
+	case LeaveChannelMsg:
+		channels := a.channels
+		id, name := ids.ChannelID(m.ID), m.Name
+		return func() tea.Msg { return channels.Leave(id, name) }, true
+
+	case ChannelLeftMsg:
+		return reduceChannelLeft(a, m), true
+
+	case ChannelLeaveFailedMsg:
+		log.Printf("warning: failed to leave channel %s: %v", m.Name, m.Err)
+		return toastWithClear(a, fmt.Sprintf("Failed to leave #%s: %v", m.Name, m.Err), 3*time.Second), true
+
 	case channelSearchDebounceMsg:
 		// The typing has stopped. Anything older than the current
 		// generation is a keystroke the user has already typed past.
@@ -261,6 +280,54 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// reduceChannelLeft removes the left channel from the sidebar and
+// finder, then switches to last-visited (nav history) or Threads.
+func reduceChannelLeft(a *App, m ChannelLeftMsg) tea.Cmd {
+	items := a.sidebar.Items()
+	next := make([]sidebar.ChannelItem, 0, len(items))
+	for _, it := range items {
+		if it.ID != m.ID {
+			next = append(next, it)
+		}
+	}
+	a.SetChannels(next)
+	a.channelFinder.MarkUnjoined(m.ID)
+	if a.lastChannelByTeam[a.activeTeamID] == m.ID {
+		delete(a.lastChannelByTeam, a.activeTeamID)
+	}
+	a.CloseThread()
+
+	toast := toastWithClear(a, "Left #"+m.Name, 2*time.Second)
+	return tea.Batch(toast, a.switchAfterLeave(m.ID))
+}
+
+// switchAfterLeave picks the destination after leaving leftID:
+// the most recent still-joined nav-history channel, or Threads.
+func (a *App) switchAfterLeave(leftID string) tea.Cmd {
+	remaining := make(map[string]sidebar.ChannelItem, len(a.sidebar.Items()))
+	for _, it := range a.sidebar.Items() {
+		remaining[it.ID] = it
+	}
+	if stack := a.navHistory.Stack(a.activeTeamID); stack != nil {
+		for i := stack.cursor; i >= 0; i-- {
+			id := stack.entries[i]
+			if id == leftID {
+				continue
+			}
+			if ch, ok := remaining[id]; ok {
+				a.sidebar.SelectByID(ch.ID)
+				return func() tea.Msg {
+					return ChannelSelectedMsg{ID: ch.ID, Name: ch.Name, Type: ch.Type}
+				}
+			}
+		}
+	}
+	a.activeChannelID = ""
+	a.sidebar.SetActiveChannelID("")
+	a.sidebar.SelectThreadsRow()
+	return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 }
 
 // retargetActiveChannel points the App's active-channel context

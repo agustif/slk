@@ -128,6 +128,17 @@ func (m *Model) MarkJoined(channelID string) {
 	}
 }
 
+// MarkUnjoined flips the Joined bit off after the user leaves a channel
+// so the finder can offer it as a rejoin target.
+func (m *Model) MarkUnjoined(channelID string) {
+	for i := range m.items {
+		if m.items[i].ID == channelID {
+			m.items[i].Joined = false
+			return
+		}
+	}
+}
+
 // UpdateLastVisited sets the LastVisited timestamp for the matching
 // item, if any, and re-runs filter() if the overlay is currently
 // visible so the new ordering takes effect on the next render. No-op

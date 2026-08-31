@@ -478,6 +478,17 @@ func TestMarkJoined(t *testing.T) {
 	}
 }
 
+func TestMarkUnjoined(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{
+		{ID: "C1", Name: "general", Type: "channel", Joined: true},
+	})
+	m.MarkUnjoined("C1")
+	if m.items[0].Joined {
+		t.Error("expected MarkUnjoined to set Joined=false")
+	}
+}
+
 func TestUpdateLastVisitedMutatesAndReorders(t *testing.T) {
 	m := New()
 	m.SetItems([]Item{
