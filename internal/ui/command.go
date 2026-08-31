@@ -25,12 +25,13 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":   cmdWorkspaceFinder,
-	"sp":   cmdSplit,
-	"vsp":  cmdVSplit,
-	"q":    cmdCloseWindow,
-	"only": cmdOnlyWindow,
-	"on":   cmdOnlyWindow,
+	"ws":       cmdWorkspaceFinder,
+	"sp":       cmdSplit,
+	"vsp":      cmdVSplit,
+	"q":        cmdCloseWindow,
+	"only":     cmdOnlyWindow,
+	"on":       cmdOnlyWindow,
+	"schedule": cmdSchedule,
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
@@ -53,6 +54,20 @@ func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 	a.workspaceFinder.Open()
 	a.SetMode(ModeWorkspaceFinder)
 	return nil
+}
+
+func cmdSchedule(a *App, args []string) tea.Cmd {
+	if len(args) == 0 {
+		return a.openScheduleMenu()
+	}
+	if msg := a.schedulePrecheck(); msg != "" {
+		return toastWithClear(a, msg, 2*time.Second)
+	}
+	postAt, err := parseScheduleSpec(strings.Join(args, ""), time.Now())
+	if err != nil {
+		return toastWithClear(a, "Invalid schedule: "+strings.Join(args, " ")+" (try 20m, 1h, tomorrow)", 3*time.Second)
+	}
+	return a.confirmSchedule(postAt)
 }
 
 // executeCommand parses and runs one command line (without the

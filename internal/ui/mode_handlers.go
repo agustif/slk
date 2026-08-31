@@ -60,6 +60,8 @@ var modeHandlers = map[Mode]modeHandler{
 	ModeThemeSwitcher:        handleThemeSwitcherMode,
 	ModePresenceMenu:         handlePresenceMenuMode,
 	ModePresenceCustomSnooze: handlePresenceCustomSnoozeMode,
+	ModeScheduleMenu:         handleScheduleMenuMode,
+	ModeScheduleCustom:       handleScheduleCustomMode,
 	ModeHelp:                 handleHelpMode,
 	ModeReactionsView:        handleReactionsViewMode,
 	ModeLinkPicker:           handleLinkPickerMode,

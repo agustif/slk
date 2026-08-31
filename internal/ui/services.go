@@ -26,6 +26,7 @@ package ui
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -306,7 +307,7 @@ func (a activityAdapter) FetchFeed(teamID ids.TeamID, q ActivityFeedQuery) tea.M
 }
 
 // MessageService is the App's interface to Slack's per-message
-// operations: send, edit, delete, mark-unread, and permalink lookup.
+// operations: send, schedule, edit, delete, mark-unread, and permalink lookup.
 // Implementations are wired by cmd/slk/main.go.
 //
 // All methods are best-effort and nil-safe at the adapter level: an
@@ -318,6 +319,11 @@ type MessageService interface {
 	// Returns a tea.Msg (typically MessageSentMsg or
 	// MessageSendFailedMsg).
 	Send(channelID ids.ChannelID, text string) tea.Msg
+
+	// Schedule queues chat.scheduleMessage for channelID (optional
+	// threadTS) at postAt. Returns a tea.Msg (typically
+	// MessageScheduledMsg or MessageScheduleFailedMsg).
+	Schedule(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, postAt time.Time) tea.Msg
 
 	// Edit dispatches chat.update for the message identified by
 	// (channelID, ts), replacing its text with newText.
@@ -347,6 +353,7 @@ type MessageService interface {
 // no-ops that operation.
 type MessageServiceFuncs struct {
 	Send       MessageSendFunc
+	Schedule   MessageScheduleFunc
 	Edit       MessageEditFunc
 	Delete     MessageDeleteFunc
 	MarkUnread MarkUnreadFunc
@@ -373,6 +380,13 @@ func (m messageAdapter) Send(channelID ids.ChannelID, text string) tea.Msg {
 		return nil
 	}
 	return m.fns.Send(channelID, text)
+}
+
+func (m messageAdapter) Schedule(channelID ids.ChannelID, threadTS ids.ThreadTS, text string, postAt time.Time) tea.Msg {
+	if m.fns.Schedule == nil {
+		return nil
+	}
+	return m.fns.Schedule(channelID, threadTS, text, postAt)
 }
 
 func (m messageAdapter) Edit(channelID ids.ChannelID, ts ids.MessageTS, newText string) tea.Msg {

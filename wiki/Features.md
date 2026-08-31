@@ -25,6 +25,7 @@
 - Bracketed paste — paste multi-line text from the system clipboard without it being interpreted as keystrokes
 - Smart paste (`Ctrl+V`) — pastes a clipboard image as an attachment, or a copied file path as an attached file, or falls through to text. Multiple attachments + caption send together via Slack's V2 file-upload API. Note: use `Ctrl+V` (not your terminal's `Ctrl+Shift+V` paste shortcut) — terminal-initiated paste only delivers text, never image bytes.
 - CommonMark in compose: type `**bold**`, `~~strike~~`, `[label](url)`, `- list items`, `1. numbered`, or fenced ```code blocks``` and slk converts them on send to Slack's mrkdwn + rich_text format. Already-mrkdwn syntax (`*bold*`, `_italic_`, `~strike~`) passes through unchanged. Single-asterisk emphasis (`*x*`) is preserved as literal text since it conflicts with Slack mrkdwn bold.
+- Scheduled send: `Ctrl+g` in insert mode opens a duration overlay (20m / 1h / 2h / 4h / 8h / tomorrow 9am / custom minutes). `:schedule 20m` / `:schedule 1h` (or `:schedule` with no args to pick) does the same from command mode. Confirm queues the draft with Slack `chat.scheduleMessage` and clears compose; a toast shows the local post time (e.g. `Scheduled for 3:04 PM`). v1 does not list or delete scheduled messages. `Ctrl+Enter` is left unbound.
 
 ## Images
 

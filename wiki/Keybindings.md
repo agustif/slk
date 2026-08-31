@@ -18,6 +18,9 @@
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
 | `Ctrl+U` | Insert | Clear compose (text + pending attachments) |
+| `Ctrl+g` | Insert | Schedule message — opens a duration overlay (20m / 1h / 2h / 4h / 8h / tomorrow 9am / custom). Confirm queues via Slack `chat.scheduleMessage` and clears compose. `Ctrl+Enter` is not used for schedule. |
+| `:schedule` | Command | Open the schedule duration overlay for the current compose draft |
+| `:schedule 20m` / `:schedule 1h` | Command | Schedule the current compose draft for that duration from now (`tomorrow` = next 9:00 AM). |
 | `Ctrl+U` / `Ctrl+D` | Normal | Half-page up / down |
 | `Up` | Insert | Previous line; on the first line, jump to start of message |
 | `Down` | Insert | Next line; on the last line, jump to end of message |
