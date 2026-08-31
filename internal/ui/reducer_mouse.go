@@ -33,6 +33,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ui/activityview"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -113,6 +114,14 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 			}
 			// No openSelectedThreadCmd here: pure viewport scroll
 			// does not change the highlighted thread card.
+			return nil
+		}
+		if a.view == ViewActivity {
+			if up {
+				a.activityView.ScrollUp(wheelLinesPerNotch)
+			} else {
+				a.activityView.ScrollDown(wheelLinesPerNotch)
+			}
 			return nil
 		}
 		if up {
@@ -220,6 +229,9 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// ClickAt returns ok=false for the synthetic Threads row;
 		// if the click landed there (sidebar updates its own
 		// selection state), activate the threads view.
+		if a.sidebar.IsActivitySelected() {
+			return func() tea.Msg { return ActivityViewActivatedMsg{} }
+		}
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 		}
@@ -249,6 +261,19 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			panel, _, py, ok := a.panelAt(m.X, m.Y)
 			if ok && panel == PanelMessages && py >= 0 && a.threadsView.ClickAt(py) {
 				return a.openSelectedThreadCmd(false)
+			}
+			return nil
+		}
+		if a.view == ViewActivity {
+			panel, px, py, ok := a.panelAt(m.X, m.Y)
+			if !ok || panel != PanelMessages || py < 0 {
+				return nil
+			}
+			switch a.activityView.ClickAt(py, px) {
+			case activityview.ClickItem:
+				return a.openSelectedActivityCmd()
+			case activityview.ClickControls:
+				return a.fetchActivityCmd()
 			}
 			return nil
 		}

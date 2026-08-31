@@ -88,16 +88,16 @@ func (a viewAdapter) ConversationsView(ctx context.Context, channelID string) (*
 
 // countsAdapter satisfies bootstrap.CountsFetcher.
 //
-// ctx is accepted and discarded, because GetUnreadCounts takes none —
+// ctx is accepted and discarded, because GetCounts takes none —
 // it builds its request with http.NewRequest, not
 // http.NewRequestWithContext. The interface keeps the parameter so that
-// giving GetUnreadCounts a ctx later is a change to one line here
+// giving GetCounts a ctx later is a change to one line here
 // rather than a change to bootstrap's interface, and so that this
 // adapter does not have to pretend cancellation works when it does not.
 type countsAdapter struct{ c *slackclient.Client }
 
 func (a countsAdapter) Counts(_ context.Context) (bootstrap.Counts, error) {
-	unreads, threads, err := a.c.GetUnreadCounts()
+	snap, err := a.c.GetCounts()
 	if err != nil {
 		// Zero value, not a partially-filled one: bootstrap treats a
 		// counts failure as non-fatal and logs it, and handing back
@@ -106,14 +106,15 @@ func (a countsAdapter) Counts(_ context.Context) (bootstrap.Counts, error) {
 		return bootstrap.Counts{}, err
 	}
 	out := bootstrap.Counts{
-		Unreads: make([]bootstrap.Unread, 0, len(unreads)),
+		Unreads: make([]bootstrap.Unread, 0, len(snap.Unreads)),
 		Threads: bootstrap.Threads{
-			HasUnreads:   threads.HasUnreads,
-			UnreadCount:  threads.UnreadCount,
-			MentionCount: threads.MentionCount,
+			HasUnreads:   snap.Threads.HasUnreads,
+			UnreadCount:  snap.Threads.UnreadCount,
+			MentionCount: snap.Threads.MentionCount,
 		},
+		ActivityUnread: snap.Activity.Unread(),
 	}
-	for _, u := range unreads {
+	for _, u := range snap.Unreads {
 		out.Unreads = append(out.Unreads, bootstrap.Unread{
 			ChannelID: u.ChannelID,
 			Count:     u.Count,

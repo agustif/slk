@@ -32,7 +32,8 @@ func TestToggleCollapse_OnSelectedHeader(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "D1", Name: "alice", Type: "dm"},
 	})
-	// Cursor: Threads → Direct Messages header. Toggle it: should collapse.
+	// Cursor: Activity → Threads → Direct Messages header.
+	m.MoveDown()
 	m.MoveDown()
 	name, ok := m.IsSectionHeaderSelected()
 	if !ok || name != "Direct Messages" {
@@ -61,12 +62,12 @@ func TestToggleCollapse_OnSelectedHeader(t *testing.T) {
 
 func TestToggleCollapse_NotOnHeader_IsNoop(t *testing.T) {
 	m := New([]ChannelItem{{ID: "D1", Name: "alice", Type: "dm"}})
-	// Cursor on Threads row.
-	if !m.IsThreadsSelected() {
-		t.Fatal("precondition: Threads should be selected")
+	// Cursor on the top synthetic row (Activity).
+	if !m.IsActivitySelected() {
+		t.Fatal("precondition: Activity should be selected")
 	}
 	if m.ToggleCollapseSelected() {
-		t.Errorf("ToggleCollapseSelected on the Threads row should report false")
+		t.Errorf("ToggleCollapseSelected on the Activity row should report false")
 	}
 }
 
@@ -176,6 +177,7 @@ func TestToggleCollapse_PreservesCursorOnHeader(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "D1", Name: "alice", Type: "dm"},
 	})
+	m.MoveDown() // Threads
 	m.MoveDown() // onto DM header
 	if name, _ := m.IsSectionHeaderSelected(); name != "Direct Messages" {
 		t.Fatalf("precondition: expected DM header, got %q", name)
@@ -193,7 +195,8 @@ func TestToggleCollapse_PreservesCursorOnHeader(t *testing.T) {
 
 func TestIsThreadsSelected_FalseOnSectionHeader(t *testing.T) {
 	m := New([]ChannelItem{{ID: "D1", Name: "alice", Type: "dm"}})
-	m.MoveDown()
+	m.MoveDown() // Threads
+	m.MoveDown() // DM header
 	if m.IsThreadsSelected() {
 		t.Errorf("Threads should not be reported selected when cursor is on a section header")
 	}

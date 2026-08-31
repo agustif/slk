@@ -1,0 +1,91 @@
+{
+  "ok": true,
+  "items": [
+    {
+      "is_unread": true,
+      "feed_ts": "1787955901.383689",
+      "key": "channel-C0A95SPDL3B",
+      "is_archived": false,
+      "item": {
+        "type": "channel",
+        "bundle_info": {
+          "payload": {
+            "channel_entry": {
+              "latest_message": {"ts": "1787955901.383689", "channel": "C0A95SPDL3B"},
+              "unread_msg_count": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "is_unread": false,
+      "feed_ts": "1788181025.052949",
+      "key": "thread_v2-C099JCB0WLC-1787859788.452529",
+      "item": {
+        "type": "thread_v2",
+        "bundle_info": {
+          "payload": {
+            "thread_entry": {
+              "channel_id": "C099JCB0WLC",
+              "latest_ts": "1788181025.052949",
+              "thread_ts": "1787859788.452529",
+              "unread_msg_count": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "is_unread": false,
+      "feed_ts": "1788133014.963939",
+      "key": "dm-D0ARB1GN6Q5",
+      "item": {
+        "type": "dm",
+        "bundle_info": {
+          "payload": {
+            "dm_entry": {
+              "latest_message": {"ts": "1788133014.963939", "channel": "D0ARB1GN6Q5"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "is_unread": false,
+      "feed_ts": "1788132798.000000",
+      "key": "message_reaction-D0ARB1GN6Q5-1788132677.527999",
+      "item": {
+        "type": "message_reaction",
+        "message": {"ts": "1788132677.527999", "channel": "D0ARB1GN6Q5"},
+        "reaction": {"user": "U099FC5CXCJ", "name": "eyes"}
+      }
+    },
+    {
+      "is_unread": false,
+      "feed_ts": "1787861003.733819",
+      "key": "at_user-C0B4EUFSRU3-1787861003.733819",
+      "item": {
+        "type": "at_user",
+        "message": {
+          "ts": "1787861003.733819",
+          "channel": "C0B4EUFSRU3",
+          "author_user_id": "U09PAK5229E"
+        }
+      }
+    },
+    {
+      "is_unread": false,
+      "feed_ts": "1787962111.792869",
+      "key": "at_channel-C09THT0TK38-1787962111.792869",
+      "item": {
+        "type": "at_channel",
+        "message": {
+          "ts": "1787962111.792869",
+          "channel": "C09THT0TK38",
+          "author_user_id": "U09DL7X8GG1"
+        }
+      }
+    }
+  ]
+}

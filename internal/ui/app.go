@@ -27,6 +27,7 @@ import (
 	"github.com/gammons/slk/internal/ids"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/slackurl"
+	"github.com/gammons/slk/internal/ui/activityview"
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/compose"
@@ -72,6 +73,7 @@ type View int
 const (
 	ViewChannels View = iota
 	ViewThreads
+	ViewActivity
 )
 
 const (
@@ -111,6 +113,7 @@ type App struct {
 	threadPanel      *thread.Model
 	threadCompose    compose.Model
 	threadsView      threadsview.Model
+	activityView     activityview.Model
 
 	// State
 	mode           Mode
@@ -201,7 +204,13 @@ type App struct {
 	// unread boundary). See internal/ui/services.go. Defaulted to a
 	// no-op adapter in NewApp so call sites can dispatch without
 	// nil-checks.
-	threads ThreadService
+	threads  ThreadService
+	activity ActivityService
+	// activityCfg is the [activity] config defaults (limit + the
+	// session-start filter/sort/unread_only/density). Live TUI
+	// cycles live on activityView, not here.
+	activityCfg config.Activity
+	activityGen uint64
 
 	threadsDirtyDebounce time.Duration
 	// fetchingOlder tracks in-flight older-history backfills per
@@ -500,6 +509,7 @@ func NewApp() *App {
 		threadPanel:           thread.New(),
 		threadCompose:         compose.New("thread"),
 		threadsView:           threadsview.New(nil, ""),
+		activityView:          activityview.New(),
 		linkPicker:            linkpicker.New(),
 		reactionPicker:        reactionpicker.New(),
 		reactionsView:         reactionsview.New(),
@@ -527,6 +537,7 @@ func NewApp() *App {
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
 		threads:               noopThreadService,
+		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
 		channels:              noopChannelService,
 		searchSvc:             noopSearchService,
@@ -558,12 +569,10 @@ func NewApp() *App {
 	// can jump to the threads-list view from the same overlay they use
 	// to switch channels (ctrl+t / ctrl+p). Selecting this row dispatches
 	// ThreadsViewActivatedMsg in handleChannelFinderMode below.
-	app.channelFinder.SetSyntheticItems([]channelfinder.Item{{
-		ID:     channelfinder.ThreadsViewID,
-		Name:   "Threads",
-		Type:   "threads",
-		Joined: true,
-	}})
+	app.channelFinder.SetSyntheticItems([]channelfinder.Item{
+		{ID: channelfinder.ThreadsViewID, Name: "Threads", Type: "threads", Joined: true},
+		{ID: channelfinder.ActivityViewID, Name: "Activity", Type: "activity", Joined: true},
+	})
 	// Seed the statusbar hint with the configured help key label so it
 	// stays accurate if the binding is ever changed.
 	app.statusbar.SetHelpHint(app.defaultHelpHint())
@@ -614,6 +623,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.bootstrap,
 		reduceReactions,
 		reduceThreads,
+		reduceActivity,
 		reduceSend,
 		reduceChannels,
 		reduceLinks,
@@ -1255,6 +1265,10 @@ func (a *App) handleDown() tea.Cmd {
 			// don't fire one conversations.replies call per row.
 			return a.openSelectedThreadCmd(true)
 		}
+		if a.view == ViewActivity {
+			a.activityView.MoveDown()
+			return nil
+		}
 		return a.coalesceContentScroll(+1)
 	case PanelThread:
 		return a.coalesceContentScroll(+1)
@@ -1271,6 +1285,10 @@ func (a *App) handleUp() tea.Cmd {
 			a.threadsView.MoveUp()
 			// k: same debounce as j — see handleDown.
 			return a.openSelectedThreadCmd(true)
+		}
+		if a.view == ViewActivity {
+			a.activityView.MoveUp()
+			return nil
 		}
 		return a.coalesceContentScroll(-1)
 	case PanelThread:
@@ -1382,6 +1400,10 @@ func (a *App) handleGoToBottom() tea.Cmd {
 			// G is a one-shot jump — fire the fetch immediately.
 			return a.openSelectedThreadCmd(false)
 		}
+		if a.view == ViewActivity {
+			a.activityView.GoToBottom()
+			return nil
+		}
 		a.messagepane.GoToBottom()
 	case PanelThread:
 		a.threadPanel.GoToBottom()
@@ -1448,6 +1470,12 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 			} else {
 				a.threadsView.ScrollDown(n)
 			}
+		} else if a.view == ViewActivity {
+			if delta < 0 {
+				a.activityView.ScrollUp(n)
+			} else {
+				a.activityView.ScrollDown(n)
+			}
 		} else {
 			if delta < 0 {
 				a.messagepane.ScrollUp(n)
@@ -1507,6 +1535,9 @@ func (a *App) openQuitConfirm() {
 
 func (a *App) handleEnter() tea.Cmd {
 	if a.focusedPanel == PanelSidebar {
+		if a.sidebar.IsActivitySelected() {
+			return func() tea.Msg { return ActivityViewActivatedMsg{} }
+		}
 		if a.sidebar.IsThreadsSelected() {
 			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
 		}
@@ -1536,6 +1567,10 @@ func (a *App) handleEnter() tea.Cmd {
 	// "enter this thread to interact with it"), distinguishing it
 	// from the j/k navigation which preserves PanelMessages focus so
 	// the user can keep walking the list.
+	if a.focusedPanel == PanelMessages && a.view == ViewActivity {
+		return a.openSelectedActivityCmd()
+	}
+
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {
 		if _, ok := a.threadsView.SelectedSummary(); !ok {
 			return nil
@@ -1923,6 +1958,7 @@ func (a *App) SetChannels(items []sidebar.ChannelItem) {
 	}
 	a.threadPanel.SetChannelNames(names)
 	a.threadsView.SetChannelNames(names)
+	a.activityView.SetChannelNames(names)
 }
 
 // SetChannelService wires the App's ChannelService collaborator
@@ -2010,6 +2046,23 @@ func (a *App) SetThreadService(s ThreadService) {
 		s = noopThreadService
 	}
 	a.threads = s
+}
+
+// SetActivityService wires the App's Activity inbox fetcher.
+func (a *App) SetActivityService(s ActivityService) {
+	if s == nil {
+		s = noopActivityService
+	}
+	a.activity = s
+}
+
+// SetActivityConfig seeds the Activity view from [activity] in
+// config.toml. Live f/F/s/u cycles do not write back here.
+func (a *App) SetActivityConfig(cfg config.Activity) {
+	cfg = cfg.Normalized()
+	a.activityCfg = cfg
+	a.activityView.SetQuery(cfg.Filter, cfg.Sort, cfg.UnreadOnly)
+	a.activityView.SetDensity(cfg.Density)
 }
 
 // SetReadStateReader installs a callback the sidebar (and any future
@@ -2380,6 +2433,7 @@ func (a *App) downloadFileCmd(att messages.Attachment) tea.Cmd {
 func (a *App) SetUserNames(names map[string]string) {
 	a.userNames = names
 	a.threadsView.SetUserNames(names)
+	a.activityView.SetUserNames(names)
 	for _, m := range a.allWinModels() {
 		m.SetUserNames(names)
 	}
@@ -2518,6 +2572,7 @@ func (a *App) SetReactionService(r ReactionService) {
 func (a *App) SetCurrentUserID(userID string) {
 	a.currentUserID = userID
 	a.threadsView.SetSelfUserID(userID)
+	a.activityView.SetSelfUserID(userID)
 	a.messagepane.SetCurrentUser(userID)
 	a.threadPanel.SetCurrentUser(userID)
 }

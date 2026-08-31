@@ -199,8 +199,11 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 	if m.InitialActive && a.bootstrap.ClaimInitialActive() {
 		a.view = ViewChannels
 		a.sidebar.SetThreadsActive(false)
+		a.sidebar.SetActivityActive(false)
 		a.threadsView.SetSummaries(nil)
+		a.activityView.SetItems(nil)
 		a.sidebar.SetThreadsUnreadCount(0)
+		a.sidebar.SetActivityUnreadCount(m.ActivityUnread)
 		a.lastOpenedChannelID = ""
 		a.lastOpenedThreadTS = ""
 		// Apply the resolved theme for the initial active
@@ -305,8 +308,11 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// has no channels at all.
 	a.view = ViewChannels
 	a.sidebar.SetThreadsActive(false)
+	a.sidebar.SetActivityActive(false)
 	a.threadsView.SetSummaries(nil)
+	a.activityView.SetItems(nil)
 	a.sidebar.SetThreadsUnreadCount(0)
+	a.sidebar.SetActivityUnreadCount(m.ActivityUnread)
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
 	a.CloseThread()

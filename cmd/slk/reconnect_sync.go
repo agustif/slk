@@ -32,9 +32,9 @@ import (
 // all of it. One method is what "O(1) reconnect" means in code;
 // TestReconnect_ClientSurfaceCannotEnumerate fails if it grows.
 type reconnectClient interface {
-	// GetUnreadCounts is client.counts: one request that returns
-	// unread state for every conversation in the workspace.
-	GetUnreadCounts() ([]slackclient.UnreadInfo, slackclient.ThreadsAggregate, error)
+	// GetCounts is client.counts: one request that returns unread
+	// state for every conversation plus the Activity-tab badge.
+	GetCounts() (slackclient.CountsSnapshot, error)
 }
 
 // teaSender is the subset of *tea.Program the reconnect path uses to
@@ -83,6 +83,11 @@ type reconnectSync struct {
 	// normal open path and pushes the result into the UI. Required;
 	// tests substitute a recorder.
 	refreshChannel func(ctx context.Context, channelID string)
+
+	// onActivity records the activity_v2 badge onto the workspace
+	// context so a later workspace switch still shows the reconnect
+	// value. Optional.
+	onActivity func(unread int)
 }
 
 // run performs one catch-up pass.
@@ -126,16 +131,23 @@ func (r *reconnectSync) run(ctx context.Context) error {
 // Failure is logged and swallowed: unread badges are cosmetic next to
 // the messages themselves, and the next boot refreshes them anyway.
 func (r *reconnectSync) refreshUnreadState() {
-	unreads, _, err := r.client.GetUnreadCounts()
+	snap, err := r.client.GetCounts()
 	if err != nil {
 		debuglog.Backfill("team=%s reconnect-sync counts err=%v (unread badges stay stale)", r.workspaceID, err)
 		return
 	}
-	if len(unreads) == 0 {
+	activityUnread := snap.Activity.Unread()
+	if r.onActivity != nil {
+		r.onActivity(activityUnread)
+	}
+	if r.program != nil {
+		r.program.Send(ui.ActivityCountsMsg{TeamID: r.workspaceID, Unread: activityUnread})
+	}
+	if len(snap.Unreads) == 0 {
 		return
 	}
-	updates := make([]cache.ChannelReadStateUpdate, 0, len(unreads))
-	for _, u := range unreads {
+	updates := make([]cache.ChannelReadStateUpdate, 0, len(snap.Unreads))
+	for _, u := range snap.Unreads {
 		updates = append(updates, cache.ChannelReadStateUpdate{
 			ChannelID:  u.ChannelID,
 			LastReadTS: u.LastRead,

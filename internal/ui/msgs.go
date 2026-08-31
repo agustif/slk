@@ -19,6 +19,7 @@ import (
 
 	"github.com/gammons/slk/internal/cache"
 	emojiutil "github.com/gammons/slk/internal/emoji"
+	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/searchresults"
@@ -169,6 +170,34 @@ type (
 	ThreadsListDirtyMsg struct {
 		TeamID string
 	}
+	// ActivityViewActivatedMsg is dispatched when the user picks the
+	// synthetic Activity sidebar row (or the finder shortcut). The App
+	// switches the message pane to the Activity inbox and refetches.
+	ActivityViewActivatedMsg struct{}
+	// ActivityViewsLoadedMsg carries activity.views (builtin + custom
+	// tabs). Ignored if TeamID doesn't match the active workspace.
+	ActivityViewsLoadedMsg struct {
+		TeamID string
+		Views  []slackclient.ActivityView
+		Err    error
+	}
+	// ActivityFeedLoadedMsg carries a freshly fetched activity.feed
+	// page. Ignored if TeamID/Gen don't match the in-flight request.
+	ActivityFeedLoadedMsg struct {
+		TeamID     string
+		Items      []slackclient.ActivityItem
+		Err        error
+		Gen        uint64
+		Filter     string
+		Sort       string
+		UnreadOnly bool
+	}
+	// ActivityCountsMsg updates the sidebar Activity badge from
+	// client.counts activity_v2. Ignored if TeamID is not active.
+	ActivityCountsMsg struct {
+		TeamID string
+		Unread int
+	}
 	ConnectionStateMsg struct {
 		State int // 0=connecting, 1=connected, 2=disconnected
 	}
@@ -255,6 +284,7 @@ type (
 		// workspace. Nil means "use config-glob behavior" (the App's
 		// sidebar reverts to its existing name-keyed buckets).
 		SectionsProvider sidebar.SectionsProvider
+		ActivityUnread   int
 	}
 	// ReadStateChangedMsg is sent whenever the persistent read state changes,
 	// so panels that read from cache.GetWorkspaceReadState re-render.
@@ -333,6 +363,9 @@ type (
 		// sidebar's first entry, so a restart lands the user back where
 		// they were. Empty (e.g. first ever run) falls back to Channels[0].
 		LastChannelID string
+		// ActivityUnread is client.counts activity_v2 sum, used for
+		// the sidebar Activity-row badge on the initial workspace.
+		ActivityUnread int
 	}
 	// CustomEmojisLoadedMsg is sent when a workspace's custom emoji list
 	// finishes loading in the background, after WorkspaceReadyMsg has

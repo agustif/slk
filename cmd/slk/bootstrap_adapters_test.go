@@ -202,7 +202,8 @@ const countsBody = `{
   "ok": true,
   "channels": [{"id":"C1","has_unreads":true,"mention_count":2,"unread_count_display":5,"last_read":"1.0"}],
   "ims": [{"id":"D1","has_unreads":false,"last_read":"2.0"}],
-  "threads": {"has_unreads":true,"unread_count":3,"mention_count":1}
+  "threads": {"has_unreads":true,"unread_count":3,"mention_count":1},
+  "activity_v2": {"channel":30,"dm":2}
 }`
 
 func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
@@ -236,6 +237,9 @@ func TestCountsAdapter_CarriesUnreadsAndTheThreadRollup(t *testing.T) {
 	}{counts.Threads.HasUnreads, counts.Threads.UnreadCount, counts.Threads.MentionCount}
 	if got != want {
 		t.Errorf("threads = %+v; want %+v", got, want)
+	}
+	if counts.ActivityUnread != 32 {
+		t.Errorf("ActivityUnread = %d; want 32 (channel+dm)", counts.ActivityUnread)
 	}
 }
 

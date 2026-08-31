@@ -40,7 +40,8 @@ func TestSidebarNavigation(t *testing.T) {
 	// Expand the Channels section so j/k can reach the channel rows.
 	m.ToggleCollapse("Channels")
 
-	// Nav order: Threads → "Channels" header → C1 → C2 → C3.
+	// Nav order: Activity → Threads → "Channels" header → C1 → C2 → C3.
+	m.MoveDown() // Threads
 	m.MoveDown() // onto the "Channels" section header
 	if name, ok := m.IsSectionHeaderSelected(); !ok || name != "Channels" {
 		t.Errorf("expected Channels header selected, got name=%q ok=%v", name, ok)
@@ -68,13 +69,16 @@ func TestSidebarNavigation(t *testing.T) {
 	}
 }
 
-func TestThreadsItem_DefaultSelected(t *testing.T) {
+func TestActivityItem_DefaultSelected(t *testing.T) {
 	m := New([]ChannelItem{
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "C2", Name: "design", Type: "channel"},
 	})
-	if !m.IsThreadsSelected() {
-		t.Errorf("expected Threads entry to be selected by default (top of list)")
+	if !m.IsActivitySelected() {
+		t.Errorf("expected Activity entry to be selected by default (top of list)")
+	}
+	if m.IsThreadsSelected() {
+		t.Errorf("Threads should sit under Activity, not keep the top slot")
 	}
 }
 
@@ -84,10 +88,11 @@ func TestThreadsItem_MoveDownLeavesIt(t *testing.T) {
 		{ID: "C2", Name: "design", Type: "channel"},
 	})
 	m.ToggleCollapse("Channels")
+	m.MoveDown() // Threads
 	m.MoveDown() // header
 	m.MoveDown() // first channel
-	if m.IsThreadsSelected() {
-		t.Errorf("MoveDown should leave the Threads entry")
+	if m.IsThreadsSelected() || m.IsActivitySelected() {
+		t.Errorf("MoveDown should leave the synthetic rows")
 	}
 	item, ok := m.SelectedItem()
 	if !ok || item.ID != "C1" {
@@ -100,15 +105,20 @@ func TestThreadsItem_MoveUpReturnsToIt(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 	})
 	m.ToggleCollapse("Channels")
+	m.MoveDown() // Threads
 	m.MoveDown() // header
 	m.MoveDown() // C1
 	if m.IsThreadsSelected() {
 		t.Fatalf("precondition: should be on a channel")
 	}
 	m.MoveUp() // back to header
-	m.MoveUp() // back to Threads
+	m.MoveUp() // Threads
 	if !m.IsThreadsSelected() {
-		t.Errorf("MoveUp from first channel should land on Threads entry")
+		t.Errorf("MoveUp from first channel should land on Threads (under Activity)")
+	}
+	m.MoveUp() // Activity
+	if !m.IsActivitySelected() {
+		t.Errorf("MoveUp from Threads should land on Activity at the top")
 	}
 }
 
@@ -142,8 +152,8 @@ func TestThreadsItem_VisibleWhenNoChannels(t *testing.T) {
 	if !strings.Contains(out, "Threads") {
 		t.Errorf("View should contain 'Threads' even when there are no channels: %q", out)
 	}
-	if !m.IsThreadsSelected() {
-		t.Errorf("Threads row should still be selected when there are no channels")
+	if !m.IsActivitySelected() {
+		t.Errorf("Activity row should be selected when there are no channels")
 	}
 }
 
@@ -183,12 +193,60 @@ func TestSetThreadsUnreadCount_ZeroRemovesBadge(t *testing.T) {
 func TestThreadsItem_SelectedItemFalseWhenOnThreadsRow(t *testing.T) {
 	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
 	if _, ok := m.SelectedItem(); ok {
+		t.Errorf("SelectedItem should return ok=false on the top synthetic row")
+	}
+	m.MoveDown() // Threads
+	if _, ok := m.SelectedItem(); ok {
 		t.Errorf("SelectedItem should return ok=false when Threads row is selected")
+	}
+}
+
+func TestActivityItem_SitsAboveThreads(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	if !m.IsActivitySelected() {
+		t.Fatal("Activity should own the top slot")
+	}
+	m.MoveDown()
+	if !m.IsThreadsSelected() {
+		t.Error("MoveDown from Activity should land on Threads")
+	}
+	if _, ok := m.SelectedItem(); ok {
+		t.Error("SelectedItem should be false on the Threads row")
+	}
+}
+
+func TestActivityItem_UnreadBadgeRenders(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SetActivityUnreadCount(12)
+	out := m.View(10, 30)
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "Activity") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("no Activity line in view: %q", out)
+	}
+	if !strings.Contains(line, "•12") {
+		t.Errorf("Activity line should contain badge '•12', got %q", line)
+	}
+}
+
+func TestSetActivityUnreadCount_NoChangeNoVersionBump(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SetActivityUnreadCount(3)
+	v1 := m.Version()
+	m.SetActivityUnreadCount(3)
+	if m.Version() != v1 {
+		t.Error("identical SetActivityUnreadCount should not bump version")
 	}
 }
 
 func TestThreadsItem_SelectByIDClearsThreadsSelection(t *testing.T) {
 	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SelectThreadsRow()
 	if !m.IsThreadsSelected() {
 		t.Fatal("precondition")
 	}
@@ -323,17 +381,24 @@ func TestRender_UnreadThreadsRow_KeepsBoldAfterPrefixReset(t *testing.T) {
 	m.SetThreadsUnreadCount(3)
 	out := m.View(20, 40)
 
-	threadsIdx := strings.Index(out, "Threads")
-	if threadsIdx < 0 {
+	var threadsLine string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Threads") {
+			threadsLine = line
+			break
+		}
+	}
+	if threadsLine == "" {
 		t.Fatalf("output missing Threads label; got: %q", out)
 	}
-	prefix := out[:threadsIdx]
+	threadsIdx := strings.Index(threadsLine, "Threads")
+	prefix := threadsLine[:threadsIdx]
 	lastResetIdx := strings.LastIndex(prefix, "\x1b[m")
 	if lastResetIdx == -1 {
 		t.Skip("no mid-label reset found before Threads; render path changed")
 	}
 	afterReset := prefix[lastResetIdx:]
-	if !strings.Contains(afterReset, "\x1b[1m") {
+	if !strings.Contains(afterReset, "\x1b[1") {
 		t.Errorf("bold attribute not re-emitted after ⚑ reset for unread Threads row\nafterReset=%q", afterReset)
 	}
 }
@@ -346,11 +411,18 @@ func TestRender_ReadThreadsRow_DoesNotEmitBoldAfterReset(t *testing.T) {
 	m.SetThreadsUnreadCount(0)
 	out := m.View(20, 40)
 
-	threadsIdx := strings.Index(out, "Threads")
-	if threadsIdx < 0 {
+	var threadsLine string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Threads") {
+			threadsLine = line
+			break
+		}
+	}
+	if threadsLine == "" {
 		t.Fatalf("output missing Threads label")
 	}
-	prefix := out[:threadsIdx]
+	threadsIdx := strings.Index(threadsLine, "Threads")
+	prefix := threadsLine[:threadsIdx]
 	lastResetIdx := strings.LastIndex(prefix, "\x1b[m")
 	if lastResetIdx == -1 {
 		return

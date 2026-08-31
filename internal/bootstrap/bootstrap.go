@@ -166,6 +166,10 @@ type Threads struct {
 type Counts struct {
 	Unreads []Unread
 	Threads Threads
+	// ActivityUnread is the sum of client.counts activity_v2 type
+	// counts — the Activity-tab badge. Zero when the field is
+	// missing (older snapshots, or a counts body without activity_v2).
+	ActivityUnread int
 }
 
 // History is what a conversations.history fallback returned — a

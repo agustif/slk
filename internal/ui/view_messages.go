@@ -9,6 +9,8 @@
 //   ViewThreads  -> threads-list panel (no compose, no typing
 //                   line). Whole bordered panel is cached on
 //                   threadsView.Version + layout key.
+//   ViewActivity -> Activity inbox (same chrome as threads:
+//                   no compose). Cached on activityView.Version.
 //   ViewChannels -> message pane + typing row + compose box, with
 //                   a split-cache pattern: bordered top region
 //                   (messages + top edge + sides only, no bottom
@@ -84,9 +86,16 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	// would take 2^13 theme switches, and bit 32 would take 2^29),
 	// composeHeight bits 16+ (terminal rows, < 2^10), window id
 	// bits 32+ (wintree.LeafID increments per split; tiny).
+	viewN := int64(0)
+	switch a.view {
+	case ViewThreads:
+		viewN = 1
+	case ViewActivity:
+		viewN = 2
+	}
 	msgLayoutKey := int64(a.focusedWin)<<32 |
-		themeVer<<3 |
-		boolToInt(a.view == ViewThreads)<<2 |
+		themeVer<<4 |
+		viewN<<2 |
 		boolToInt(msgFocused)<<1
 	a.compose.SetWidth(msgWidth - 2)
 
@@ -97,6 +106,9 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	}
 	if a.view == ViewThreads {
 		return a.renderThreadsViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
+	}
+	if a.view == ViewActivity {
+		return a.renderActivityViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
 	}
 	return a.renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight, msgFocused, composeFocused, msgLayoutKey)
 }
@@ -142,6 +154,34 @@ func (a *App) renderThreadsViewPanel(msgWidth, msgBorder, contentHeight int, msg
 		msgWidth+msgBorder, contentHeight,
 	)
 	c.store(out, tvVersion, msgWidth, contentHeight, msgLayoutKey)
+	return out
+}
+
+func (a *App) renderActivityViewPanel(msgWidth, msgBorder, contentHeight int, msgFocused bool, msgLayoutKey int64) string {
+	a.activityView.SetUserNames(a.userNames)
+	a.activityView.SetSelfUserID(a.currentUserID)
+	a.activityView.SetFocused(msgFocused)
+	avVersion := a.activityView.Version()
+	c := &a.renderCache.msgPanel
+	if c.hit(avVersion, msgWidth, contentHeight, msgLayoutKey) {
+		return c.output
+	}
+	msgBorderStyle := styles.UnfocusedBorder.Width(msgWidth)
+	if msgFocused {
+		msgBorderStyle = styles.FocusedBorder.Width(msgWidth)
+	}
+	msgContentHeight := contentHeight - 2
+	a.layout.SetMsgHeight(msgContentHeight)
+	if msgContentHeight < 3 {
+		msgContentHeight = 3
+	}
+	avView := a.activityView.View(msgContentHeight, msgWidth-2)
+	avView = messages.ReapplyBgAfterResets(avView, messages.BgANSI())
+	out := exactSize(
+		msgBorderStyle.Render(avView),
+		msgWidth+msgBorder, contentHeight,
+	)
+	c.store(out, avVersion, msgWidth, contentHeight, msgLayoutKey)
 	return out
 }
 

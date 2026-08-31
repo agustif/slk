@@ -161,6 +161,9 @@ type WorkspaceContext struct {
 	// us the workspace has zero unread threads, we trust that and
 	// suppress the heuristic-derived flags entirely.
 	ThreadsHasUnreads bool
+	// ActivityUnread is client.counts activity_v2 sum for the
+	// sidebar Activity-row badge. Refreshed on boot and reconnect.
+	ActivityUnread int
 	// ThreadSubsGate throttles the workspace's
 	// subscriptions.thread.getView fetches to one per
 	// threadSubsSyncInterval. Fired on workspace-ready, on Threads
@@ -1151,6 +1154,7 @@ func run() error {
 	app.SetSidebarStaleThreshold(time.Duration(cfg.Sidebar.HideInactiveAfterDays) * 24 * time.Hour)
 	app.SetMouseWheelLines(cfg.Appearance.MouseWheelLines)
 	app.SetColoredUsernames(cfg.Appearance.ColoredUsernames)
+	app.SetActivityConfig(cfg.Activity)
 
 	// Wire theme switcher
 	app.SetThemeItems(styles.ThemeNames())
@@ -1696,6 +1700,46 @@ func run() error {
 			}
 		})
 
+		app.SetActivityService(ui.NewActivityService(ui.ActivityServiceFuncs{
+			FetchViews: func(teamID ids.TeamID) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.ActivityViewsLoadedMsg{TeamID: team, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				views, err := wctx.Client.GetActivityViews(ctx)
+				return ui.ActivityViewsLoadedMsg{TeamID: team, Views: views, Err: err}
+			},
+			FetchFeed: func(teamID ids.TeamID, q ui.ActivityFeedQuery) tea.Msg {
+				team := string(teamID)
+				wctx := router.ByID(team)
+				if wctx == nil {
+					return ui.ActivityFeedLoadedMsg{TeamID: team, Gen: q.Gen, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				items, err := wctx.Client.GetActivityFeed(ctx, slackclient.ActivityFeedOpts{
+					Filter:       q.Filter,
+					Types:        q.Types,
+					Sort:         q.Sort,
+					UnreadOnly:   q.UnreadOnly,
+					PriorityOnly: q.PriorityOnly,
+					Limit:        q.Limit,
+				})
+				return ui.ActivityFeedLoadedMsg{
+					TeamID:     team,
+					Items:      items,
+					Err:        err,
+					Gen:        q.Gen,
+					Filter:     q.Filter,
+					Sort:       q.Sort,
+					UnreadOnly: q.UnreadOnly,
+				}
+			},
+		}))
+
 		app.SetThreadService(ui.NewThreadService(ui.ThreadServiceFuncs{
 			Fetch: func(channelID ids.ChannelID, threadTS ids.ThreadTS) tea.Msg {
 				chIDStr, threadTSStr := string(channelID), string(threadTS)
@@ -1911,6 +1955,7 @@ func run() error {
 			CustomEmoji:      wctx.CustomEmoji,
 			UserGroups:       wctx.UserGroups(),
 			SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
+			ActivityUnread:   wctx.ActivityUnread,
 		}
 	})
 
@@ -2106,6 +2151,7 @@ func run() error {
 				SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 				InitialActive:    isInitial,
 				LastChannelID:    mostRecentlyVisitedChannel(wctx.LastVisitedByChannel),
+				ActivityUnread:   wctx.ActivityUnread,
 			})
 
 			// Fetch workspace custom emojis in the background. When done,
@@ -2595,6 +2641,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		debuglog.Cache("workspace_unread_bootstrap: team=%s client.counts failed during bootstrap; leaving read state as cached", token.TeamName)
 	}
 	wctx.ThreadsHasUnreads = res.Counts.Threads.HasUnreads
+	wctx.ActivityUnread = res.Counts.ActivityUnread
 	// Boot applies an authoritative FULL snapshot: reset every channel
 	// in the workspace to read, then set the ones client.counts reports
 	// unread. This runs BEFORE the WebSocket goes live (ConnMgr.Run is
@@ -4418,6 +4465,9 @@ func (h *rtmEventHandler) syncOnReconnect(trigger string) bool {
 		program:        h.program,
 		activeChannel:  h.activeChannelID,
 		refreshChannel: h.refreshChannel,
+		onActivity: func(n int) {
+			h.wsCtx.ActivityUnread = n
+		},
 	}
 	go func() {
 		if err := sync.run(context.Background()); err != nil {

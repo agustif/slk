@@ -945,30 +945,41 @@ type ThreadsAggregate struct {
 	MentionCount int
 }
 
-// GetUnreadCounts fetches unread counts for all channels using Slack's
-// internal client.counts API (available with xoxc browser tokens).
-// Also returns the threads aggregate (HasUnreads / counts) for the
-// workspace; the threads block in client.counts is the only place
-// Slack tells us whether per-thread unreads exist without us having to
-// hit subscriptions.thread.* directly.
+// CountsSnapshot is everything one client.counts call learned that slk
+// consumes: per-conversation unreads, the threads rollup, and the
+// Activity-tab badge (activity_v2).
+type CountsSnapshot struct {
+	Unreads  []UnreadInfo
+	Threads  ThreadsAggregate
+	Activity ActivityCounts
+}
+
+// GetUnreadCounts is the historical two-return wrapper around GetCounts.
 func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
+	s, err := c.GetCounts()
+	return s.Unreads, s.Threads, err
+}
+
+// GetCounts fetches unread counts for all channels using Slack's
+// internal client.counts API (available with xoxc browser tokens).
+func (c *Client) GetCounts() (CountsSnapshot, error) {
 	reqURL := c.apiBaseURL + "client.counts"
 	form := url.Values{"token": {c.token}}
 	req, err := http.NewRequest("POST", reqURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, ThreadsAggregate{}, fmt.Errorf("creating request: %w", err)
+		return CountsSnapshot{}, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := c.apiHTTPClient().Do(req)
 	if err != nil {
-		return nil, ThreadsAggregate{}, fmt.Errorf("fetching unread counts: %w", err)
+		return CountsSnapshot{}, fmt.Errorf("fetching unread counts: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, ThreadsAggregate{}, fmt.Errorf("reading response: %w", err)
+		return CountsSnapshot{}, fmt.Errorf("reading response: %w", err)
 	}
 
 	var result struct {
@@ -1001,14 +1012,15 @@ func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
 			UnreadCount  int  `json:"unread_count"`
 			MentionCount int  `json:"mention_count"`
 		} `json:"threads"`
+		ActivityV2 json.RawMessage `json:"activity_v2"`
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, ThreadsAggregate{}, fmt.Errorf("parsing response: %w", err)
+		return CountsSnapshot{}, fmt.Errorf("parsing response: %w", err)
 	}
 
 	if !result.OK {
-		return nil, ThreadsAggregate{}, fmt.Errorf("client.counts API returned ok=false")
+		return CountsSnapshot{}, fmt.Errorf("client.counts API returned ok=false")
 	}
 
 	var unreads []UnreadInfo
@@ -1054,7 +1066,11 @@ func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
 		UnreadCount:  result.Threads.UnreadCount,
 		MentionCount: result.Threads.MentionCount,
 	}
-	return unreads, threads, nil
+	return CountsSnapshot{
+		Unreads:  unreads,
+		Threads:  threads,
+		Activity: parseActivityV2(result.ActivityV2),
+	}, nil
 }
 
 // SendReply posts a threaded reply to the specified message.

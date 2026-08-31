@@ -903,3 +903,133 @@ team_id = "T04T4TH8W"
 		t.Errorf("VersionTS = %q; want empty when unset", got)
 	}
 }
+
+func TestActivityDefaults(t *testing.T) {
+	d := Default()
+	if d.Activity.Filter != ActivityFilterAll {
+		t.Errorf("Filter = %q, want all", d.Activity.Filter)
+	}
+	if d.Activity.Sort != ActivitySortNewest {
+		t.Errorf("Sort = %q, want newest", d.Activity.Sort)
+	}
+	if d.Activity.UnreadOnly {
+		t.Error("UnreadOnly should default false")
+	}
+	if d.Activity.Density != ActivityDensityDetailed {
+		t.Errorf("Density = %q, want detailed", d.Activity.Density)
+	}
+	if d.Activity.Limit != ActivityLimitDefault {
+		t.Errorf("Limit = %d, want %d", d.Activity.Limit, ActivityLimitDefault)
+	}
+
+	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity != d.Activity {
+		t.Errorf("missing file Activity = %+v, want %+v", cfg.Activity, d.Activity)
+	}
+}
+
+func TestActivityClampOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(`
+[activity]
+filter = "nope"
+sort = "alphabetical"
+density = "huge"
+limit = 0
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity.Filter != "nope" {
+		t.Errorf("unknown filter %q should pass through as a custom view name", cfg.Activity.Filter)
+	}
+	if cfg.Activity.Sort != ActivitySortNewest {
+		t.Errorf("bad sort clamped to %q, want newest", cfg.Activity.Sort)
+	}
+	if cfg.Activity.Density != ActivityDensityDetailed {
+		t.Errorf("bad density clamped to %q, want detailed", cfg.Activity.Density)
+	}
+	if cfg.Activity.Limit != ActivityLimitDefault {
+		t.Errorf("limit 0 clamped to %d, got %d", ActivityLimitDefault, cfg.Activity.Limit)
+	}
+}
+
+func TestActivityValidValuesPassThrough(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(`
+[activity]
+filter = "mentions"
+sort = "unreads_first"
+unread_only = true
+density = "compact"
+limit = 20
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity.Filter != ActivityFilterMentions {
+		t.Errorf("Filter = %q", cfg.Activity.Filter)
+	}
+	if cfg.Activity.Sort != ActivitySortUnreadsFirst {
+		t.Errorf("Sort = %q", cfg.Activity.Sort)
+	}
+	if !cfg.Activity.UnreadOnly {
+		t.Error("UnreadOnly = false, want true")
+	}
+	if cfg.Activity.Density != ActivityDensityCompact {
+		t.Errorf("Density = %q", cfg.Activity.Density)
+	}
+	if cfg.Activity.Limit != 20 {
+		t.Errorf("Limit = %d, want 20", cfg.Activity.Limit)
+	}
+}
+
+func TestActivityLimitClampMax(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[activity]\nlimit = 500\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Activity.Limit != ActivityLimitMax {
+		t.Errorf("Limit = %d, want %d", cfg.Activity.Limit, ActivityLimitMax)
+	}
+}
+
+func TestNextActivityFilterWraps(t *testing.T) {
+	if got := NextActivityFilter(ActivityFilterAll, 1); got != ActivityFilterDMs {
+		t.Errorf("all+1 = %q, want dms", got)
+	}
+	if got := NextActivityFilter(ActivityFilterReactions, 1); got != ActivityFilterAll {
+		t.Errorf("reactions+1 = %q, want all", got)
+	}
+	if got := NextActivityFilter(ActivityFilterAll, -1); got != ActivityFilterReactions {
+		t.Errorf("all-1 = %q, want reactions", got)
+	}
+	if got := NextActivityFilter("bogus", 1); got != ActivityFilterDMs {
+		t.Errorf("unknown+1 should start from all → dms, got %q", got)
+	}
+}
+
+func TestNextActivitySortToggles(t *testing.T) {
+	if got := NextActivitySort(ActivitySortNewest); got != ActivitySortUnreadsFirst {
+		t.Errorf("newest → %q", got)
+	}
+	if got := NextActivitySort(ActivitySortUnreadsFirst); got != ActivitySortNewest {
+		t.Errorf("unreads_first → %q", got)
+	}
+}

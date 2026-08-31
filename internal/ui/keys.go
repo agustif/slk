@@ -62,6 +62,10 @@ type KeyMap struct {
 	WinCycle            key.Binding
 	WinClose            key.Binding
 	WinOnly             key.Binding
+	ActivityFilter      key.Binding
+	ActivityFilterPrev  key.Binding
+	ActivitySort        key.Binding
+	ActivityUnreadOnly  key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -132,5 +136,9 @@ func DefaultKeyMap() KeyMap {
 		WinCycle:     key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
 		WinClose:     key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
 		WinOnly:      key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
+		ActivityFilter:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next activity tab")),
+		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev activity tab")),
+		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),
+		ActivityUnreadOnly: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle activity unread-only")),
 	}
 }
