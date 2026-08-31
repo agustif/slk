@@ -360,7 +360,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	// Tell the sidebar which channel is active so the staleness
 	// filter never hides it out from under the user.
 	a.sidebar.SetActiveChannelID(m.ID)
-	a.messagepane.SetChannel(m.Name, "")
+	a.messagepane.SetChannel(m.Name, topicForChannel(a, m.ID, m.Topic))
 	a.messagepane.SetChannelType(m.Type)
 
 	// Close any open mention picker before switching channels.
@@ -438,4 +438,20 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		tier = "3_spinner"
 		return tea.Batch(spinnerTickCmd(), fetchCmd()), true
 	}
+}
+
+// topicForChannel returns the header topic for a channel. Prefer the
+// value already on ChannelSelectedMsg; otherwise take it from the
+// sidebar item (seeded from cache at bootstrap). Empty means the
+// message-pane header stays a single line.
+func topicForChannel(a *App, id, msgTopic string) string {
+	if msgTopic != "" {
+		return msgTopic
+	}
+	for _, it := range a.sidebar.Items() {
+		if it.ID == id {
+			return it.Topic
+		}
+	}
+	return ""
 }

@@ -81,6 +81,7 @@ func buildChannelItem(ch slack.Channel, wctx *WorkspaceContext, cfg config.Confi
 		ID:           ch.ID,
 		Name:         displayName,
 		Type:         chType,
+		Topic:        ch.Topic.Value,
 		Section:      section,
 		SectionOrder: sectionOrder,
 		ChannelOrder: channelOrder,

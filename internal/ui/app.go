@@ -1624,7 +1624,7 @@ func (a *App) handleEnter() tea.Cmd {
 		item, ok := a.sidebar.SelectedItem()
 		if ok {
 			return func() tea.Msg {
-				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type}
+				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type, Topic: item.Topic}
 			}
 		}
 	}

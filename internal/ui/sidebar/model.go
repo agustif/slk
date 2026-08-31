@@ -32,6 +32,7 @@ type ChannelItem struct {
 	ID           string
 	Name         string
 	Type         string // channel, dm, group_dm, private, app
+	Topic        string // Slack channel topic; empty = no extra header line
 	Section      string // section name for grouping (e.g. "Engineering", "Starred")
 	SectionOrder int    // sort order from config; lower = higher in sidebar (custom sections only)
 	// ChannelOrder is the per-channel sort position within a section,

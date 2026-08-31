@@ -256,7 +256,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 			a.messagepane.SetMessages(nil)
 			batch = append(batch, spinnerTickCmd())
 			batch = append(batch, func() tea.Msg {
-				return ChannelSelectedMsg{ID: target.ID, Name: target.Name, Type: target.Type}
+				return ChannelSelectedMsg{ID: target.ID, Name: target.Name, Type: target.Type, Topic: target.Topic}
 			})
 		}
 	}
@@ -384,7 +384,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 		}
 		a.sidebar.SelectByID(target.ID)
 		batch = append(batch, func() tea.Msg {
-			return ChannelSelectedMsg{ID: target.ID, Name: target.Name, Type: target.Type}
+			return ChannelSelectedMsg{ID: target.ID, Name: target.Name, Type: target.Type, Topic: target.Topic}
 		})
 	} else {
 		a.sidebar.SelectThreadsRow()
