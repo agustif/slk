@@ -162,17 +162,19 @@ type ActionElement struct {
 // LegacyAttachment is one entry in Slack's legacy `attachments` array.
 // All fields are optional; render code must guard for empty values.
 type LegacyAttachment struct {
-	Color      string // "good"/"warning"/"danger" or 6-digit hex; "" → theme border
-	Pretext    string // mrkdwn rendered above the colored bar
-	Title      string
-	TitleLink  string // if set, Title is rendered as an OSC-8 hyperlink
-	Text       string // mrkdwn rendered inside the bar
-	Fields     []LegacyField
-	ImageURL   string // optional image rendered inside the bar at full inline width
-	ThumbURL   string // optional small thumbnail rendered to the right of Text
-	Footer     string
-	FooterIcon string // tiny inline image rendered before Footer
-	TS         int64  // unix seconds; 0 means absent
+	Color       string // "good"/"warning"/"danger" or 6-digit hex; "" → theme border
+	Pretext     string // mrkdwn rendered above the colored bar
+	Title       string
+	TitleLink   string // if set, Title is rendered as an OSC-8 hyperlink
+	Text        string // mrkdwn rendered inside the bar
+	Fields      []LegacyField
+	ImageURL    string // optional image rendered inside the bar at full inline width
+	ImageWidth  int    // pixel width of ImageURL when Slack provides it (0 if unknown)
+	ImageHeight int    // pixel height of ImageURL when Slack provides it (0 if unknown)
+	ThumbURL    string // used as the inline image when ImageURL is empty (link unfurls)
+	Footer      string
+	FooterIcon  string // tiny inline image rendered before Footer
+	TS          int64  // unix seconds; 0 means absent
 	// Blocks holds Block Kit blocks nested inside the attachment.
 	// Slack's newer link-unfurl shape (Linear/Jira/GitHub issue
 	// cards, etc.) carries all visible content here while

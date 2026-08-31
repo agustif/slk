@@ -282,15 +282,49 @@ func TestParseAttachmentTimestampParsesUnixSeconds(t *testing.T) {
 
 func TestParseAttachmentImageAndThumb(t *testing.T) {
 	in := []slack.Attachment{{
-		ImageURL: "https://example.com/img.png",
-		ThumbURL: "https://example.com/thumb.png",
+		ImageURL:    "https://example.com/img.png",
+		ImageWidth:  1200,
+		ImageHeight: 630,
+		ThumbURL:    "https://example.com/thumb.png",
 	}}
 	a := ParseAttachments(in)[0]
 	if a.ImageURL != "https://example.com/img.png" {
 		t.Errorf("ImageURL = %q", a.ImageURL)
 	}
+	if a.ImageWidth != 1200 || a.ImageHeight != 630 {
+		t.Errorf("ImageWidth/Height = %d/%d, want 1200/630", a.ImageWidth, a.ImageHeight)
+	}
 	if a.ThumbURL != "https://example.com/thumb.png" {
 		t.Errorf("ThumbURL = %q", a.ThumbURL)
+	}
+}
+
+func TestParseImageBlockFallsBackToSlackFileURL(t *testing.T) {
+	in := slack.Blocks{BlockSet: []slack.Block{
+		&slack.ImageBlock{
+			Type:      slack.MBTImage,
+			AltText:   "hosted",
+			SlackFile: &slack.SlackFileObject{URL: "https://files.slack.com/files-pri/T-F/img.png"},
+		},
+	}}
+	ib := Parse(in)[0].(ImageBlock)
+	if ib.URL != "https://files.slack.com/files-pri/T-F/img.png" {
+		t.Errorf("URL = %q, want slack_file url", ib.URL)
+	}
+}
+
+func TestParseImageBlockPrefersImageURLOverSlackFile(t *testing.T) {
+	in := slack.Blocks{BlockSet: []slack.Block{
+		&slack.ImageBlock{
+			Type:      slack.MBTImage,
+			ImageURL:  "https://example.com/public.png",
+			AltText:   "public",
+			SlackFile: &slack.SlackFileObject{URL: "https://files.slack.com/files-pri/T-F/img.png"},
+		},
+	}}
+	ib := Parse(in)[0].(ImageBlock)
+	if ib.URL != "https://example.com/public.png" {
+		t.Errorf("URL = %q, want public image_url", ib.URL)
 	}
 }
 
