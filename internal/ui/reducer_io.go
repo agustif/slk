@@ -213,10 +213,19 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if !m.Starred {
 			text = "Unstarred"
 			delete(a.starredMessages, starMessageKey(m.ChannelID, m.TS))
+			a.starredView.Remove(m.ChannelID, m.TS)
+			a.sidebar.SetStarredCount(len(a.starredView.Items()))
+		} else if cmd := a.fetchStarredMessagesCmd(); cmd != nil {
+			return tea.Batch(toastWithClear(a, text, 2*time.Second), cmd), true
 		}
 		return toastWithClear(a, text, 2*time.Second), true
 
 	case StarredLoadedMsg:
+		if m.Err != nil {
+			a.starredView.SetLoading(false)
+			a.starredView.SetError("stars.list failed — " + m.Err.Error())
+			return nil, true
+		}
 		stars := make(map[string]bool, len(m.Items))
 		for _, it := range m.Items {
 			if it.ChannelID != "" && it.TS != "" {
@@ -224,6 +233,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 		}
 		a.starredMessages = stars
+		a.applyStarredInbox(m.Items)
 		if a.activeChannelID != "" {
 			for _, mm := range a.modelsForChannel(a.activeChannelID) {
 				for i, msg := range mm.Messages() {

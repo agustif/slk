@@ -195,7 +195,9 @@ type (
 	}
 	StarredLoadedMsg struct {
 		Items []slackclient.StarredMessage
+		Err   error
 	}
+	StarredViewActivatedMsg struct{}
 	// FollowToggledMsg is the result of following or unfollowing the
 	// open thread. The reducer refreshes the threads list and toasts.
 	FollowToggledMsg struct {

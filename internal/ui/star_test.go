@@ -13,13 +13,13 @@ func TestHelp_ListsStarBinding(t *testing.T) {
 	entries := help.FromKeyMap(DefaultKeyMap())
 	found := false
 	for _, e := range entries {
-		if e.Key == "*" && e.Desc == "star/unstar channel" {
+		if e.Key == "*" && e.Desc == "star/unstar" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("help entries missing {Key: \"*\", Desc: \"star/unstar channel\"}")
+		t.Fatal("help entries missing {Key: \"*\", Desc: \"star/unstar\"}")
 	}
 }
 

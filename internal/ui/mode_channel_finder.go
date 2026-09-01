@@ -46,6 +46,9 @@ func handleChannelFinderMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		if result.Type == "unreads" {
 			return func() tea.Msg { return UnreadsViewActivatedMsg{} }
 		}
+		if result.Type == "starred" {
+			return func() tea.Msg { return StarredViewActivatedMsg{} }
+		}
 		// Already-joined: switch immediately. Not joined: kick off
 		// a join command; ChannelJoinedMsg will fold the channel
 		// into the sidebar and switch to it.

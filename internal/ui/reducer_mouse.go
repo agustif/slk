@@ -42,6 +42,7 @@ import (
 	"github.com/agustif/slk/internal/ui/draftsview"
 	"github.com/agustif/slk/internal/ui/laterview"
 	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/agustif/slk/internal/ui/starredview"
 	"github.com/agustif/slk/internal/ui/unreadsview"
 )
 
@@ -184,6 +185,14 @@ func reduceMouseWheel(a *App, m tea.MouseWheelMsg) tea.Cmd {
 				a.unreadsView.ScrollUp(wheelLinesPerNotch)
 			} else {
 				a.unreadsView.ScrollDown(wheelLinesPerNotch)
+			}
+			return nil
+		}
+		if a.view == ViewStarred {
+			if up {
+				a.starredView.ScrollUp(wheelLinesPerNotch)
+			} else {
+				a.starredView.ScrollDown(wheelLinesPerNotch)
 			}
 			return nil
 		}
@@ -332,6 +341,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			a.sidebarHeaderClick = sidebarHeaderClick{}
 			return func() tea.Msg { return UnreadsViewActivatedMsg{} }
 		}
+		if a.sidebar.IsStarredSelected() {
+			a.sidebarHeaderClick = sidebarHeaderClick{}
+			return func() tea.Msg { return StarredViewActivatedMsg{} }
+		}
 		if a.sidebar.IsHomeSelected() {
 			a.sidebarHeaderClick = sidebarHeaderClick{}
 			a.setInboxView(ViewChannels)
@@ -433,6 +446,16 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 				return a.openSelectedUnreadCmd()
 			case unreadsview.ClickHeader:
 				return a.markSelectedUnreadCmd()
+			}
+			return nil
+		}
+		if a.view == ViewStarred {
+			panel, px, py, ok := a.panelAt(m.X, m.Y)
+			if !ok || panel != PanelMessages || py < 0 {
+				return nil
+			}
+			if a.starredView.ClickAt(py, px) == starredview.ClickItem {
+				return a.openSelectedStarredCmd()
 			}
 			return nil
 		}

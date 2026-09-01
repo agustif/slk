@@ -2,7 +2,7 @@
 
 Install **this fork** ([agustif/slk](https://github.com/agustif/slk)). Commands that mention `gammons/slk`, `gammons/tap`, or AUR `slk` install [upstream](https://github.com/gammons/slk) instead.
 
-Use Go `@main` (not `@latest`). Existing Git tags are from upstream; `@latest` would not be this tree until the fork cuts its own release.
+**No GitHub Release or semver tag yet** (see [[Gaps]]). Use Homebrew `--HEAD` or Go `@main`. `@latest` is not a fork version until a tag exists.
 
 ## Homebrew (macOS and Linux)
 
@@ -21,7 +21,7 @@ Update later with `brew upgrade --fetch-HEAD slk`.
 
 ## Arch Linux
 
-AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This fork ships a `slk-git` PKGBUILD:
+AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This fork ships an in-tree `slk-git` PKGBUILD (`packaging/aur`); it is **not published** to the AUR:
 
 ```bash
 git clone https://github.com/agustif/slk.git
@@ -65,9 +65,18 @@ cd slk
 make build       # binary at bin/slk
 ```
 
+## Nix
+
+In-tree `flake.nix` builds this source (`version = "0.0.0"`). Not a published nixpkgs package.
+
+```bash
+nix build
+./result/bin/slk
+```
+
 ## Windows
 
-Clone and build (this fork has no Windows release zip yet):
+Clone and build (this fork has no GitHub release zip):
 
 ```powershell
 git clone https://github.com/agustif/slk.git

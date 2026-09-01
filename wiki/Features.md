@@ -1,5 +1,23 @@
 # Features
 
+Daily-driver unofficial Slack TUI. This **fork** ([agustif/slk](https://github.com/agustif/slk)) aims at official-client (OG) parity using only reverse-engineered browser APIs.
+
+**Remaining OG holes and packaging gaps:** [[Gaps]]. **Wire protocol:** [[Protocol]].
+
+## Home surfaces
+
+Pinned sidebar rows, matching Slack's left rail (not the channel list):
+
+1. **Activity** (`◎ Activity`) — recents / notifications (`activity.feed`)
+2. **Later** (`◷ Later`) — save for later / remind me (`saved.*`)
+3. **Threads** (`⚑ Threads`) — threads you **follow** (`subscriptions.thread`)
+4. **Direct Messages** (`✉ Direct Messages`) — full DMs column
+5. **Drafts** (`✎ Drafts`) — unsent compose + scheduled send
+6. **Unreads** (`◉ Unreads`) — Home All Unreads
+7. **Starred** (`★ Starred`) — starred **messages** (`stars.list` `type=message`)
+
+The channel finder (`Ctrl+t` / `Ctrl+p`) pins the same destinations (type `activity`, `later`, `threads`, `dms`, `drafts`, `unreads`, `starred`). Double-click a **section header** (or `Enter` / `Space` on it) to collapse.
+
 ## Messaging
 
 - Real-time messages, edits, deletes, reactions, and typing indicators over WebSocket
@@ -7,7 +25,7 @@
 - Delete your own messages (`D`) — centered confirmation overlay with message preview
 - Slack markdown rendering (bold, italic, strikethrough, code, blockquotes, links, mentions)
 - Emoji shortcodes (`:rocket:` → 🚀)
-- Jump to date (`J`, or `:date` / `:jump`) — land the current channel or DM on a calendar date. Optional `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` (local time); no argument opens a small overlay. Fetches history around that timestamp and selects the nearest message. Toasts if there are no messages around that date or on a network error. Does not work from Activity / Later / Drafts / Unreads / Threads list.
+- Jump to date (`J`, or `:date` / `:jump`) — land the current channel or DM on a calendar date. Optional `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` (local time); no argument opens a small overlay. Fetches history around that timestamp and selects the nearest message. Toasts if there are no messages around that date or on a network error. Does not work from Activity / Later / Drafts / Unreads / Starred / Threads list.
 - Day separators (Today, Yesterday, Monday, full date)
 - Infinite scroll backfill into SQLite cache
 - Search: vim-style in-channel search (`/`, `n`/`N`) over cached history, plus server-side workspace search (`Ctrl+f`) with Messages/Files/People tabs (`Tab` / `Shift+Tab`), `from:` / `in:` / `before:` modifiers, Enter on **Load more** to fetch the next page of messages or files, and Enter on a person to open a DM
@@ -18,8 +36,11 @@
 - Edited / threaded message indicators
 - ANSI-aware wrapping and truncation (no broken color codes mid-line)
 - Drag-to-copy: drag the mouse across messages to highlight them; release to copy plain text to the system clipboard via OSC 52
-- Message actions menu (`x` or right-click): add reaction, reply in thread, save for later / remind me, copy permalink, share/forward, pin, follow thread (thread pane), download file, open links, edit/delete own messages, mark unread, list reactions. Some terminals steal right-click; `x` always works.
-- Share / forward (`x` → Share, or `:share`): pick a channel or DM and post the selected message's permalink so Slack unfurls it. Permalink only (no extra comment prompt). Works from the messages pane and the thread pane.
+- Message actions menu (`x` or right-click): add reaction, reply in thread, save for later / remind me, copy permalink, share/forward, pin, follow thread (thread pane), download file, open links, edit/delete own messages, mark unread, list reactions, star. Some terminals steal right-click; `x` always works.
+- Open links in the selected message (`o`); download file attachments (`d`); list reactions (`L`)
+- Share / forward (`x` → Share, or `:share`): pick a channel or DM and post the selected message's permalink so Slack unfurls it. Permalink only (no extra comment prompt). Works from the messages pane, the thread pane, Later, and Starred.
+- Channel history: `Ctrl+h` back, `Ctrl+k` forward (same visit stack as opening channels from the finder)
+- Help overlay (`?`) lists the current key map
 
 ## Compose
 
@@ -116,7 +137,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   DMs tab. Home still shows a compact Direct Messages section (open /
   recently read, hiding 30-day stale 1:1 leftover rows and closed IMs
   with `is_open=false`). The dedicated view is a conversation column
-  (no Activity/Later/Threads/Drafts/Unreads switcher rows) of **every** 1:1 DM, group
+  (no Activity/Later/Threads/Drafts/Unreads/Starred switcher rows) of **every** 1:1 DM, group
   DM, and app DM. Esc returns to Home. Each row shows the last-message
   preview and a relative date (Today / Yesterday / weekday / Jul 16).
   Sorted unread first, then recency (cache, then
@@ -166,7 +187,20 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   does not write that pref. Recommended / scientifically sort is omitted
   (algorithm unknown). Workspace switch clears the list; opening Unreads
   refetches counts + history. The channel finder has an Unreads shortcut
-  (`unreads`).
+  (`unreads`). Remaining Unreads chips / “scientifically” sort: [[Gaps]].
+
+## Starred items
+
+- **Starred items** (`★ Starred` in the sidebar, under Unreads): messages
+  starred via `stars.add` with a timestamp, listed from `stars.list`
+  `type=message` (channel stars stay in the Starred *section*). Cards show
+  author, channel, preview, and relative date. `Enter` (or click) opens the
+  message in its channel (same permalink jump as Later / Unreads). `*` or
+  the actions menu Unstar removes it (`stars.remove`). The sidebar badge is
+  the number of starred messages (first `stars.list` page, `limit=1000`).
+  File stars (`type=file`) and IM-typed stars (`type=im`) are omitted —
+  see [[Gaps]]. The channel finder has a Starred shortcut (`starred`).
+  `x` on a card: Open / Unstar / Share.
 
 ## Reactions
 
@@ -183,13 +217,16 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Channel topic shown under the name in the message-pane header (omitted when empty)
 - Channel header extras: bookmark titles (clickable, OSC-8) and a pin count (`📌 N`) on one row under the channel name; empty channels omit the row. Clicking `📌 N` opens the pin list (`:pins`); a single pin jumps to it. Enter on a pin jumps in-app when it has a timestamp, otherwise opens the permalink.
 - **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. `:move` assigns the active channel to an existing section (`users.channelSections.channels.bulkUpdate`); `:section <name>` creates an empty section (`users.channelSections.create`); `:rename <name>` / `:section-delete` write `users.channelSections.update` / `.delete`; `:section-up` / `:section-down` retarget each section's `next_channel_section_id`. Falls back to glob-based config sections when disabled or if the API is unavailable. Within a section, `[sidebar.sort]` atom pipelines compose (`vip_first` + `recent`, `alphabetical`, …); see [Configuration](Configuration.md#sidebar-sort-atoms).
-- Star / unstar a channel with `*` — adds it to Slack's Starred sidebar section (hidden when empty). Star a message from the actions menu (`x`) — `stars.add` with timestamp; starred rows show a muted ★ marker.
+- Star / unstar a channel with `*` — adds it to Slack's Starred sidebar **section** (hidden when empty). Star a **message** from the actions menu (`x`) — `stars.add` with timestamp; starred rows show a muted ★ marker. The **Starred items** inbox (`★ Starred`) lists those messages; `*` there unstars. File stars are omitted ([[Gaps]]).
 - Collapsible sections — `Enter`/`Space` on a section header toggles it, as does double-clicking the header (two clicks within ~500ms; terminals don't report a native double-click). The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
 - Live unread indicators: bold + blue dot for unread channels, muted text for read ones, aggregate dot+count on collapsed section headers
-- Mute / unmute a channel (`m`) — writes Slack's per-channel notification pref. Muted conversations dim in the sidebar, drop unread dots, and suppress desktop notifications (including mentions). Sidebar-focused `m` toggles the selected row; otherwise it toggles the active channel. Reconciles live via `pref_change`.
+- Mute / unmute a channel (`m`) — writes Slack's per-channel notification pref (`users.prefs.setNotifications` `name=muted`). Muted conversations dim in the sidebar, drop unread dots, and suppress desktop notifications (including mentions). Sidebar-focused `m` toggles the selected row; otherwise it toggles the active channel. Reconciles live via `pref_change`. Mentions-only is **not** captured — [[Gaps]].
 - Glob-based config sections (`[sections.*]` in `config.toml`) — used when `use_slack_sections = false` or as a fallback when Slack's API is unreachable. Channel patterns can carry an optional `":<N>"` suffix (e.g. `"eng-general:1"`) to pin order within a section; see [Configuration › Ordering channels within a section](Configuration.md#ordering-channels-within-a-section).
-- Fuzzy channel finder (`Ctrl+t` / `Ctrl+p`) — auto-expands a collapsed section when you open a channel inside it; ranks 1:1 DMs above group DMs when searching by person name
-- Leave the current public or private channel (`:leave`) — confirmation overlay, then the channel drops from the sidebar and slk switches to last-visited or Threads. On a DM, `:leave` closes the conversation (`conversations.close`).
+- Fuzzy channel finder (`Ctrl+t` / `Ctrl+p`) — auto-expands a collapsed section when you open a channel inside it; ranks 1:1 DMs above group DMs when searching by person name. Unjoined public channels can be joined from the finder (`conversations.join`). Synthetic Home rows (Activity, Later, Threads, Direct Messages, Drafts, Unreads, Starred) sit at the top of an empty query.
+- New message (`Ctrl+n`) — pick people and open a 1:1 or group DM (`conversations.open`)
+- Window splits (`Ctrl+w s` / `:sp`, `Ctrl+w v` / `:vsp`) — extra message panes; `Ctrl+w h/j/k/l` moves focus, `Ctrl+w w` cycles, `Ctrl+w q` / `:q` closes, `Ctrl+w o` / `:only` keeps one
+- Sidebar width `[` / `]`
+- Leave the current public or private channel (`:leave`) — confirmation overlay, then the channel drops from the sidebar and slk switches to last-visited or Threads. On a DM, `:leave` closes the conversation (`conversations.close`). There is **no** create-channel or invite-members UI (see [[Gaps]]).
 - **Channel members** (`I`) — overlay listing members of the active channel (filter-as-you-type, `j`/`k` to move). Presence dots appear for users already in the live presence map; `[guest]` marks `is_restricted` / `is_ultra_restricted` users. `Enter` opens a DM with the selected person (same `conversations.open` path as `Ctrl+n`). The message pane header shows the member count when it is already known.
 - Workspace picker (`:ws`) and direct jump (`1`–`9`)
 - All workspaces stay connected in parallel for live unread badges
@@ -201,6 +238,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Suppressed when you're focused on the relevant channel
 - Suppressed entirely while you're in DND/snooze
 - Suppressed during configured quiet hours (`quiet_hours` in config.toml; local 24h window, overnight wrap supported)
+- No mentions-only per-channel pref (mute is the captured write) — [[Gaps]]
 
 ## Status & DND
 
@@ -227,4 +265,4 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - TOML config for appearance, animations, notifications, and channel sections
 - Deterministic per-user username coloring, opt-in via `colored_usernames`
 
-See [[Configuration]] for the full `config.toml` reference and [[Keybindings]] for the key map.
+See [[Configuration]] for the full `config.toml` reference, [[Keybindings]] for the key map, and [[Gaps]] for what this fork does not ship.

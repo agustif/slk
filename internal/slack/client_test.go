@@ -1231,7 +1231,7 @@ func TestGetStarredMessages_ParsesMessageItems(t *testing.T) {
 			"ok": true,
 			"items": [
 				{"type": "channel", "channel": "C1"},
-				{"type": "message", "channel": "C9", "message": {"ts": "1.1"}},
+				{"type": "message", "channel": "C9", "date_create": 1700000000, "message": {"ts": "1.1", "user": "U9", "text": "hi"}},
 				{"type": "message", "channel": "D1", "message": {"ts": "2.2"}}
 			]
 		}`))
@@ -1244,6 +1244,9 @@ func TestGetStarredMessages_ParsesMessageItems(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].ChannelID != "C9" || got[0].TS != "1.1" || got[1].TS != "2.2" {
 		t.Fatalf("got %+v", got)
+	}
+	if got[0].UserID != "U9" || got[0].Text != "hi" || got[0].DateCreate != 1700000000 {
+		t.Errorf("message fields = %+v", got[0])
 	}
 }
 

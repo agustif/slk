@@ -53,6 +53,7 @@ import (
 	"github.com/agustif/slk/internal/ui/searchresults"
 	"github.com/agustif/slk/internal/ui/sectionpicker"
 	"github.com/agustif/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/starredview"
 	"github.com/agustif/slk/internal/ui/statusbar"
 	"github.com/agustif/slk/internal/ui/styles"
 	"github.com/agustif/slk/internal/ui/themeswitcher"
@@ -89,6 +90,7 @@ const (
 	ViewDMs
 	ViewDrafts
 	ViewUnreads
+	ViewStarred
 )
 
 // inChannelView reports that the messages pane is showing a
@@ -103,7 +105,7 @@ func channelTypeIsDirect(t string) bool {
 }
 
 // setInboxView is the single switch for synthetic-row destinations
-// (Activity / Later / Threads / DMs / Drafts / Unreads) and Home. It
+// (Activity / Later / Threads / DMs / Drafts / Unreads / Starred) and Home. It
 // keeps the orange "active" indicators and the DMs-list sidebar filter
 // in lockstep.
 func (a *App) setInboxView(v View) {
@@ -115,6 +117,7 @@ func (a *App) setInboxView(v View) {
 	a.sidebar.SetDMsView(v == ViewDMs)
 	a.sidebar.SetDraftsActive(v == ViewDrafts)
 	a.sidebar.SetUnreadsActive(v == ViewUnreads)
+	a.sidebar.SetStarredActive(v == ViewStarred)
 }
 
 const (
@@ -173,6 +176,7 @@ type App struct {
 	laterView          laterview.Model
 	draftsView         draftsview.Model
 	unreadsView        unreadsview.Model
+	starredView        starredview.Model
 	// shareFromChannel / shareFromTS identify the message being
 	// forwarded while ModeShare is open (channel finder in share mode).
 	shareFromChannel string
@@ -644,6 +648,7 @@ func NewApp() *App {
 		laterView:             laterview.New(),
 		draftsView:            draftsview.New(),
 		unreadsView:           unreadsview.New(),
+		starredView:           starredview.New(),
 		drafts:                noopDraftsService,
 		linkPicker:            linkpicker.New(),
 		sectionPicker:         sectionpicker.New(),
@@ -717,6 +722,7 @@ func NewApp() *App {
 		{ID: channelfinder.DMsViewID, Name: "Direct Messages", Type: "dms", Joined: true},
 		{ID: channelfinder.DraftsViewID, Name: "Drafts", Type: "drafts", Joined: true},
 		{ID: channelfinder.UnreadsViewID, Name: "Unreads", Type: "unreads", Joined: true},
+		{ID: channelfinder.StarredViewID, Name: "Starred", Type: "starred", Joined: true},
 	})
 	// Seed the statusbar hint with the configured help key label so it
 	// stays accurate if the binding is ever changed.
@@ -773,6 +779,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceLater,
 		reduceDrafts,
 		reduceUnreads,
+		reduceStarred,
 		reduceDMs,
 		reduceSend,
 		reduceChannels,
@@ -1526,6 +1533,10 @@ func (a *App) handleDown() tea.Cmd {
 			a.unreadsView.MoveDown()
 			return nil
 		}
+		if a.view == ViewStarred {
+			a.starredView.MoveDown()
+			return nil
+		}
 		return a.coalesceContentScroll(+1)
 	case PanelThread:
 		return a.coalesceContentScroll(+1)
@@ -1557,6 +1568,10 @@ func (a *App) handleUp() tea.Cmd {
 		}
 		if a.view == ViewUnreads {
 			a.unreadsView.MoveUp()
+			return nil
+		}
+		if a.view == ViewStarred {
+			a.starredView.MoveUp()
 			return nil
 		}
 		return a.coalesceContentScroll(-1)
@@ -1685,6 +1700,10 @@ func (a *App) handleGoToBottom() tea.Cmd {
 			a.unreadsView.GoToBottom()
 			return nil
 		}
+		if a.view == ViewStarred {
+			a.starredView.GoToBottom()
+			return nil
+		}
 		a.messagepane.GoToBottom()
 	case PanelThread:
 		a.threadPanel.GoToBottom()
@@ -1715,6 +1734,10 @@ func (a *App) handleGoToTop() tea.Cmd {
 		}
 		if a.view == ViewUnreads {
 			a.unreadsView.GoToTop()
+			return nil
+		}
+		if a.view == ViewStarred {
+			a.starredView.GoToTop()
 			return nil
 		}
 		a.messagepane.GoToTop()
@@ -1807,6 +1830,12 @@ func (a *App) scrollFocusedPanel(delta int) tea.Cmd {
 			} else {
 				a.unreadsView.ScrollDown(n)
 			}
+		} else if a.view == ViewStarred {
+			if delta < 0 {
+				a.starredView.ScrollUp(n)
+			} else {
+				a.starredView.ScrollDown(n)
+			}
 		} else {
 			if delta < 0 {
 				a.messagepane.ScrollUp(n)
@@ -1887,6 +1916,9 @@ func (a *App) handleEnter() tea.Cmd {
 		if a.sidebar.IsUnreadsSelected() {
 			return func() tea.Msg { return UnreadsViewActivatedMsg{} }
 		}
+		if a.sidebar.IsStarredSelected() {
+			return func() tea.Msg { return StarredViewActivatedMsg{} }
+		}
 		if a.sidebar.IsHomeSelected() {
 			a.setInboxView(ViewChannels)
 			a.sidebar.SelectDMsRow()
@@ -1938,6 +1970,10 @@ func (a *App) handleEnter() tea.Cmd {
 
 	if a.focusedPanel == PanelMessages && a.view == ViewUnreads {
 		return a.handleUnreadsEnter()
+	}
+
+	if a.focusedPanel == PanelMessages && a.view == ViewStarred {
+		return a.handleStarredEnter()
 	}
 
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {
@@ -3635,6 +3671,13 @@ func (a *App) isOwnMessage(m messages.MessageItem) bool {
 // pane. Returns ok=false if nothing is selected or the focused panel is
 // not a message-bearing pane.
 func (a *App) selectedMessageContext() (channelID, ts, text, userID string, panel Panel, ok bool) {
+	if a.focusedPanel == PanelMessages && a.view == ViewStarred {
+		it, hit := a.starredView.SelectedItem()
+		if !hit {
+			return "", "", "", "", 0, false
+		}
+		return it.ChannelID, it.TS, it.Text, it.UserID, PanelMessages, true
+	}
 	switch a.focusedPanel {
 	case PanelMessages:
 		msg, sel := a.messagepane.SelectedMessage()
@@ -4064,7 +4107,7 @@ func (a *App) isMessageStarred(channelID, ts string) bool {
 }
 
 func (a *App) toggleStarOfSelected() tea.Cmd {
-	if a.focusedPanel == PanelMessages && !a.inChannelView() {
+	if a.focusedPanel == PanelMessages && !a.inChannelView() && a.view != ViewStarred {
 		return nil
 	}
 	channelID, ts, _, _, _, ok := a.selectedMessageContext()

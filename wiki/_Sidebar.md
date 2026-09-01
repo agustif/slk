@@ -14,6 +14,8 @@
 - [[Clipboard and OSC 52|Clipboard-and-OSC-52]]
 
 **Reference**
+- [[Gaps]]
+- [[Protocol]]
 - [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]]
 - [[Architecture]]
 

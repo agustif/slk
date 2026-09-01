@@ -36,11 +36,13 @@ const DraftsViewID = "__slk_view_drafts"
 
 const UnreadsViewID = "__slk_view_unreads"
 
+const StarredViewID = "__slk_view_starred"
+
 // ChannelResult is returned when the user selects a channel.
 type ChannelResult struct {
 	ID     string
 	Name   string
-	Type   string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads
+	Type   string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads, starred
 	Joined bool   // false => caller should join the channel before opening it
 }
 
@@ -48,7 +50,7 @@ type ChannelResult struct {
 type Item struct {
 	ID       string
 	Name     string
-	Type     string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads
+	Type     string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads, starred
 	Presence string // for DMs: active, away
 	Joined   bool   // true if the user is already a member; false for browseable public channels
 	// LastVisited is the unix timestamp (seconds) of the user's most
@@ -406,7 +408,7 @@ func (m Model) shareHidden(it Item) bool {
 		return true
 	}
 	switch it.Type {
-	case "threads", "activity", "later", "dms", "drafts", "unreads":
+	case "threads", "activity", "later", "dms", "drafts", "unreads", "starred":
 		return true
 	}
 	return false
@@ -774,6 +776,8 @@ func channelPrefix(item Item) string {
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("✎")
 	case "unreads":
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("◉")
+	case "starred":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("★")
 	case "dms":
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("✉")
 	case "private":

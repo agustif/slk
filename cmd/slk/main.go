@@ -1468,14 +1468,14 @@ func run() error {
 	app.SetStarredFetcher(func() tea.Msg {
 		wctx := workspaces[activeTeamID]
 		if wctx == nil || wctx.Client == nil {
-			return nil
+			return ui.StarredLoadedMsg{Err: fmt.Errorf("no workspace")}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		items, err := wctx.Client.GetStarredMessages(ctx)
 		if err != nil {
 			debuglog.Cache("stars.list messages: %v", err)
-			return nil
+			return ui.StarredLoadedMsg{Err: err}
 		}
 		return ui.StarredLoadedMsg{Items: items}
 	})

@@ -75,12 +75,13 @@ func TestSidebarNavigation(t *testing.T) {
 	// Expand the Channels section so j/k can reach the channel rows.
 	m.ToggleCollapse("Channels")
 
-	// Nav order: Activity → Later → Threads → Direct Messages → Drafts → Unreads → "Channels" header → C1 → C2 → C3.
+	// Nav order: Activity → Later → Threads → Direct Messages → Drafts → Unreads → Starred → "Channels" header → C1 → C2 → C3.
 	m.MoveDown() // Later
 	m.MoveDown() // Threads
 	m.MoveDown() // Direct Messages
 	m.MoveDown() // Drafts
 	m.MoveDown() // Unreads
+	m.MoveDown() // Starred
 	m.MoveDown() // onto the "Channels" section header
 	if name, ok := m.IsSectionHeaderSelected(); !ok || name != "Channels" {
 		t.Errorf("expected Channels header selected, got name=%q ok=%v", name, ok)
@@ -132,9 +133,10 @@ func TestThreadsItem_MoveDownLeavesIt(t *testing.T) {
 	m.MoveDown() // Direct Messages
 	m.MoveDown() // Drafts
 	m.MoveDown() // Unreads
+	m.MoveDown() // Starred
 	m.MoveDown() // header
 	m.MoveDown() // first channel
-	if m.IsThreadsSelected() || m.IsActivitySelected() || m.IsLaterSelected() || m.IsDMsSelected() || m.IsDraftsSelected() || m.IsUnreadsSelected() {
+	if m.IsThreadsSelected() || m.IsActivitySelected() || m.IsLaterSelected() || m.IsDMsSelected() || m.IsDraftsSelected() || m.IsUnreadsSelected() || m.IsStarredSelected() {
 		t.Errorf("MoveDown should leave the synthetic rows")
 	}
 	item, ok := m.SelectedItem()
@@ -153,15 +155,20 @@ func TestThreadsItem_MoveUpReturnsToIt(t *testing.T) {
 	m.MoveDown() // Direct Messages
 	m.MoveDown() // Drafts
 	m.MoveDown() // Unreads
+	m.MoveDown() // Starred
 	m.MoveDown() // header
 	m.MoveDown() // C1
 	if m.IsThreadsSelected() {
 		t.Fatalf("precondition: should be on a channel")
 	}
 	m.MoveUp() // back to header
+	m.MoveUp() // Starred
+	if !m.IsStarredSelected() {
+		t.Errorf("MoveUp from first header should land on Starred")
+	}
 	m.MoveUp() // Unreads
 	if !m.IsUnreadsSelected() {
-		t.Errorf("MoveUp from first header should land on Unreads")
+		t.Errorf("MoveUp from Starred should land on Unreads")
 	}
 	m.MoveUp() // Drafts
 	if !m.IsDraftsSelected() {
@@ -278,6 +285,10 @@ func TestThreadsItem_SelectedItemFalseWhenOnThreadsRow(t *testing.T) {
 	if _, ok := m.SelectedItem(); ok {
 		t.Errorf("SelectedItem should return ok=false when Unreads row is selected")
 	}
+	m.MoveDown() // Starred
+	if _, ok := m.SelectedItem(); ok {
+		t.Errorf("SelectedItem should return ok=false when Starred row is selected")
+	}
 }
 
 func TestActivityItem_SitsAboveThreads(t *testing.T) {
@@ -305,8 +316,36 @@ func TestActivityItem_SitsAboveThreads(t *testing.T) {
 	if !m.IsUnreadsSelected() {
 		t.Error("MoveDown from Drafts should land on Unreads")
 	}
+	m.MoveDown()
+	if !m.IsStarredSelected() {
+		t.Error("MoveDown from Unreads should land on Starred")
+	}
 	if _, ok := m.SelectedItem(); ok {
-		t.Error("SelectedItem should be false on the Unreads row")
+		t.Error("SelectedItem should be false on the Starred row")
+	}
+}
+
+func TestStarredRow_RendersAfterUnreads(t *testing.T) {
+	m := New([]ChannelItem{{ID: "C1", Name: "general", Type: "channel"}})
+	m.SetStarredCount(4)
+	out := m.View(12, 30)
+	unreadsI, starredI := -1, -1
+	for i, line := range strings.Split(out, "\n") {
+		if unreadsI < 0 && strings.Contains(line, "Unreads") {
+			unreadsI = i
+		}
+		if starredI < 0 && strings.Contains(line, "★ Starred") {
+			starredI = i
+		}
+	}
+	if unreadsI < 0 || starredI < 0 {
+		t.Fatalf("missing Unreads or Starred row:\n%s", out)
+	}
+	if starredI != unreadsI+1 {
+		t.Errorf("Starred should sit under Unreads; unreads=%d starred=%d\n%s", unreadsI, starredI, out)
+	}
+	if !strings.Contains(out, "•4") {
+		t.Errorf("starred badge missing:\n%s", out)
 	}
 }
 

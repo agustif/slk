@@ -84,7 +84,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// only way to type is into the right-side thread panel's
 		// compose. Force focus there even when the threads list
 		// itself was the focused panel.
-		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater || a.view == ViewDrafts || a.view == ViewUnreads) && a.threadVisible) {
+		if a.focusedPanel == PanelThread || ((a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater || a.view == ViewDrafts || a.view == ViewUnreads || a.view == ViewStarred) && a.threadVisible) {
 			a.focusedPanel = PanelThread
 			return a.threadCompose.Focus()
 		}
@@ -130,7 +130,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.SearchMode):
 		// Spec scopes `/` to the channel message pane in v1: no-op
 		// while the thread panel has focus.
-		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater || a.view == ViewDrafts || a.view == ViewUnreads {
+		if a.focusedPanel == PanelThread || a.view == ViewThreads || a.view == ViewActivity || a.view == ViewLater || a.view == ViewDrafts || a.view == ViewUnreads || a.view == ViewStarred {
 			return nil
 		}
 		a.searchInput = ""
@@ -518,6 +518,9 @@ func (a *App) jumpToUnread(dir int) tea.Cmd {
 // the active channel when the message/thread pane is focused. Toasts
 // the result. Optimistic SectionStore update is done by starToggle.
 func (a *App) toggleStarSelected() tea.Cmd {
+	if a.view == ViewStarred && a.focusedPanel == PanelMessages {
+		return a.toggleStarOfSelected()
+	}
 	id, name, chType := a.starTarget()
 	if id == "" {
 		return toastWithClear(a, "No channel selected", 2*time.Second)

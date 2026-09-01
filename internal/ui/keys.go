@@ -157,7 +157,7 @@ func DefaultKeyMap() KeyMap {
 		UserProfile:         key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "user profile")),
 		JumpToDate:          key.NewBinding(key.WithKeys("J"), key.WithHelp("J / :date / :jump", "jump to date")),
 		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section (or double-click header)")),
-		ToggleStar:          key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "star/unstar channel")),
+		ToggleStar:          key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "star/unstar")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		NavForward:          key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "navigate forward")),
 		Help:                key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),

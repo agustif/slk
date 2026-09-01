@@ -32,7 +32,8 @@ func TestToggleCollapse_OnSelectedHeader(t *testing.T) {
 		{ID: "C1", Name: "general", Type: "channel"},
 		{ID: "D1", Name: "alice", Type: "dm"},
 	})
-	// Cursor: Activity → Later → Threads → Direct Messages view → Drafts → Unreads → Direct Messages header.
+	// Cursor: Activity → Later → Threads → Direct Messages view → Drafts → Unreads → Starred → Direct Messages header.
+	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()
 	m.MoveDown()
@@ -188,6 +189,7 @@ func TestToggleCollapse_PreservesCursorOnHeader(t *testing.T) {
 	m.MoveDown() // Direct Messages view
 	m.MoveDown() // Drafts
 	m.MoveDown() // Unreads
+	m.MoveDown() // Starred
 	m.MoveDown() // onto DM header
 	if name, _ := m.IsSectionHeaderSelected(); name != "Direct Messages" {
 		t.Fatalf("precondition: expected DM header, got %q", name)
@@ -210,6 +212,7 @@ func TestIsThreadsSelected_FalseOnSectionHeader(t *testing.T) {
 	m.MoveDown() // Direct Messages view
 	m.MoveDown() // Drafts
 	m.MoveDown() // Unreads
+	m.MoveDown() // Starred
 	m.MoveDown() // DM header
 	if m.IsThreadsSelected() {
 		t.Errorf("Threads should not be reported selected when cursor is on a section header")

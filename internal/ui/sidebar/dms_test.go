@@ -142,7 +142,7 @@ func TestDMsView_HidesSynthRows(t *testing.T) {
 	})
 	m.SetDMsView(true)
 	out := m.View(12, 40)
-	if strings.Contains(out, "◎ Activity") || strings.Contains(out, "✉ Direct Messages") || strings.Contains(out, "✎ Drafts") {
+	if strings.Contains(out, "◎ Activity") || strings.Contains(out, "✉ Direct Messages") || strings.Contains(out, "✎ Drafts") || strings.Contains(out, "★ Starred") {
 		t.Errorf("DMs view should hide inbox synth rows:\n%s", out)
 	}
 	if !strings.Contains(out, "Home") {

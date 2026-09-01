@@ -30,6 +30,9 @@ func (a *App) contextMenuItems() ([]contextmenu.Item, bool) {
 	if a.view == ViewLater && a.focusedPanel == PanelMessages {
 		return a.laterContextMenuItems()
 	}
+	if a.view == ViewStarred && a.focusedPanel == PanelMessages {
+		return a.starredContextMenuItems()
+	}
 	msg, ok := a.selectedMessageItem()
 	if !ok {
 		return nil, false
@@ -83,6 +86,19 @@ func (a *App) contextMenuItems() ([]contextmenu.Item, bool) {
 		{Label: "Delete message", Action: contextmenu.ActionDelete, Enabled: own},
 		{Label: "Mark unread", Action: contextmenu.ActionMarkUnread, Enabled: true},
 		{Label: "List reactions", Action: contextmenu.ActionListReactions, Enabled: hasReactions},
+	}, true
+}
+
+func (a *App) starredContextMenuItems() ([]contextmenu.Item, bool) {
+	it, ok := a.starredView.SelectedItem()
+	if !ok {
+		return nil, false
+	}
+	_ = it
+	return []contextmenu.Item{
+		{Label: "Open", Action: contextmenu.ActionReplyInThread, Enabled: true},
+		{Label: "Unstar message", Action: contextmenu.ActionStar, Enabled: true},
+		{Label: "Share", Action: contextmenu.ActionShare, Enabled: true},
 	}, true
 }
 
@@ -142,6 +158,9 @@ func (a *App) dispatchContextMenuAction(action contextmenu.ActionID) tea.Cmd {
 	case contextmenu.ActionReplyInThread:
 		if a.view == ViewLater {
 			return a.openSelectedLaterCmd()
+		}
+		if a.view == ViewStarred {
+			return a.openSelectedStarredCmd()
 		}
 		if a.focusedPanel == PanelThread {
 			a.SetMode(ModeInsert)

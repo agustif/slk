@@ -15,6 +15,7 @@
 //	                Activity). Cached on laterView.Version.
 //	ViewDrafts   -> Drafts & sent list. Cached on draftsView.Version.
 //	ViewUnreads  -> All Unreads grouped list. Cached on unreadsView.Version.
+//	ViewStarred  -> Starred items list. Cached on starredView.Version.
 //	ViewDMs      -> same message pane as ViewChannels; the sidebar
 //	                is the full Direct Messages list.
 //	ViewChannels -> message pane + typing row + compose box, with
@@ -91,8 +92,8 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	// bit 5 (bumped only on theme Apply — reaching composeHeight at
 	// 16 would take 2^11 theme switches), composeHeight bits 16+
 	// (terminal rows, < 2^10), window id bits 32+ (wintree.LeafID
-	// increments per split; tiny). ViewDMs/ViewDrafts/ViewUnreads
-	// need three bits (0-7); ViewUnreads=6 still fits. The old
+	// increments per split; tiny). ViewDMs/ViewDrafts/ViewUnreads/ViewStarred
+	// need three bits (0-7); ViewStarred=7 still fits. The old
 	// viewN<<2 + themeVer<<4 collided at bit 4.
 	viewN := int64(0)
 	switch a.view {
@@ -108,6 +109,8 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 		viewN = 5
 	case ViewUnreads:
 		viewN = 6
+	case ViewStarred:
+		viewN = 7
 	}
 	msgLayoutKey := int64(a.focusedWin)<<32 |
 		themeVer<<5 |
@@ -134,6 +137,9 @@ func (a *App) renderMessagesRegion(frame panelLayoutFrame, themeVer int64, previ
 	}
 	if a.view == ViewUnreads {
 		return a.renderUnreadsViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
+	}
+	if a.view == ViewStarred {
+		return a.renderStarredViewPanel(msgWidth, msgBorder, contentHeight, msgFocused, msgLayoutKey)
 	}
 	return a.renderChannelMessagesPanel(msgWidth, msgBorder, contentHeight, msgFocused, composeFocused, msgLayoutKey)
 }
@@ -285,6 +291,32 @@ func (a *App) renderUnreadsViewPanel(msgWidth, msgBorder, contentHeight int, msg
 		msgWidth+msgBorder, contentHeight,
 	)
 	c.store(out, uvVersion, msgWidth, contentHeight, msgLayoutKey)
+	return out
+}
+
+func (a *App) renderStarredViewPanel(msgWidth, msgBorder, contentHeight int, msgFocused bool, msgLayoutKey int64) string {
+	a.starredView.SetFocused(msgFocused)
+	svVersion := a.starredView.Version()
+	c := &a.renderCache.msgPanel
+	if c.hit(svVersion, msgWidth, contentHeight, msgLayoutKey) {
+		return c.output
+	}
+	msgBorderStyle := styles.UnfocusedBorder.Width(msgWidth)
+	if msgFocused {
+		msgBorderStyle = styles.FocusedBorder.Width(msgWidth)
+	}
+	msgContentHeight := contentHeight - 2
+	a.layout.SetMsgHeight(msgContentHeight)
+	if msgContentHeight < 3 {
+		msgContentHeight = 3
+	}
+	svView := a.starredView.View(msgContentHeight, msgWidth-2)
+	svView = messages.ReapplyBgAfterResets(svView, messages.BgANSI())
+	out := exactSize(
+		msgBorderStyle.Render(svView),
+		msgWidth+msgBorder, contentHeight,
+	)
+	c.store(out, svVersion, msgWidth, contentHeight, msgLayoutKey)
 	return out
 }
 

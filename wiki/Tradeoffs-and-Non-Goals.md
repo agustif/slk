@@ -1,16 +1,19 @@
 # Tradeoffs and Non-Goals
 
-slk is intentionally not a 1:1 port of the desktop client. Some Slack features are deferred or out of scope.
+slk is intentionally not a 1:1 port of the desktop client. This **fork** additionally refuses to invent Slack APIs: if it was not captured from the official client, it is omitted.
+
+**Remaining OG holes, capture status, and packaging gaps:** [[Gaps]]. **Wire protocol (what was captured):** [[Protocol]].
 
 ## On the roadmap
 
-- Custom keybinding overrides
+- Custom keybinding overrides (TUI config; not a Slack API)
 
 ## Not planned
 
 - Huddles, Slack Connect, Workflow Builder, Canvas, Lists, Slack AI
 - Bot/app management, slash commands, custom emoji management
 - Animated reactions
+- Invented prefs / sorts / endpoints (create channel, invite, mentions-only, starred files, Unreads “scientifically” sort — see [[Gaps]])
 
 Search (`Ctrl+f`), file upload/download, quiet hours, per-channel mute, link unfurls, and in-app toasts shipped.
 
@@ -28,9 +31,10 @@ Search (`Ctrl+f`), file upload/download, quiet hours, per-channel mute, link unf
 
 ## Auth caveat
 
-Browser-cookie auth means tokens expire when you log out of the browser or
-Slack rotates them. Re-run `--add-workspace` and you're back in business. See
-[[Setup]] for the token-extraction walkthrough.
+Browser-cookie auth means tokens expire when you log out of the desktop app or
+Slack rotates them. slk re-mints from the Slack desktop app on launch (and
+mid-session if needed). If you sign out of the desktop app, sign back in.
+See [[Setup]].
 
 ## Unofficial / TOS caveat
 

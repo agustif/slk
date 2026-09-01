@@ -24,6 +24,7 @@ import (
 	"github.com/agustif/slk/internal/ui/laterview"
 	"github.com/agustif/slk/internal/ui/messages"
 	"github.com/agustif/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/starredview"
 	"github.com/agustif/slk/internal/ui/statusbar"
 	"github.com/agustif/slk/internal/ui/styles"
 	"github.com/agustif/slk/internal/ui/unreadsview"
@@ -1071,6 +1072,126 @@ func TestApp_HandleEnterOnUnreadsHeaderMarksRead(t *testing.T) {
 	}
 	if got.ChannelID != "C9" || got.Undo || got.Err != nil {
 		t.Errorf("UnreadsMarkedMsg = %+v", got)
+	}
+}
+
+func TestApp_StarredViewActivation(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	_, _ = app.Update(StarredViewActivatedMsg{})
+	if app.view != ViewStarred {
+		t.Fatalf("after activation view = %v, want ViewStarred", app.view)
+	}
+	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "general"})
+	if app.view != ViewChannels {
+		t.Errorf("after ChannelSelectedMsg view = %v, want ViewChannels", app.view)
+	}
+}
+
+func TestApp_HandleEnterOnStarredRowActivatesView(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SelectStarredRow()
+	if !app.sidebar.IsStarredSelected() {
+		t.Fatal("precondition: Starred row selected")
+	}
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(StarredViewActivatedMsg); !ok {
+		t.Errorf("expected StarredViewActivatedMsg, got %T", msg)
+	}
+}
+
+func TestApp_HandleEnterOnStarredMessageOpensChannel(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.view = ViewStarred
+	app.focusedPanel = PanelMessages
+	app.starredView.SetItems([]starredview.Item{{
+		StarredMessage: slackclient.StarredMessage{ChannelID: "C9", TS: "2.0", Text: "hello"},
+		ChannelName:    "later-ch",
+		ChannelType:    "channel",
+	}})
+	cmd := app.handleEnter()
+	if cmd == nil {
+		t.Fatal("expected cmd")
+	}
+	msg := cmd()
+	sel, ok := msg.(ChannelSelectedMsg)
+	if !ok {
+		t.Fatalf("got %T, want ChannelSelectedMsg", msg)
+	}
+	if sel.ID != "C9" {
+		t.Errorf("ID = %q, want C9", sel.ID)
+	}
+	if app.pendingLinkNav == nil || app.pendingLinkNav.messageTS != "2.0" {
+		t.Errorf("pendingLinkNav = %+v", app.pendingLinkNav)
+	}
+}
+
+func TestApp_StarredLoadedFillsInbox(t *testing.T) {
+	app := NewApp()
+	_, _ = app.Update(StarredLoadedMsg{Items: []slackclient.StarredMessage{
+		{ChannelID: "C1", TS: "1.0", Text: "hi"},
+	}})
+	if app.sidebar.StarredCount() != 1 {
+		t.Errorf("sidebar badge = %d, want 1", app.sidebar.StarredCount())
+	}
+	if n := len(app.starredView.Items()); n != 1 {
+		t.Errorf("inbox items = %d, want 1", n)
+	}
+}
+
+func TestApp_StarredLoadErrorClearsLoading(t *testing.T) {
+	app := NewApp()
+	app.starredView.SetLoading(true)
+	_, _ = app.Update(StarredLoadedMsg{Err: errors.New("boom")})
+	out := app.starredView.View(8, 40)
+	if !strings.Contains(out, "stars.list failed") {
+		t.Errorf("error copy missing:\n%s", out)
+	}
+}
+
+func TestApp_StarUnstarRemovesInboxRow(t *testing.T) {
+	app := NewApp()
+	_, _ = app.Update(StarredLoadedMsg{Items: []slackclient.StarredMessage{
+		{ChannelID: "C1", TS: "1.0", Text: "hi"},
+		{ChannelID: "C2", TS: "2.0", Text: "bye"},
+	}})
+	_, _ = app.Update(StarToggledMsg{ChannelID: "C1", TS: "1.0", Starred: false})
+	if n := len(app.starredView.Items()); n != 1 {
+		t.Fatalf("inbox items = %d, want 1", n)
+	}
+	if app.starredView.Items()[0].TS != "2.0" {
+		t.Errorf("remaining ts = %q, want 2.0", app.starredView.Items()[0].TS)
+	}
+	if app.sidebar.StarredCount() != 1 {
+		t.Errorf("sidebar badge = %d, want 1", app.sidebar.StarredCount())
+	}
+}
+
+func TestApp_StarredActivationFetches(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.SetStarredFetcher(func() tea.Msg {
+		return StarredLoadedMsg{Items: []slackclient.StarredMessage{
+			{ChannelID: "C1", TS: "1.0", Text: "hi"},
+		}}
+	})
+	_, cmd := app.Update(StarredViewActivatedMsg{})
+	if cmd == nil {
+		t.Fatal("expected fetch cmd on activation")
+	}
+	msg := cmd()
+	loaded, ok := msg.(StarredLoadedMsg)
+	if !ok {
+		t.Fatalf("got %T, want StarredLoadedMsg", msg)
+	}
+	if len(loaded.Items) != 1 || loaded.Items[0].TS != "1.0" {
+		t.Errorf("loaded = %+v", loaded.Items)
 	}
 }
 

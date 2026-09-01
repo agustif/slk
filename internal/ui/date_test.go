@@ -132,7 +132,7 @@ func TestExecuteCommand_JumpAliasOpensOverlay(t *testing.T) {
 }
 
 func TestExecuteCommand_DateOutsideConversationToasts(t *testing.T) {
-	views := []View{ViewThreads, ViewActivity, ViewLater, ViewDrafts, ViewUnreads}
+	views := []View{ViewThreads, ViewActivity, ViewLater, ViewDrafts, ViewUnreads, ViewStarred}
 	for _, v := range views {
 		a := seedJumpChannel(t)
 		a.view = v

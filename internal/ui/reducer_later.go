@@ -229,6 +229,13 @@ func (a *App) openSelectedLaterCmd() tea.Cmd {
 }
 
 func (a *App) selectedMessageRef() (channelID, ts, preview string, ok bool) {
+	if a.focusedPanel == PanelMessages && a.view == ViewStarred {
+		it, hit := a.starredView.SelectedItem()
+		if !hit || it.ChannelID == "" || it.TS == "" {
+			return "", "", "", false
+		}
+		return it.ChannelID, it.TS, it.ChannelName, true
+	}
 	if a.focusedPanel == PanelMessages && a.view == ViewLater {
 		it, hit := a.laterView.SelectedItem()
 		if !hit || it.ItemID == "" || it.TS == "" {

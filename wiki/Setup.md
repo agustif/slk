@@ -1,8 +1,9 @@
 # Setup
 
-slk reads your session directly from the **Slack desktop app** — no Slack App,
-no admin approval, no OAuth flow, and no tokens to copy. The only requirement is
-that the Slack desktop app is installed and you're signed in to it.
+This fork ([agustif/slk](https://github.com/agustif/slk)) reads your session
+directly from the **Slack desktop app** — no Slack App, no admin approval, no
+OAuth flow, and no tokens to copy. The only requirement is that the Slack
+desktop app is installed and you're signed in to it.
 
 ## 1. Sign in to the Slack desktop app
 

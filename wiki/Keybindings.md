@@ -5,7 +5,12 @@
 | `j` / `k` | Normal | Move down/up in channel list or messages |
 | `h` / `l` | Normal | Switch focus between panels |
 | `Tab` / `Shift+Tab` | Normal | Cycle focus |
-| `Enter` | Normal (sidebar) | Open selected channel, Threads, Activity, Later, Direct Messages, Drafts, or Unreads, or toggle a section header |
+| `Enter` | Normal (sidebar) | Open selected channel, Threads, Activity, Later, Direct Messages, Drafts, Unreads, or Starred, or toggle a section header |
+| `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder (Home-view shortcuts: Activity, Later, Threads, Direct Messages, Drafts, Unreads, Starred; unjoined public channels join on select) |
+| `Ctrl+n` | Any | New message — pick people, open a DM |
+| `Ctrl+h` / `Ctrl+k` | Normal | Channel history back / forward |
+| `[` / `]` | Normal | Narrow / widen sidebar |
+| `?` | Normal | Keybindings overlay |
 | `f` / `F` | Normal (Activity) | Next / previous Activity tab (Slack views, including custom Unreads / Reactions / VIP) |
 | `s` | Normal (Activity) | Cycle Activity sort (newest ↔ unreads first) |
 | `u` | Normal (Activity) | Toggle Activity unread-only |
@@ -33,7 +38,11 @@
 | `f` / `F` | Normal (Unreads) | Cycle local sort (sidebar / alphabetical / newest / oldest). Not persisted. |
 | Click message | Unreads | Open the message (same as Enter) |
 | Click header | Unreads | Mark as Read, or Undo when the header is already marked |
-| `*` | Normal | Star / unstar the selected sidebar channel (or the active channel if the message pane is focused) |
+| `Enter` | Normal (Starred) | Open the selected starred message in its channel |
+| `*` | Normal (Starred) | Unstar the selected message (`stars.remove`) |
+| `x` | Normal (Starred) | Open / Unstar / Share |
+| Click card | Starred | Open the message (same as Enter) |
+| `*` | Normal | Star / unstar the selected sidebar channel (or the active channel if the message pane is focused). On the Starred **inbox**, unstars the selected message. |
 | `J` / `:date` / `:jump` | Normal (channel/DM) | Jump to a calendar date (`YYYY-MM-DD` or `YYYY-MM-DD HH:MM`; no arg opens an overlay) |
 | Share | Message actions (`x`) / `:share` | Share the selected message to another channel or DM (posts the permalink; Slack unfurls it) |
 | `Enter` | Normal (message) | Open thread |
@@ -60,14 +69,23 @@
 | `/` | Normal | Search in channel (vim-style; searches cached history of the current channel) |
 | `n` / `N` | Normal | Next / previous search match (wraps) |
 | `a` / `A` | Normal | Jump to next / previous unread channel (wraps) |
-| `m` | Normal | Mute / unmute the selected sidebar channel, or the active channel if the message pane is focused |
+| `m` | Normal | Mute / unmute the selected sidebar channel, or the active channel if the message pane is focused (not mentions-only; see [[Gaps]]) |
 | `Esc` | Normal (search active) | Clear active search |
 | `Ctrl+f` | Any | Search workspace (Slack server-side; Messages/Files/People tabs; supports `from:@user`, `in:#channel`, `before:YYYY-MM-DD`) |
 | `Tab` / `Shift+Tab` | Workspace search | Switch Messages / Files / People |
 | `Enter` | Workspace search | Search; jump to a message; download a file (or open its permalink); load the next page; open a DM from People |
 | `Ctrl+b` | Any | Toggle sidebar |
 | `Ctrl+]` | Any | Toggle thread panel |
-| `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder |
+| `o` | Normal (message) | Open links in the selected message |
+| `d` | Normal (message) | Download file attachments |
+| `L` | Normal (message) | List reactions on the selected message |
+| `Ctrl+w s` / `:sp` | Normal | Split window |
+| `Ctrl+w v` / `:vsp` | Normal | Vertical split |
+| `Ctrl+w h/j/k/l` | Normal | Focus window in that direction |
+| `Ctrl+w w` | Normal | Cycle windows |
+| `Ctrl+w q` / `:q` | Normal | Close window |
+| `Ctrl+w o` / `:only` | Normal | Close other windows |
+| `Ctrl+shift+y` | Any | Set default theme (all workspaces) |
 | `:ws` | Normal | Workspace picker |
 | `:leave` | Normal | Leave the current channel, or close the current DM (with confirmation) |
 | `Esc` | Normal (Direct Messages view) | Return to Home (the compact sidebar) |
@@ -106,4 +124,4 @@
 | `Q` | Normal | Quit immediately |
 | `Ctrl+c` | Any | Quit (with confirmation) |
 
-Custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].
+Custom keybinding overrides are on the roadmap. Remaining OG holes (create channel, invite, mentions-only, starred files, Unreads extra sorts): [[Gaps]].

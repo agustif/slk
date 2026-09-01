@@ -55,8 +55,8 @@ quiet_hours = "22:00-08:00"   # 24h local; overnight wrap ok; empty = off
 # to diagnose a misbehaving command.
 
 # Muted channels and DMs never notify — including on mentions and keywords —
-# matching Slack. (This is a behavior change: previously a mention or keyword
-# in a muted channel would still notify.)
+# matching Slack. Mute is users.prefs.setNotifications name=muted.
+# Mentions-only (all / mentions / nothing) is not captured — see wiki/Gaps.md.
 
 [cache]
 message_retention_days = 30
@@ -277,6 +277,9 @@ unread-only for the rest of the session without rewriting
 `config.toml`. Click the tabs and chips in the toolbar for the same
 controls.
 
+There is **no** `[unreads]` block. Unreads `f`/`F` sort is session-local
+and is not persisted (pref name not captured). See [[Gaps]].
+
 ## Terminal-palette themes (`ANSI Dark`, `ANSI Light`)
 
 Two built-in themes use ANSI 16 color codes exclusively rather than
@@ -339,3 +342,6 @@ Switch themes live with `Ctrl+y`.
 | `~/.config/slk/` | Configuration, custom themes |
 | `~/.local/share/slk/` | SQLite cache, tokens |
 | `~/.cache/slk/` | Avatars, image cache |
+
+There is no keybinding-override table yet (roadmap). Prefs this fork
+does not write (mentions-only, Unreads extra sorts): [[Gaps]].

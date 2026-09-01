@@ -1967,17 +1967,23 @@ type starsListResponse struct {
 }
 
 type starsListItem struct {
-	Type    string `json:"type"`
-	Channel string `json:"channel"` // populated when Type == "channel" or "im"
-	Message struct {
-		TS string `json:"ts"`
+	Type       string `json:"type"`
+	Channel    string `json:"channel"` // populated when Type == "channel", "im", or "message"
+	DateCreate int64  `json:"date_create"`
+	Message    struct {
+		TS   string `json:"ts"`
+		User string `json:"user"`
+		Text string `json:"text"`
 	} `json:"message"`
 }
 
 // StarredMessage is a stars.list item of type=message.
 type StarredMessage struct {
-	ChannelID string
-	TS        string
+	ChannelID  string
+	TS         string
+	UserID     string
+	Text       string
+	DateCreate int64
 }
 
 type starsListPaging struct {
@@ -2046,7 +2052,13 @@ func (c *Client) GetStarredMessages(ctx context.Context) ([]StarredMessage, erro
 	var out []StarredMessage
 	for _, it := range slr.Items {
 		if it.Type == "message" && it.Channel != "" && it.Message.TS != "" {
-			out = append(out, StarredMessage{ChannelID: it.Channel, TS: it.Message.TS})
+			out = append(out, StarredMessage{
+				ChannelID:  it.Channel,
+				TS:         it.Message.TS,
+				UserID:     it.Message.User,
+				Text:       it.Message.Text,
+				DateCreate: it.DateCreate,
+			})
 		}
 	}
 	return out, nil

@@ -210,6 +210,7 @@ const (
 	navDMs
 	navDrafts
 	navUnreads
+	navStarred
 	navHome
 	navHeader
 	navChannel
@@ -304,6 +305,7 @@ type Model struct {
 	draftsActive bool
 	// unreadsActive is the same indicator for the Unreads view row.
 	unreadsActive bool
+	starredActive bool
 	// dmsView, when true, turns the sidebar into Slack's DMs tab:
 	// only dm / group_dm / app rows, no IsStale hiding, recency sort,
 	// no section headers. Home keeps the compact DM section.
@@ -333,14 +335,15 @@ type Model struct {
 	cacheFiller string // pre-rendered empty row for vertical padding
 
 	// Synthetic Activity, Later, Threads, Direct Messages, Drafts,
-	// then Unreads sit at the top of the sidebar. They are selectable
-	// via j/k like a channel, but they are NOT channels — when the
-	// cursor sits on one, SelectedItem / SelectedID return zero /
-	// empty and the App layer activates the matching view instead.
+	// Unreads, then Starred sit at the top of the sidebar. They are
+	// selectable via j/k like a channel, but they are NOT channels —
+	// when the cursor sits on one, SelectedItem / SelectedID return
+	// zero / empty and the App layer activates the matching view.
 	threadsUnread  int
 	activityUnread int
 	laterUnread    int
 	draftsUnread   int
+	starredCount   int
 
 	// focused tracks whether this panel currently has user focus. When
 	// false, the cursor "▌" glyph dims from Accent to TextMuted (via
@@ -721,6 +724,14 @@ func (m *Model) SetUnreadsActive(active bool) {
 	m.dirty()
 }
 
+func (m *Model) SetStarredActive(active bool) {
+	if m.starredActive == active {
+		return
+	}
+	m.starredActive = active
+	m.dirty()
+}
+
 // SetDMsView switches the sidebar into (or out of) the full DMs
 // list: only direct conversations, no staleness filter, recency
 // sort, no section headers.
@@ -933,6 +944,25 @@ func (m *Model) SelectUnreadsRow() {
 	}
 }
 
+func (m *Model) IsStarredSelected() bool {
+	if m.cursor < 0 || m.cursor >= len(m.nav) {
+		return false
+	}
+	return m.nav[m.cursor].kind == navStarred
+}
+
+func (m *Model) SelectStarredRow() {
+	for i, n := range m.nav {
+		if n.kind == navStarred {
+			if m.cursor != i {
+				m.cursor = i
+				m.dirty()
+			}
+			return
+		}
+	}
+}
+
 // IsSectionHeaderSelected reports whether the cursor is on a section
 // header. When ok is true, name is the section name (e.g. "Channels",
 // "Direct Messages", or a custom section name).
@@ -1061,6 +1091,19 @@ func (m *Model) SetDraftsUnreadCount(n int) {
 }
 
 func (m *Model) DraftsUnreadCount() int { return m.draftsUnread }
+
+func (m *Model) SetStarredCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if m.starredCount != n {
+		m.starredCount = n
+		m.cacheValid = false
+		m.dirty()
+	}
+}
+
+func (m *Model) StarredCount() int { return m.starredCount }
 
 // SetItems replaces the sidebar's channel list. It does NOT reset the
 // cursor to the Threads row — SetItems is called on every routine
@@ -1596,6 +1639,8 @@ func (m *Model) currentCursorKey() (cursorKey, bool) {
 		return cursorKey{kind: navDrafts}, true
 	case navUnreads:
 		return cursorKey{kind: navUnreads}, true
+	case navStarred:
+		return cursorKey{kind: navStarred}, true
 	case navHome:
 		return cursorKey{kind: navHome}, true
 	case navHeader:
@@ -1623,7 +1668,7 @@ func (m *Model) rebuildNav() {
 		bucket[key] = append(bucket[key], fi)
 	}
 
-	nav := make([]navItem, 0, 6+len(sectionOrder))
+	nav := make([]navItem, 0, 7+len(sectionOrder))
 	if m.dmsView {
 		nav = append(nav, navItem{kind: navHome})
 		for fi := range m.filtered {
@@ -1635,7 +1680,7 @@ func (m *Model) rebuildNav() {
 		}
 		return
 	}
-	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navLater}, navItem{kind: navThreads}, navItem{kind: navDMs}, navItem{kind: navDrafts}, navItem{kind: navUnreads})
+	nav = append(nav, navItem{kind: navActivity}, navItem{kind: navLater}, navItem{kind: navThreads}, navItem{kind: navDMs}, navItem{kind: navDrafts}, navItem{kind: navUnreads}, navItem{kind: navStarred})
 	for _, name := range sectionOrder {
 		nav = append(nav, navItem{kind: navHeader, header: name})
 		if m.IsCollapsed(name) {
@@ -1679,6 +1724,9 @@ func (m *Model) rebuildNavPreserveCursor() {
 			m.cursor = i
 			return
 		case key.kind == navUnreads && n.kind == navUnreads:
+			m.cursor = i
+			return
+		case key.kind == navStarred && n.kind == navStarred:
 			m.cursor = i
 			return
 		case key.kind == navHome && n.kind == navHome:
@@ -1781,6 +1829,7 @@ type renderRow struct {
 	isDMsRow     bool
 	isDraftsRow  bool
 	isUnreadsRow bool
+	isStarredRow bool
 	// isHomeRow is the DMs-tab "← Home" row.
 	isHomeRow bool
 }
@@ -1831,6 +1880,7 @@ func (m *Model) buildCache(width int) {
 	dmsIdx := -1
 	draftsIdx := -1
 	unreadsIdx := -1
+	starredIdx := -1
 	homeIdx := -1
 	for i, n := range m.nav {
 		switch n.kind {
@@ -1846,6 +1896,8 @@ func (m *Model) buildCache(width int) {
 			draftsIdx = i
 		case navUnreads:
 			unreadsIdx = i
+		case navStarred:
+			starredIdx = i
 		case navHome:
 			homeIdx = i
 		case navHeader:
@@ -1894,9 +1946,9 @@ func (m *Model) buildCache(width int) {
 	groupDMPrefix := styles.PresenceAway.Render("● ")
 
 	// OG left-rail order: Activity, Later, Threads, Direct Messages,
-	// Drafts, Unreads, then sections. Insertion order is load-bearing
-	// — do not sort synthetics by name. The DMs tab is a dedicated
-	// conversation list (Slack's DMs column) — no inbox-switcher rows.
+	// Drafts, Unreads, Starred, then sections. Insertion order is
+	// load-bearing — do not sort synthetics by name. The DMs tab is a
+	// dedicated conversation list (Slack's DMs column) — no inbox-switcher rows.
 	if !m.dmsView {
 		m.cacheRows = append(m.cacheRows, m.synthRow("◎ Activity", m.activityUnread, activityIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navActivity))
 		m.cacheRows = append(m.cacheRows, m.synthRow("◷ Later", m.laterUnread, laterIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navLater))
@@ -1904,6 +1956,7 @@ func (m *Model) buildCache(width int) {
 		m.cacheRows = append(m.cacheRows, m.synthRow("✉ Direct Messages", m.dmsUnreadCount(readState), dmsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navDMs))
 		m.cacheRows = append(m.cacheRows, m.synthRow("✎ Drafts", m.draftsUnread, draftsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navDrafts))
 		m.cacheRows = append(m.cacheRows, m.synthRow("◉ Unreads", m.unreadsCount(readState), unreadsIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navUnreads))
+		m.cacheRows = append(m.cacheRows, m.synthRow("★ Starred", m.starredCount, starredIdx, width, cursorSelected, activeBorder, bgAnsi, dotStyle, navStarred))
 		m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
 	}
 
@@ -2322,6 +2375,8 @@ func (m *Model) View(height, width int) string {
 			visible = append(visible, r.active)
 		case r.isUnreadsRow && m.unreadsActive && r.active != "":
 			visible = append(visible, r.active)
+		case r.isStarredRow && m.starredActive && r.active != "":
+			visible = append(visible, r.active)
 		case r.normal == "":
 			// Inter-section blank row -- emit a width-sized themed blank so
 			// the panel background remains continuous.
@@ -2517,8 +2572,9 @@ func (m *Model) ChannelIDsInOrder() []string {
 	return out
 }
 
-// synthRow renders one synthetic sidebar destination (Threads, Activity,
-// Later) with the same cursor / active / unread-badge treatment as a channel.
+// synthRow renders one synthetic sidebar destination (Activity, Later,
+// Threads, DMs, Drafts, Unreads, Starred) with the same cursor / active /
+// unread-badge treatment as a channel.
 func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected, activeBorder, bgAnsi string, dotStyle lipgloss.Style, kind navKind) renderRow {
 	label := " " + core
 	cursor := cursorSelected + core
@@ -2555,6 +2611,7 @@ func (m *Model) synthRow(core string, unread, navIdx, width int, cursorSelected,
 		isDMsRow:      kind == navDMs,
 		isDraftsRow:   kind == navDrafts,
 		isUnreadsRow:  kind == navUnreads,
+		isStarredRow:  kind == navStarred,
 		isHomeRow:     kind == navHome,
 	}
 }
