@@ -61,11 +61,11 @@ Product code can be complete while the fork is not a drop-in install of a tagged
 
 | Gap | Status |
 |---|---|
-| **GitHub Release / semver tag** | Not cut. `origin` has **no tags**. Homebrew is `brew install --HEAD agustif/tap/slk`. Go: `github.com/agustif/slk/cmd/slk@main`. `@latest` is not a fork version until a tag exists. |
+| **GitHub Release / semver tag** | **v0.17.0**. Homebrew cask is still `--HEAD` until the tap formula is versioned. |
+| **GitHub release artifacts** | Cut with GoReleaser on tag `v*` (linux/windows static, darwin cgo). |
 | **AUR** | AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This repo ships `packaging/aur` as `slk-git`; it is **not published** to the AUR. |
-| **GitHub release artifacts** | No Linux/macOS/Windows binaries from this fork. Windows is source-build only. |
-| **Help modal footer** | Still “Made with ❤️ by Grant Ammons” (upstream attribution). |
-| **Nix flake** | In-tree `flake.nix` builds this tree (`version = "0.0.0"`). Not a published nixpkgs/flakehub package. |
+| **Help modal footer** | `agustif/slk · original by Grant Ammons` |
+| **Nix flake** | In-tree `flake.nix` (`version = "0.17.0"`). Not a published nixpkgs/flakehub package. |
 
 ## How a gap gets filled
 

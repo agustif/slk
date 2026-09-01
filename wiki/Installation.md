@@ -2,7 +2,7 @@
 
 Install **this fork** ([agustif/slk](https://github.com/agustif/slk)). Commands that mention `gammons/slk`, `gammons/tap`, or AUR `slk` install [upstream](https://github.com/gammons/slk) instead.
 
-**No GitHub Release or semver tag yet** (see [[Gaps]]). Use Homebrew `--HEAD` or Go `@main`. `@latest` is not a fork version until a tag exists.
+First fork release: **v0.17.0**. Homebrew remains `--HEAD` until the tap formula pins a version. Go: `@v0.17.0` or `@latest`.
 
 ## Homebrew (macOS and Linux)
 
@@ -34,7 +34,7 @@ That provides `slk` and conflicts with the upstream AUR package.
 ## Go
 
 ```bash
-go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@main
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.17.0
 ```
 
 The module path is `github.com/agustif/slk`. The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`).

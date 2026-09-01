@@ -85,14 +85,29 @@ func (d *Downloader) get(ctx context.Context, rawURL string, auth slackhttp.Team
 	if err != nil {
 		return nil, "", 0, err
 	}
-	if auth.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+auth.Token)
-	}
 	if auth.DCookie != "" {
-		// Inline cookie header: a shared cookie jar can hold only one
-		// 'd' value at a time but workspaces may have different ones.
-		req.Header.Set("Cookie", "d="+auth.DCookie)
+		slackhttp.AttachFileCDNAuth(req, auth, false)
+		body, ct, status, err := d.doGet(req)
+		if err != nil {
+			return body, ct, status, err
+		}
+		if slackhttp.FileCDNCookieAuthFailed(status, ct, body) && auth.Token != "" {
+			req2, rerr := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+			if rerr != nil {
+				return nil, "", 0, rerr
+			}
+			slackhttp.AttachFileCDNAuth(req2, auth, true)
+			return d.doGet(req2)
+		}
+		return body, ct, status, nil
 	}
+	if auth.Token != "" {
+		slackhttp.AttachFileCDNAuth(req, auth, true)
+	}
+	return d.doGet(req)
+}
+
+func (d *Downloader) doGet(req *http.Request) ([]byte, string, int, error) {
 	resp, err := d.http.Do(req)
 	if err != nil {
 		return nil, "", 0, err
@@ -100,8 +115,8 @@ func (d *Downloader) get(ctx context.Context, rawURL string, auth slackhttp.Team
 	defer resp.Body.Close()
 	contentType := resp.Header.Get("Content-Type")
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, contentType, resp.StatusCode, nil
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return body, contentType, resp.StatusCode, nil
 	}
 	body, err := io.ReadAll(resp.Body)
 	return body, contentType, resp.StatusCode, err

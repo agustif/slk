@@ -46,11 +46,35 @@ func TestGetSendsAuthHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotAuth != "Bearer xoxc-test" {
-		t.Errorf("Authorization = %q", gotAuth)
+	if gotAuth != "" {
+		t.Errorf("Authorization = %q, want empty (cookie-only on 200)", gotAuth)
 	}
 	if gotCookie != "d=cookie-test" {
 		t.Errorf("Cookie = %q", gotCookie)
+	}
+}
+
+func TestGetFallsBackToBearerOn403(t *testing.T) {
+	var auths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	d := New(slackhttp.NewAuthResolver(nil), t.TempDir())
+	body, _, status, err := d.get(context.Background(), srv.URL, slackhttp.TeamAuth{TeamID: "T1", Token: "xoxc-test", DCookie: "cookie-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != 200 || string(body) != "ok" {
+		t.Fatalf("status=%d body=%q", status, body)
+	}
+	if len(auths) != 2 || auths[0] != "" || auths[1] != "Bearer xoxc-test" {
+		t.Errorf("auth attempts = %v, want [\"\", Bearer]", auths)
 	}
 }
 

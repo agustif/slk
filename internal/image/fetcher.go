@@ -433,14 +433,32 @@ func (f *Fetcher) tryDownload(ctx context.Context, url string, auth TeamAuth) ([
 			url, time.Since(httpStart).Milliseconds(), err)
 		return nil, "", 0, err
 	}
-	if auth.Token != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+auth.Token)
-	}
 	if auth.DCookie != "" {
-		// Inline cookie header: a shared cookie jar can hold only one
-		// 'd' value at a time but workspaces may have different ones.
-		httpReq.Header.Set("Cookie", "d="+auth.DCookie)
+		slackhttp.AttachFileCDNAuth(httpReq, auth, false)
+		body, ct, status, err := f.doImageGet(httpReq, httpStart, url)
+		if err != nil {
+			return body, ct, status, err
+		}
+		if !slackhttp.FileCDNCookieAuthFailed(status, ct, body) {
+			return body, ct, status, nil
+		}
+		if auth.Token == "" {
+			return body, ct, status, nil
+		}
+		httpReq, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, "", 0, err
+		}
+		slackhttp.AttachFileCDNAuth(httpReq, auth, true)
+		return f.doImageGet(httpReq, httpStart, url)
 	}
+	if auth.Token != "" {
+		slackhttp.AttachFileCDNAuth(httpReq, auth, true)
+	}
+	return f.doImageGet(httpReq, httpStart, url)
+}
+
+func (f *Fetcher) doImageGet(httpReq *http.Request, httpStart time.Time, url string) ([]byte, string, int, error) {
 	resp, err := f.http.Do(httpReq)
 	if err != nil {
 		debuglog.ImgFetch("http-result: url=%s dur_ms=%d transport_err=%v",
@@ -450,11 +468,10 @@ func (f *Fetcher) tryDownload(ctx context.Context, url string, auth TeamAuth) ([
 	defer resp.Body.Close()
 	ct := resp.Header.Get("Content-Type")
 	if resp.StatusCode != http.StatusOK {
-		// Drain body for connection reuse, but we don't return it.
-		_, _ = io.Copy(io.Discard, resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		debuglog.ImgFetch("http-result: url=%s status=%d ct=%q dur_ms=%d body_drained",
 			url, resp.StatusCode, ct, time.Since(httpStart).Milliseconds())
-		return nil, ct, resp.StatusCode, nil
+		return body, ct, resp.StatusCode, nil
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

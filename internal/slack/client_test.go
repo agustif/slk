@@ -2277,30 +2277,25 @@ func TestEditMessage_BuildsRichTextBlock(t *testing.T) {
 }
 
 func TestGetHistorySince_PaginatesUntilExhausted(t *testing.T) {
-	page1 := []slack.Message{
-		{Msg: slack.Msg{Timestamp: "100.000000", User: "U1", Text: "a"}},
-		{Msg: slack.Msg{Timestamp: "200.000000", User: "U1", Text: "b"}},
-	}
-	page2 := []slack.Message{
-		{Msg: slack.Msg{Timestamp: "300.000000", User: "U1", Text: "c"}},
-	}
-	var calls []slack.GetConversationHistoryParameters
-	resp1 := &slack.GetConversationHistoryResponse{Messages: page1, HasMore: true}
-	resp1.ResponseMetaData.NextCursor = "cur1"
-	resp2 := &slack.GetConversationHistoryResponse{Messages: page2, HasMore: false}
-	responses := []*slack.GetConversationHistoryResponse{resp1, resp2}
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			calls = append(calls, *params)
-			if len(responses) == 0 {
-				t.Fatalf("unexpected extra call to GetConversationHistory: %+v", params)
-			}
-			resp := responses[0]
-			responses = responses[1:]
-			return resp, nil
-		},
-	}
-	c := &Client{api: mock}
+	var oldest, latest []string
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		calls++
+		oldest = append(oldest, r.PostForm.Get("oldest"))
+		latest = append(latest, r.PostForm.Get("latest"))
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"200.000000","user":"U1","text":"b"},{"ts":"100.000000","user":"U1","text":"a"}],"has_more":true}`))
+		case 2:
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"100.000000","user":"U1","text":"a"},{"ts":"80.000000","user":"U1","text":"c"}],"has_more":false}`))
+		default:
+			t.Fatalf("unexpected call %d", calls)
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
 	res, err := c.GetHistorySince(context.Background(), "C1", "50.000000", 500)
 	if err != nil {
@@ -2312,54 +2307,40 @@ func TestGetHistorySince_PaginatesUntilExhausted(t *testing.T) {
 	if res.Capped {
 		t.Errorf("Capped = true; expected false (exhausted all pages)")
 	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 history calls, got %d", len(calls))
+	if calls != 2 {
+		t.Fatalf("expected 2 history calls, got %d", calls)
 	}
-	if calls[0].Oldest != "50.000000" || calls[0].Cursor != "" {
-		t.Errorf("call[0] = %+v, want Oldest=50.000000, Cursor=''", calls[0])
+	if oldest[0] != "50.000000" || latest[0] != "" {
+		t.Errorf("call[0] oldest=%q latest=%q, want oldest=50.000000", oldest[0], latest[0])
 	}
-	if calls[1].Cursor != "cur1" {
-		t.Errorf("call[1].Cursor = %q, want %q", calls[1].Cursor, "cur1")
+	if latest[1] != "100.000000" {
+		t.Errorf("call[1].latest = %q, want 100.000000 (page with latest, not cursor)", latest[1])
 	}
 }
 
 func TestGetHistorySince_RespectsHardCap(t *testing.T) {
-	// 3 pages of 2 messages each = 6 available; cap=4 should stop early.
-	mkPage := func(start int, hasMore bool, cursor string) *slack.GetConversationHistoryResponse {
-		r := &slack.GetConversationHistoryResponse{
-			Messages: []slack.Message{
-				{Msg: slack.Msg{Timestamp: fmt.Sprintf("%d.000000", start), User: "U1"}},
-				{Msg: slack.Msg{Timestamp: fmt.Sprintf("%d.000000", start+1), User: "U1"}},
-			},
-			HasMore: hasMore,
-		}
-		r.ResponseMetaData.NextCursor = cursor
-		return r
-	}
-	responses := []*slack.GetConversationHistoryResponse{
-		mkPage(100, true, "c1"),
-		mkPage(200, true, "c2"),
-		mkPage(300, false, ""),
-	}
 	var calls int
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			if calls >= len(responses) {
-				t.Fatalf("unexpected call #%d (cap should have stopped earlier)", calls+1)
-			}
-			resp := responses[calls]
-			calls++
-			return resp, nil
-		},
-	}
-	c := &Client{api: mock}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"101.000000"},{"ts":"100.000000"}],"has_more":true}`))
+		case 2:
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"100.000000"},{"ts":"99.000000"}],"has_more":true}`))
+		default:
+			t.Fatalf("unexpected call #%d (cap should have stopped earlier)", calls)
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
-	res, err := c.GetHistorySince(context.Background(), "C1", "0", 4)
+	res, err := c.GetHistorySince(context.Background(), "C1", "0", 3)
 	if err != nil {
 		t.Fatalf("GetHistorySince: %v", err)
 	}
-	if len(res.Messages) != 4 {
-		t.Errorf("got %d, want 4 (cap)", len(res.Messages))
+	if len(res.Messages) != 3 {
+		t.Errorf("got %d, want 3 (cap)", len(res.Messages))
 	}
 	if !res.Capped {
 		t.Errorf("Capped = false; expected true (hit maxTotal)")
@@ -2370,23 +2351,18 @@ func TestGetHistorySince_RespectsHardCap(t *testing.T) {
 }
 
 func TestGetHistorySince_EmptyOldestFetchesLatestPageOnly(t *testing.T) {
-	var calls []slack.GetConversationHistoryParameters
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			calls = append(calls, *params)
-			r := &slack.GetConversationHistoryResponse{
-				Messages: []slack.Message{
-					{Msg: slack.Msg{Timestamp: "100.000000", User: "U1"}},
-				},
-				HasMore: true, // server says more pages exist...
-			}
-			r.ResponseMetaData.NextCursor = "shouldnotbeused"
-			return r, nil
-		},
-	}
-	c := &Client{api: mock}
+	var calls int
+	var gotOldest string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_ = r.ParseForm()
+		gotOldest = r.PostForm.Get("oldest")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"100.000000","user":"U1"}],"has_more":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
-	// When oldest is empty (no prior sync), fetch latest page only — do NOT paginate.
 	res, err := c.GetHistorySince(context.Background(), "C1", "", 500)
 	if err != nil {
 		t.Fatalf("GetHistorySince: %v", err)
@@ -2394,25 +2370,24 @@ func TestGetHistorySince_EmptyOldestFetchesLatestPageOnly(t *testing.T) {
 	if len(res.Messages) != 1 {
 		t.Errorf("got %d msgs, want 1", len(res.Messages))
 	}
-	// HasMore was true in the response, so Capped must propagate that.
 	if !res.Capped {
 		t.Errorf("Capped = false; expected true (response had HasMore)")
 	}
-	if len(calls) != 1 {
-		t.Errorf("expected 1 call (no pagination when oldest is empty), got %d", len(calls))
+	if calls != 1 {
+		t.Errorf("expected 1 call (no pagination when oldest is empty), got %d", calls)
 	}
-	if calls[0].Oldest != "" {
-		t.Errorf("call.Oldest = %q, want empty", calls[0].Oldest)
+	if gotOldest != "" {
+		t.Errorf("call.Oldest = %q, want empty", gotOldest)
 	}
 }
 
 func TestGetHistorySince_NoMessages(t *testing.T) {
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			return &slack.GetConversationHistoryResponse{Messages: nil, HasMore: false}, nil
-		},
-	}
-	c := &Client{api: mock}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"messages":[],"has_more":false}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
 	res, err := c.GetHistorySince(context.Background(), "C1", "100.000000", 500)
 	if err != nil {
@@ -3149,43 +3124,36 @@ func TestSearchMessages_NonPositiveCountKeepsDefault(t *testing.T) {
 }
 
 func TestGetHistoryAround_FetchesBothDirections(t *testing.T) {
-	var calls []*slack.GetConversationHistoryParameters
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			calls = append(calls, params)
-			if params.Latest != "" {
-				// older-or-equal page, newest first
-				return &slack.GetConversationHistoryResponse{Messages: []slack.Message{
-					{Msg: slack.Msg{Timestamp: "1700000005.000000"}},
-					{Msg: slack.Msg{Timestamp: "1700000004.000000"}},
-				}}, nil
-			}
-			// newer page, newest first
-			return &slack.GetConversationHistoryResponse{Messages: []slack.Message{
-				{Msg: slack.Msg{Timestamp: "1700000007.000000"}},
-				{Msg: slack.Msg{Timestamp: "1700000006.000000"}},
-			}}, nil
-		},
-	}
-	c := &Client{api: mock}
+	var gotLatest, gotOldest []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotLatest = append(gotLatest, r.PostForm.Get("latest"))
+		gotOldest = append(gotOldest, r.PostForm.Get("oldest"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.PostForm.Get("latest") != "" {
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"1700000005.000000"},{"ts":"1700000004.000000"}],"has_more":false}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"1700000007.000000"},{"ts":"1700000006.000000"},{"ts":"1700000005.000000"}],"has_more":false}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
-	got, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 25)
+	got, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 history calls, got %d", len(calls))
+	if len(gotLatest) != 2 {
+		t.Fatalf("expected 2 history calls, got %d", len(gotLatest))
 	}
-	older, newer := calls[0], calls[1]
-	if older.Latest != "1700000005.000000" || !older.Inclusive || older.Limit != 25 || older.ChannelID != "C1" {
-		t.Errorf("older call params: %+v", older)
+	if gotLatest[0] != "1700000005.000000" || gotOldest[0] != "" {
+		t.Errorf("older call latest=%q oldest=%q", gotLatest[0], gotOldest[0])
 	}
-	if newer.Oldest != "1700000005.000000" || newer.Inclusive || newer.Limit != 25 {
-		t.Errorf("newer call params: %+v", newer)
+	if gotOldest[1] != "1700000005.000000" || gotLatest[1] != "" {
+		t.Errorf("newer call latest=%q oldest=%q", gotLatest[1], gotOldest[1])
 	}
 
-	// Combined newest-first: newer page then older page.
 	want := []string{"1700000007.000000", "1700000006.000000", "1700000005.000000", "1700000004.000000"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d messages, want %d", len(got), len(want))
@@ -3198,27 +3166,17 @@ func TestGetHistoryAround_FetchesBothDirections(t *testing.T) {
 }
 
 func TestGetHistoryAround_DropsIncompleteNewerPage(t *testing.T) {
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			if params.Latest != "" {
-				return &slack.GetConversationHistoryResponse{Messages: []slack.Message{
-					{Msg: slack.Msg{Timestamp: "1700000005.000000"}},
-					{Msg: slack.Msg{Timestamp: "1700000004.000000"}},
-				}}, nil
-			}
-			// Oldest-anchored call: more than limit messages exist after
-			// ts, so this page holds the channel's most recent messages,
-			// NOT those adjacent to ts — including it would leave a gap.
-			return &slack.GetConversationHistoryResponse{
-				HasMore: true,
-				Messages: []slack.Message{
-					{Msg: slack.Msg{Timestamp: "1700000099.000000"}},
-					{Msg: slack.Msg{Timestamp: "1700000098.000000"}},
-				},
-			}, nil
-		},
-	}
-	c := &Client{api: mock}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "application/json")
+		if r.PostForm.Get("latest") != "" {
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"1700000005.000000"},{"ts":"1700000004.000000"}],"has_more":false}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"has_more":true,"messages":[{"ts":"1700000099.000000"},{"ts":"1700000098.000000"}]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
 	got, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 2)
 	if err != nil {
@@ -3236,66 +3194,61 @@ func TestGetHistoryAround_DropsIncompleteNewerPage(t *testing.T) {
 }
 
 func TestGetHistoryAround_WrapsOlderError(t *testing.T) {
-	sentinel := errors.New("channel_not_found")
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			return nil, sentinel
-		},
-	}
-	c := &Client{api: mock}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
-	_, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 25)
+	_, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 0)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(err, sentinel) {
-		t.Errorf("error chain broken: %v does not wrap sentinel", err)
+	if !strings.Contains(err.Error(), "older") {
+		t.Errorf("error = %v, want older wrap", err)
 	}
 }
 
 func TestGetHistoryAround_WrapsNewerError(t *testing.T) {
-	sentinel := errors.New("ratelimited")
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			if params.Latest != "" {
-				return &slack.GetConversationHistoryResponse{}, nil
-			}
-			return nil, sentinel
-		},
-	}
-	c := &Client{api: mock}
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n++
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "application/json")
+		if r.PostForm.Get("latest") != "" {
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[],"has_more":false}`))
+			return
+		}
+		http.Error(w, "nope", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
-	_, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 25)
+	_, err := c.GetHistoryAround(context.Background(), "C1", "1700000005.000000", 0)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(err, sentinel) {
-		t.Errorf("error chain broken: %v does not wrap sentinel", err)
+	if !strings.Contains(err.Error(), "newer") {
+		t.Errorf("error = %v, want newer wrap", err)
 	}
 }
 
 func TestGetHistoryAround_HonorsCancelledContext(t *testing.T) {
-	var calls int
-	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			calls++
-			return &slack.GetConversationHistoryResponse{}, nil
-		},
-	}
-	c := &Client{api: mock}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("cancelled context should not hit the server")
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := c.GetHistoryAround(ctx, "C1", "1700000005.000000", 25)
+	_, err := c.GetHistoryAround(ctx, "C1", "1700000005.000000", 0)
 	if err == nil {
 		t.Fatal("expected error from cancelled context")
 	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("error chain broken: %v does not wrap context.Canceled", err)
-	}
-	if calls != 1 {
-		t.Errorf("expected 1 call before ctx check aborts, got %d", calls)
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
+		t.Errorf("error = %v, want canceled", err)
 	}
 }
 
@@ -3801,15 +3754,12 @@ func TestReopenConversation_UsesChannelID(t *testing.T) {
 }
 
 func TestGetSingleMessage_ThreadReplyViaParentGuess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"messages":[{"ts":"1.05","text":"channel noise","user":"U3"},{"ts":"1.0","text":"parent","user":"U1"}],"has_more":false}`))
+	}))
+	defer srv.Close()
 	mock := &mockSlackAPI{
-		getConversationHistoryFn: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-			return &slack.GetConversationHistoryResponse{
-				Messages: []slack.Message{
-					{Msg: slack.Msg{Timestamp: "1.05", Text: "channel noise", User: "U3"}},
-					{Msg: slack.Msg{Timestamp: "1.0", Text: "parent", User: "U1"}},
-				},
-			}, nil
-		},
 		getConversationRepliesFn: func(params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
 			if params.Timestamp == "1.0" {
 				return []slack.Message{
@@ -3820,7 +3770,8 @@ func TestGetSingleMessage_ThreadReplyViaParentGuess(t *testing.T) {
 			return nil, false, "", fmt.Errorf("thread_not_found")
 		},
 	}
-	c := &Client{api: mock}
+	c := newTestClient(srv)
+	c.api = mock
 	msg, err := c.GetSingleMessage(context.Background(), "C1", "1.1")
 	if err != nil {
 		t.Fatalf("GetSingleMessage: %v", err)

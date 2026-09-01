@@ -105,13 +105,13 @@ OG holes still omitted until a HAR exists — **not invented**:
 - Unreads “recommended / scientifically” sort, section-filter chips, persisted sort pref
 - `stars.list` past the first page (`limit=1000`)
 
-Packaging: no GitHub Release / tag yet; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
+Packaging: GitHub Release **v0.17.0**; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`. Homebrew remains `--HEAD`.
 
 See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-These commands install **this fork** (`agustif/slk`). There is **no GitHub Release or semver tag yet** — use `@main` or Homebrew `--HEAD`. `@latest` is not a fork version until a tag exists.
+These commands install **this fork** (`agustif/slk`). First fork release: **v0.17.0**. Homebrew cask is still `--HEAD` until the tap formula is versioned.
 
 **Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 
@@ -130,7 +130,7 @@ makepkg -si
 **Go:**
 
 ```bash
-go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@main
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.17.0
 ```
 
 **From source:**
@@ -171,7 +171,7 @@ the file before relaunching. Log lines are categorized
 
 In-tree wiki (this fork):
 
-- [Installation](wiki/Installation.md) — Homebrew `--HEAD`, Go `@main`, in-tree AUR PKGBUILD, source
+- [Installation](wiki/Installation.md) — Homebrew `--HEAD`, Go `@v0.17.0`, GitHub Release binaries
 - [Setup](wiki/Setup.md) — desktop-app auth, adding workspaces
 - [Features](wiki/Features.md) — full feature breakdown
 - [Keybindings](wiki/Keybindings.md) — every key, every mode

@@ -15,7 +15,7 @@
         lib = pkgs.lib;
         slk = pkgs.buildGo126Module {
           pname = "slk";
-          version = "0.0.0";
+          version = "0.17.0";
           src = ./.;
           vendorHash = "sha256-deqCUDgRvhe/Bpmy+9bIHjSBo+KTCtAN2XcGMhAj/G0=";
           buildInputs = [pkgs.libX11];

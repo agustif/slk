@@ -99,10 +99,11 @@ Call-site `WithReason` beats the table. Explicit reasons used from **later** HAR
 | `drafts-api/list` | `drafts.list` | 2026-08-31 |
 | `drafts-api/listActive` | `drafts.listActive` | 2026-08-31 |
 | `drafts-api/create` / `update` / `delete` | `drafts.*` | 2026-08-31 |
+| `fetchActivityFeed` | `activity.feed` | 2026-08-31 |
 | `bookmarks-store/conditional-fetching` (in the 48) | `bookmarks.list` | July 30 |
 | `prefs-store/setChannelNotificationOverride` | `users.prefs.setNotifications` | public mute captures; **not** in slk’s 2026-07-30 HARs |
 
-**Fallback:** methods with no table entry and no `WithReason` get `_x_reason=conditional-fetch-manager`. That **string** is attested (sections.list). The **pairing** with e.g. `stars.add` or `activity.feed` is a guess. Emitting nothing is a sharper fingerprint (`_x_mode` without `_x_reason`). `activity.feed` currently uses this fallback (no call-site reason), even though comments mention `fetchActivityFeed`.
+**Fallback:** methods with no table entry and no `WithReason` get `_x_reason=conditional-fetch-manager`. That **string** is attested (sections.list). The **pairing** with e.g. `stars.add` is a guess. Emitting nothing is a sharper fingerprint (`_x_mode` without `_x_reason`).
 
 48 attested `_x_reason` values: `official-request-shape.json` → `x_reason_observed_values`.
 
@@ -130,7 +131,7 @@ Outbound: typing (`SendTyping`), presence subscribe (`SubscribePresence`).
 
 Chrome `<img>` loads: `Sec-Fetch-Dest: image`, `Sec-Fetch-Mode: no-cors`, `Priority: i`, **Referer present**, **Origin absent**. slk’s `DestImage` matches that set.
 
-**Residual:** slk still sends `Authorization: Bearer xoxc-…` on `files.slack.com`. 0/40 captured image requests had `Authorization`. Cookie-only 403’d in production; this is the largest known image-path divergence. See `official-request-shape.json` `authorization_note`.
+**files.slack.com:** cookie-only first (matches 0/40 captured `Authorization` headers). If that returns 403 or HTML login, retry once with Bearer + cookie.
 
 **Residual:** `Accept-Encoding` — Chrome sends `gzip, deflate, br, zstd`; Go’s transport advertises `gzip`. Setting Chrome’s list would disable stdlib decompression.
 
@@ -157,7 +158,7 @@ Response modelled: `messages`, `unchanged_messages`, `latest_updates`, `has_more
 |---|---|
 | `HistoryWithVersions` | Full captured form. Default `_x_reason=message-pane/requestHistory` |
 | `UnreadHistory` | Same + `oldest=last_read`, `include_date_joined=false` (2026-08-31 Home Unreads) |
-| `GetHistory` / `GetOlderHistory` / `GetHistoryAround` / `GetHistorySince` | **slack-go** — different limit (50/200/500). Residual vs official 28 |
+| `GetHistory` / `GetOlderHistory` / `GetHistoryAround` / `GetHistorySince` | Same captured form. Default limit 28. `GetHistorySince` paginates with `latest` (not `next_cursor`) |
 
 | Method | Form |
 |---|---|
@@ -169,7 +170,7 @@ Response modelled: `messages`, `unchanged_messages`, `latest_updates`, `has_more
 | Method | Form | Notes |
 |---|---|---|
 | `activity.views` | (empty) | Built-in All/DMs/Mentions/Threads + custom views. Selecting a tab does **not** send `view_id`; flatten `entry_types` / `unread_only` / `priority_only` onto the feed |
-| `activity.feed` | `limit` (1–100, default 50), `types` (comma list; All-tab list is duplicated as captured), `mode` = `chrono_v1` or `priority_reads_and_unreads_v1`, `archive_only=false`, `unread_only`, `priority_only`, `only_salesforce_channels=false`, `exclude_automations=false`, `automations_only=false`, `is_activity_inbox=true`, optional `sort=vip_unreads_first` | Today’s `_x_reason` is the generic fallback |
+| `activity.feed` | `limit` (1–100, default 50), `types` (comma list; All-tab list is duplicated as captured), `mode` = `chrono_v1` or `priority_reads_and_unreads_v1`, `archive_only=false`, `unread_only`, `priority_only`, `only_salesforce_channels=false`, `exclude_automations=false`, `automations_only=false`, `is_activity_inbox=true`, optional `sort=vip_unreads_first` | `_x_reason=fetchActivityFeed` (2026-08-31). Not in the July 30 48-value golden list; call-site `WithReason` |
 | `saved.list` | `limit`, `filter` = `saved` \| `completed` \| `archived`, `include_tombstones=true`, optional `cursor` | `item_type=message` rows used; other types skipped |
 | `saved.add` / `.delete` | `item_id` (channel), `item_type=message`, `ts` | |
 | `saved.update` | same + `date_due` or `state` = `in_progress` \| `completed` \| `archived` | |
@@ -200,7 +201,7 @@ Linked-list order is `next_channel_section_id`.
 
 | Method | Form |
 |---|---|
-| `subscriptions.thread.getView` | `limit=100`, `fetch_threads_state=true`, `priority_mode=all`, optional `current_ts` = previous `max_ts` |
+| `subscriptions.thread.getView` | `limit=8`, `fetch_threads_state=true`, `priority_mode=all`, optional `current_ts` = previous `max_ts` |
 | `subscriptions.thread.add` / `.remove` | `channel`, `thread_ts`. Idempotent: `already_subscribed` / `not_subscribed` |
 
 Capture notes (2026-05): official client also sent `limit=8` with `_x_reason=fetch-threads-view-via-refresh` / `…-load-more`. slk uses 100 + generic/default reason.
@@ -252,12 +253,9 @@ Still go through the same cookie client + `BrowserTransport` (envelope applies):
 
 | Divergence | Why it remains |
 |---|---|
-| `Authorization: Bearer` on `files.slack.com` | Cookie-only failed with 403 in prod; HAR stripped cookies |
+| Bearer fallback on `files.slack.com` | Cookie-only still 403/HTML on some workspaces; retry Bearer+cookie only then |
 | `Accept-Encoding: gzip` vs Chrome’s four-codec list | stdlib auto-decompress |
-| Generic `_x_reason` on most mutating calls (`stars.*`, `activity.feed`, …) | No per-method capture; empty reason is worse |
-| slack-go history limits 50/200/500 vs official 28 | Incremental `HistoryWithVersions` used for Unreads + some sync; other paths not fully migrated |
-| `GetStarredChannels` / `GetCounts` / some mark paths build HTTP by hand | Same token-in-body + cookie client; still go through `BrowserTransport` if that client is wired |
-| `subscriptions.thread.getView` `limit=100` vs captured `8` | Pagination still uses captured `current_ts` / `max_ts` |
+| Generic `_x_reason` on `stars.*` (and other unmapped methods) | No per-method capture; empty reason is worse |
 | Image DNT | Chrome sent `dnt:1` in those captures (user pref); slk does not |
 
 ## How a new method gets in

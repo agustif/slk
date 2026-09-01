@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/agustif/slk/internal/slackhttp"
 )
 
 // ActivityCounts is client.counts' activity_v2 object: unread Activity
@@ -147,6 +149,9 @@ func BuiltinActivityViews() []ActivityView {
 // and sort=vip_unreads_first. Filter maps onto the captured type
 // groups for those tabs plus Reactions.
 func (c *Client) GetActivityFeed(ctx context.Context, opts ActivityFeedOpts) ([]ActivityItem, error) {
+	if slackhttp.ReasonFrom(ctx) == "" {
+		ctx = slackhttp.WithReason(ctx, "fetchActivityFeed")
+	}
 	raw, err := c.PostForm(ctx, "activity.feed", buildActivityFeedForm(opts))
 	if err != nil {
 		return nil, fmt.Errorf("activity.feed: %w", err)

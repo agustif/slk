@@ -1,13 +1,53 @@
 package slackhttp
 
 import (
+	"bytes"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 )
 
+// AttachFileCDNAuth sets Cookie: d=… on a files.slack.com request.
+// The official client never sends Authorization on this host (0/40
+// captured image loads, 2026-07-30). Pass bearer=true only as a
+// fallback after cookie-only auth failed (403 or HTML login page).
+func AttachFileCDNAuth(req *http.Request, auth TeamAuth, bearer bool) {
+	if req == nil {
+		return
+	}
+	if bearer && auth.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+auth.Token)
+	}
+	if auth.DCookie != "" {
+		req.Header.Set("Cookie", "d="+auth.DCookie)
+	}
+}
+
+// FileCDNCookieAuthFailed reports that a cookie-only files.slack.com
+// response is an auth failure and a Bearer retry may be warranted.
+func FileCDNCookieAuthFailed(status int, contentType string, body []byte) bool {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return true
+	}
+	ct := strings.ToLower(contentType)
+	if strings.Contains(ct, "text/html") {
+		return true
+	}
+	if status == http.StatusOK && len(body) > 0 {
+		head := body
+		if len(head) > 256 {
+			head = head[:256]
+		}
+		return bytes.Contains(bytes.ToLower(head), []byte("<html"))
+	}
+	return false
+}
+
 // TeamAuth pairs a Slack workspace's xoxc token with its 'd' cookie.
-// Both are required to authenticate fetches on files.slack.com.
+// The official client authenticates files.slack.com with the 'd'
+// cookie only. slk prefers that, and falls back to Bearer+cookie when
+// cookie-only returns 403 or Slack's HTML login page.
 type TeamAuth struct {
 	TeamID  string
 	Token   string // xoxc-...

@@ -1,6 +1,6 @@
 # slk Implementation Status
 
-Last updated: 2026-09-01 (agustif/slk fork).
+Last updated: 2026-09-01 (agustif/slk fork, v0.17.0).
 
 This file is a **snapshot**, not the feature spec. Live docs:
 

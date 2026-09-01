@@ -110,9 +110,9 @@ changelog:
 nfpms:
   - id: slk
     package_name: slk
-    vendor: Grant Ammons
+    vendor: agustif
     homepage: https://github.com/agustif/slk
-    maintainer: Grant Ammons <grant@grant.dev>
+    maintainer: Agusti F. <https://github.com/agustif>
     description: |-
       A blazingly fast Slack TUI.
       Keyboard-driven, beautifully themed terminal client for Slack.

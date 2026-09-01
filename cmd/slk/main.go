@@ -1043,12 +1043,11 @@ func run() error {
 	if err != nil {
 		log.Fatalf("image cache: %v", err)
 	}
-	// Slack file thumbnails on files.slack.com require BOTH an
-	// `Authorization: Bearer <xoxc-token>` header and the workspace's
-	// 'd' cookie. The d cookie alone returns Slack's web login page;
-	// the Bearer alone returns 403. Both are per-workspace, since each
-	// token file carries its own xoxc + cookie. The URL embeds the
-	// team ID, so the fetcher attaches the matching team's auth.
+	// Slack file thumbnails on files.slack.com: the official client
+	// sends the workspace 'd' cookie and no Authorization header.
+	// Cookie-only sometimes returns Slack's HTML login page; in that
+	// case the fetcher retries with Bearer + cookie (Bearer alone is
+	// 403). Both are per-workspace. The URL embeds the team ID.
 	//
 	// Slack Connect / shared channels add a wrinkle: those files are
 	// hosted on a partner workspace's team ID that we don't have a
@@ -4085,7 +4084,7 @@ func fetchOlderMessages(client *slackclient.Client, channelID, latestTS string, 
 	ctx := context.Background()
 	debuglog.Cache("fetchOlderMessages: channel=%s latest_ts=%s entry", channelID, latestTS)
 	start := time.Now()
-	history, err := client.GetOlderHistory(ctx, channelID, 50, latestTS)
+	history, err := client.GetOlderHistory(ctx, channelID, 0, latestTS)
 	if err != nil {
 		debuglog.Cache("fetchOlderMessages: GetOlderHistory %s: %v dur_ms=%d (returning nil → keep cache)",
 			channelID, err, time.Since(start).Milliseconds())
@@ -4110,7 +4109,7 @@ func fetchMessagesAround(client *slackclient.Client, channelID, targetTS string,
 	ctx := context.Background()
 	debuglog.Cache("fetchMessagesAround: channel=%s target_ts=%s entry", channelID, targetTS)
 	start := time.Now()
-	history, err := client.GetHistoryAround(ctx, channelID, targetTS, 25)
+	history, err := client.GetHistoryAround(ctx, channelID, targetTS, 0)
 	if err != nil {
 		debuglog.Cache("fetchMessagesAround: GetHistoryAround %s @ %s: %v dur_ms=%d (returning nil)",
 			channelID, targetTS, err, time.Since(start).Milliseconds())
@@ -4559,7 +4558,7 @@ func fetchChannelMessages(client *slackclient.Client, channelID string, db *cach
 	ctx := context.Background()
 	debuglog.Cache("fetchChannelMessages: channel=%s entry", channelID)
 	start := time.Now()
-	history, err := client.GetHistory(ctx, channelID, 50, "")
+	history, err := client.GetHistory(ctx, channelID, 0, "")
 	if err != nil {
 		debuglog.Cache("fetchChannelMessages: GetHistory %s: %v dur_ms=%d (returning nil → keep cache)",
 			channelID, err, time.Since(start).Milliseconds())

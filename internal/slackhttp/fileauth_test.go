@@ -1,6 +1,39 @@
 package slackhttp
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
+
+func TestAttachFileCDNAuth_CookieOnlyByDefault(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet, "https://files.slack.com/x", nil)
+	AttachFileCDNAuth(req, TeamAuth{Token: "xoxc-1", DCookie: "d1"}, false)
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want empty", got)
+	}
+	if got := req.Header.Get("Cookie"); got != "d=d1" {
+		t.Errorf("Cookie = %q", got)
+	}
+	AttachFileCDNAuth(req, TeamAuth{Token: "xoxc-1", DCookie: "d1"}, true)
+	if got := req.Header.Get("Authorization"); got != "Bearer xoxc-1" {
+		t.Errorf("bearer Authorization = %q", got)
+	}
+}
+
+func TestFileCDNCookieAuthFailed(t *testing.T) {
+	if !FileCDNCookieAuthFailed(403, "application/json", nil) {
+		t.Error("403 should fail")
+	}
+	if !FileCDNCookieAuthFailed(200, "text/html; charset=utf-8", nil) {
+		t.Error("html content-type should fail")
+	}
+	if !FileCDNCookieAuthFailed(200, "text/plain", []byte("<html>login</html>")) {
+		t.Error("html body should fail")
+	}
+	if FileCDNCookieAuthFailed(200, "image/png", []byte{0x89, 0x50}) {
+		t.Error("png should not fail")
+	}
+}
 
 func TestTeamIDFromFilesURL(t *testing.T) {
 	cases := []struct{ name, url, want string }{

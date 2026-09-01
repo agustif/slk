@@ -679,39 +679,26 @@ func (c *Client) GetLatestMessage(ctx context.Context, channelID string) (*slack
 	return &msg, nil
 }
 
-// GetHistory retrieves message history for a channel.
-// If oldest is set, returns messages newer than that timestamp.
+// GetHistory retrieves message history for a channel using the
+// captured conversations.history shape (limit 28 by default,
+// cached_latest_updates). If oldest is set, returns messages newer
+// than that timestamp. Non-positive limit uses the official client's 28.
 func (c *Client) GetHistory(ctx context.Context, channelID string, limit int, oldest string) ([]slack.Message, error) {
-	params := &slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
-		Limit:     limit,
-	}
-	if oldest != "" {
-		params.Oldest = oldest
-	}
-
-	resp, err := c.api.GetConversationHistory(params)
+	res, err := c.HistoryWithVersions(ctx, channelID, HistoryOpts{Limit: limit, Oldest: oldest})
 	if err != nil {
 		return nil, fmt.Errorf("getting history: %w", err)
 	}
-
-	return resp.Messages, nil
+	return res.Messages, nil
 }
 
-// GetOlderHistory retrieves messages older than the given timestamp.
+// GetOlderHistory retrieves messages older than the given timestamp
+// via the captured conversations.history shape.
 func (c *Client) GetOlderHistory(ctx context.Context, channelID string, limit int, latest string) ([]slack.Message, error) {
-	params := &slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
-		Limit:     limit,
-		Latest:    latest,
-	}
-
-	resp, err := c.api.GetConversationHistory(params)
+	res, err := c.HistoryWithVersions(ctx, channelID, HistoryOpts{Limit: limit, Latest: latest})
 	if err != nil {
 		return nil, fmt.Errorf("getting older history: %w", err)
 	}
-
-	return resp.Messages, nil
+	return res.Messages, nil
 }
 
 // GetHistoryAround fetches a window of channel history centered on ts:
@@ -727,24 +714,14 @@ func (c *Client) GetOlderHistory(ctx context.Context, channelID string, limit in
 // by jump-to-message navigation (search results, permalinks) when the
 // target is outside the loaded buffer.
 func (c *Client) GetHistoryAround(ctx context.Context, channelID, ts string, limit int) ([]slack.Message, error) {
-	older, err := c.api.GetConversationHistory(&slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
-		Latest:    ts,
-		Inclusive: true,
-		Limit:     limit,
-	})
+	older, err := c.HistoryWithVersions(ctx, channelID, HistoryOpts{Limit: limit, Latest: ts})
 	if err != nil {
 		return nil, fmt.Errorf("getting history around %s (older): %w", ts, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("getting history around %s: %w", ts, err)
 	}
-	newer, err := c.api.GetConversationHistory(&slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
-		Oldest:    ts,
-		Inclusive: false,
-		Limit:     limit,
-	})
+	newer, err := c.HistoryWithVersions(ctx, channelID, HistoryOpts{Limit: limit, Oldest: ts})
 	if err != nil {
 		return nil, fmt.Errorf("getting history around %s (newer): %w", ts, err)
 	}
@@ -753,8 +730,16 @@ func (c *Client) GetHistoryAround(ctx context.Context, channelID, ts string, lim
 		// including it would leave a silent hole after the target.
 		return older.Messages, nil
 	}
-	out := make([]slack.Message, 0, len(newer.Messages)+len(older.Messages))
-	out = append(out, newer.Messages...)
+	// HistoryWithVersions always sends inclusive=true (14/14 captures).
+	// Drop the target from the newer half so it isn't duplicated.
+	newerMsgs := make([]slack.Message, 0, len(newer.Messages))
+	for _, m := range newer.Messages {
+		if m.Timestamp != ts {
+			newerMsgs = append(newerMsgs, m)
+		}
+	}
+	out := make([]slack.Message, 0, len(newerMsgs)+len(older.Messages))
+	out = append(out, newerMsgs...)
 	out = append(out, older.Messages...)
 	return out, nil
 }
@@ -772,19 +757,14 @@ func (c *Client) GetSingleMessage(ctx context.Context, channelID, ts string) (*s
 		return nil, err
 	}
 	var parents []string
-	resp, err := c.api.GetConversationHistory(&slack.GetConversationHistoryParameters{
-		ChannelID: channelID,
-		Latest:    ts,
-		Inclusive: true,
-		Limit:     10,
-	})
-	if err == nil && resp != nil {
-		for i := range resp.Messages {
-			if resp.Messages[i].Timestamp == ts {
-				msg := resp.Messages[i]
+	hist, err := c.HistoryWithVersions(ctx, channelID, HistoryOpts{Limit: 28, Latest: ts})
+	if err == nil {
+		for i := range hist.Messages {
+			if hist.Messages[i].Timestamp == ts {
+				msg := hist.Messages[i]
 				return &msg, nil
 			}
-			if t := resp.Messages[i].Timestamp; t != "" && t != ts {
+			if t := hist.Messages[i].Timestamp; t != "" && t != ts {
 				parents = append(parents, t)
 			}
 		}
@@ -890,11 +870,7 @@ func (c *Client) GetHistorySince(ctx context.Context, channelID, oldest string, 
 
 	// No prior sync — fetch latest page only.
 	if oldest == "" {
-		params := &slack.GetConversationHistoryParameters{
-			ChannelID: channelID,
-			Limit:     200,
-		}
-		resp, err := c.api.GetConversationHistory(params)
+		resp, err := c.HistoryWithVersions(ctx, channelID, HistoryOpts{})
 		if err != nil {
 			return HistorySinceResult{}, fmt.Errorf("get history (no oldest): %w", err)
 		}
@@ -908,41 +884,60 @@ func (c *Client) GetHistorySince(ctx context.Context, channelID, oldest string, 
 	}
 
 	var all []slack.Message
-	cursor := ""
+	latest := ""
 	for {
-		params := &slack.GetConversationHistoryParameters{
-			ChannelID: channelID,
-			Oldest:    oldest,
-			Limit:     200,
-			Cursor:    cursor,
+		opts := HistoryOpts{Oldest: oldest}
+		if latest != "" {
+			// Walk older with latest only — captures never send both
+			// oldest and latest on one conversations.history request.
+			opts = HistoryOpts{Latest: latest}
 		}
-		resp, err := c.api.GetConversationHistory(params)
+		resp, err := c.HistoryWithVersions(ctx, channelID, opts)
 		if err != nil {
-			// Rate-limit retry mirrors GetChannels' pattern.
-			if rlErr, ok := err.(*slack.RateLimitedError); ok {
-				wait := rlErr.RetryAfter
-				if wait == 0 {
-					wait = 30 * time.Second
-				}
+			var rl *rateLimitError
+			if errors.As(err, &rl) {
 				select {
 				case <-ctx.Done():
 					return HistorySinceResult{Messages: all, Capped: true}, ctx.Err()
-				case <-time.After(wait):
+				case <-time.After(rl.retryAfter):
 				}
 				continue
 			}
 			return HistorySinceResult{Messages: all, Capped: true}, fmt.Errorf("get history since %s: %w", oldest, err)
 		}
 
-		all = append(all, resp.Messages...)
-		if len(all) >= maxTotal {
-			return HistorySinceResult{Messages: all[:maxTotal], Capped: true}, nil
+		reachedOldest := false
+		for _, m := range resp.Messages {
+			if latest != "" && m.Timestamp == latest {
+				continue
+			}
+			if m.Timestamp != "" && tsLessEq(m.Timestamp, oldest) {
+				reachedOldest = true
+				continue
+			}
+			all = append(all, m)
+			if len(all) >= maxTotal {
+				return HistorySinceResult{Messages: all[:maxTotal], Capped: true}, nil
+			}
 		}
-		if !resp.HasMore || resp.ResponseMetaData.NextCursor == "" {
+		if reachedOldest || !resp.HasMore || len(resp.Messages) == 0 {
 			return HistorySinceResult{Messages: all, Capped: false}, nil
 		}
-		cursor = resp.ResponseMetaData.NextCursor
+		oldestInPage := resp.Messages[len(resp.Messages)-1].Timestamp
+		if oldestInPage == "" || oldestInPage == latest {
+			return HistorySinceResult{Messages: all, Capped: false}, nil
+		}
+		latest = oldestInPage
 	}
+}
+
+func tsLessEq(a, b string) bool {
+	af, errA := strconv.ParseFloat(a, 64)
+	bf, errB := strconv.ParseFloat(b, 64)
+	if errA != nil || errB != nil {
+		return a <= b
+	}
+	return af <= bf
 }
 
 // GetUserGroups retrieves the workspace's usergroups (the @team
@@ -1200,23 +1195,9 @@ func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
 // GetCounts fetches unread counts for all channels using Slack's
 // internal client.counts API (available with xoxc browser tokens).
 func (c *Client) GetCounts() (CountsSnapshot, error) {
-	reqURL := c.apiBaseURL + "client.counts"
-	form := url.Values{"token": {c.token}}
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return CountsSnapshot{}, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.apiHTTPClient().Do(req)
+	body, err := c.postForm(context.Background(), "client.counts", nil)
 	if err != nil {
 		return CountsSnapshot{}, fmt.Errorf("fetching unread counts: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return CountsSnapshot{}, fmt.Errorf("reading response: %w", err)
 	}
 
 	var result struct {
@@ -1523,24 +1504,13 @@ func (c *Client) GetPermalink(ctx context.Context, channelID, ts string) (string
 // can substitute an httptest.NewServer; production wiring (NewClient) sets
 // httpClient to a cookie-bearing client.
 func (c *Client) markChannel(ctx context.Context, channelID, ts string) error {
-	data := url.Values{
-		"token":   {c.token},
+	_, err := c.postForm(ctx, "conversations.mark", url.Values{
 		"channel": {channelID},
 		"ts":      {ts},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBaseURL+"conversations.mark",
-		strings.NewReader(data.Encode()))
-	if err != nil {
-		return fmt.Errorf("creating mark request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
+	})
 	if err != nil {
 		return fmt.Errorf("marking channel: %w", err)
 	}
-	defer resp.Body.Close()
 	return nil
 }
 
@@ -1559,26 +1529,15 @@ func (c *Client) markThread(ctx context.Context, channelID, threadTS, ts string,
 	if read {
 		readVal = "1"
 	}
-	data := url.Values{
-		"token":     {c.token},
+	_, err := c.postForm(ctx, "subscriptions.thread.mark", url.Values{
 		"channel":   {channelID},
 		"thread_ts": {threadTS},
 		"ts":        {ts},
 		"read":      {readVal},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBaseURL+"subscriptions.thread.mark",
-		strings.NewReader(data.Encode()))
-	if err != nil {
-		return fmt.Errorf("creating thread mark request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
+	})
 	if err != nil {
 		return fmt.Errorf("marking thread: %w", err)
 	}
-	defer resp.Body.Close()
 	return nil
 }
 
@@ -1927,27 +1886,15 @@ func truncateForLog(b []byte) string {
 // optional cursor for pagination through sections. Shared by both the typed
 // and raw accessors.
 func (c *Client) callChannelSectionsList(ctx context.Context, cursor string) ([]byte, error) {
-	endpoint := c.apiBaseURL + "users.channelSections.list"
-
-	form := url.Values{"token": {c.token}}
+	form := url.Values{}
 	if cursor != "" {
 		form.Set("cursor", cursor)
 	}
-	body := strings.NewReader(form.Encode())
-
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, body)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.apiHTTPClient().Do(req)
+	raw, err := c.postForm(ctx, "users.channelSections.list", form)
 	if err != nil {
 		return nil, fmt.Errorf("calling channelSections API: %w", err)
 	}
-	defer resp.Body.Close()
-
-	return io.ReadAll(resp.Body)
+	return raw, nil
 }
 
 // GetChannelSectionsRaw calls users.channelSections.list with no cursor and
@@ -2000,32 +1947,25 @@ type starsListPaging struct {
 //
 // Best-effort: on error the caller proceeds with an empty star list and
 // the stars section stays hidden (no regression vs pre-fix behavior).
-func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
-	form := url.Values{"token": {c.token}, "limit": {"1000"}}
-	body := strings.NewReader(form.Encode())
-	endpoint := c.apiBaseURL + "stars.list"
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, body)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.apiHTTPClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("calling stars.list: %w", err)
-	}
-	defer resp.Body.Close()
-
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading stars.list response: %w", err)
-	}
+func (c *Client) starsList(ctx context.Context) (starsListResponse, error) {
 	var slr starsListResponse
+	raw, err := c.postForm(ctx, "stars.list", url.Values{"limit": {"1000"}})
+	if err != nil {
+		return slr, fmt.Errorf("stars.list: %w", err)
+	}
 	if err := json.Unmarshal(raw, &slr); err != nil {
-		return nil, fmt.Errorf("parsing stars.list response: %w", err)
+		return slr, fmt.Errorf("parsing stars.list response: %w", err)
 	}
 	if !slr.OK {
-		return nil, fmt.Errorf("stars.list API error: %s", slr.Error)
+		return slr, fmt.Errorf("stars.list API error: %s", slr.Error)
+	}
+	return slr, nil
+}
+
+func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
+	slr, err := c.starsList(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var ids []string
 	for _, it := range slr.Items {
@@ -2038,16 +1978,9 @@ func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
 
 // GetStarredMessages returns message-typed items from stars.list.
 func (c *Client) GetStarredMessages(ctx context.Context) ([]StarredMessage, error) {
-	raw, err := c.postForm(ctx, "stars.list", url.Values{"limit": {"1000"}})
+	slr, err := c.starsList(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("stars.list: %w", err)
-	}
-	var slr starsListResponse
-	if err := json.Unmarshal(raw, &slr); err != nil {
-		return nil, fmt.Errorf("parsing stars.list response: %w", err)
-	}
-	if !slr.OK {
-		return nil, fmt.Errorf("stars.list API error: %s", slr.Error)
+		return nil, err
 	}
 	var out []StarredMessage
 	for _, it := range slr.Items {
@@ -2324,7 +2257,9 @@ func (c *Client) ListThreadSubscriptions(ctx context.Context) ([]ThreadSubscript
 
 func (c *Client) callListThreadSubscriptions(ctx context.Context, currentTS string) ([]byte, error) {
 	form := url.Values{}
-	form.Set("limit", "100")
+	// Official client refresh/load-more captures used limit=8
+	// (2026-05 subscriptions.thread HAR).
+	form.Set("limit", "8")
 	form.Set("fetch_threads_state", "true")
 	form.Set("priority_mode", "all")
 	if currentTS != "" {
