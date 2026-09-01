@@ -13,7 +13,7 @@ slk is intentionally not a 1:1 port of the desktop client. This **fork** additio
 - Huddles, Slack Connect, Workflow Builder, Canvas, Lists, Slack AI
 - Bot/app management, slash commands, custom emoji management
 - Animated reactions
-- Invented prefs / sorts / endpoints (starred files **inbox list**, `stars.list` page 2 — see [[Gaps]])
+- Invented prefs / sorts / endpoints (recents `object_type` for DMs — see [[Gaps]])
 
 Search (`Ctrl+f`), file upload/download, quiet hours, per-channel mute, link unfurls, and in-app toasts shipped.
 

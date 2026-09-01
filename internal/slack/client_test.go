@@ -1250,6 +1250,91 @@ func TestGetStarredMessages_ParsesMessageItems(t *testing.T) {
 	}
 }
 
+func TestStarsList_FollowsNextCursor(t *testing.T) {
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		pages = append(pages, r.PostForm.Get("cursor")+"|"+r.PostForm.Get("page"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.PostForm.Get("cursor") == "" {
+			_, _ = w.Write([]byte(`{"ok":true,"items":[{"type":"message","channel":"C1","message":{"ts":"1.1"}}],"response_metadata":{"next_cursor":"n2"}}`))
+			return
+		}
+		if r.PostForm.Get("cursor") != "n2" {
+			t.Errorf("cursor = %q", r.PostForm.Get("cursor"))
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"items":[{"type":"message","channel":"C1","message":{"ts":"2.2"}}],"response_metadata":{"next_cursor":""}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	got, err := c.GetStarredMessages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].TS != "1.1" || got[1].TS != "2.2" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(pages) != 2 || pages[0] != "|" || pages[1] != "n2|" {
+		t.Errorf("pages = %v", pages)
+	}
+}
+
+func TestStarsList_PostsPage2WhenPagingTotalExceedsCount(t *testing.T) {
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		pages = append(pages, r.PostForm.Get("page"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.PostForm.Get("page") == "" {
+			_, _ = w.Write([]byte(`{"ok":true,"items":[{"type":"channel","channel":"C1"}],"paging":{"count":1,"total":2,"page":1,"pages":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"items":[{"type":"channel","channel":"C2"}],"paging":{"count":1,"total":2,"page":2,"pages":2}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	got, err := c.GetStarredChannels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "C1" || got[1] != "C2" {
+		t.Fatalf("got %v", got)
+	}
+	if len(pages) != 2 || pages[0] != "" || pages[1] != "2" {
+		t.Errorf("pages = %v", pages)
+	}
+}
+
+func TestListFavoriteFiles_PostsCapturedForm(t *testing.T) {
+	var path, typ, reason string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		typ = r.PostForm.Get("type")
+		reason = r.PostForm.Get("_x_reason")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"favorites":[],"file_ids":["F2","F1"]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	got, err := c.ListFavoriteFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.favorites.list" {
+		t.Errorf("path = %q", path)
+	}
+	if typ != "all" {
+		t.Errorf("type = %q", typ)
+	}
+	if reason != "" && reason != "starred_unified_files" {
+		t.Errorf("_x_reason = %q", reason)
+	}
+	if len(got) != 2 || got[0] != "F1" || got[1] != "F2" {
+		t.Fatalf("reversed file_ids = %v", got)
+	}
+}
+
 func TestCreateChannel_PostsCapturedForm(t *testing.T) {
 	var path, name, validate, team, isPrivate string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

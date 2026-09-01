@@ -1036,6 +1036,40 @@ func (c *Client) RemoveFileFromStarredCollection(ctx context.Context, fileID str
 	return c.RemoveFileFromCollection(ctx, fileID, id)
 }
 
+// ListFavoriteFiles POSTs files.favorites.list as captured 2026-09-01
+// (JS maybeFetchStarredUnifiedFiles + live POST): type=all,
+// _x_reason=starred_unified_files. Response {ok, favorites, file_ids}.
+// Official JS stores t.file_ids reversed. favorites[] item JSON was
+// empty in the live capture — not parsed. With custom_file_sections=on
+// the official client skips this call; the method still returns
+// file_ids:[] after a successful files.favorites.add.
+func (c *Client) ListFavoriteFiles(ctx context.Context) ([]string, error) {
+	ctx = slackhttp.WithReason(ctx, "starred_unified_files")
+	raw, err := c.postForm(ctx, "files.favorites.list", url.Values{"type": {"all"}})
+	if err != nil {
+		return nil, fmt.Errorf("files.favorites.list: %w", err)
+	}
+	var resp struct {
+		OK      bool     `json:"ok"`
+		Error   string   `json:"error"`
+		FileIDs []string `json:"file_ids"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("files.favorites.list: %w", err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return nil, fmt.Errorf("files.favorites.list: %s", resp.Error)
+		}
+		return nil, fmt.Errorf("files.favorites.list: ok=false")
+	}
+	ids := append([]string(nil), resp.FileIDs...)
+	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
+		ids[i], ids[j] = ids[j], ids[i]
+	}
+	return ids, nil
+}
+
 // NotifyLevel is a captured users.prefs.setNotifications desktop value.
 const (
 	NotifyEverything = "everything"
@@ -2388,10 +2422,13 @@ func (c *Client) GetChannelSectionsRaw(ctx context.Context) ([]byte, error) {
 // the sidebar Starred section. type=message items fill the Starred inbox.
 // type=file is unused (file-item JSON was not captured).
 type starsListResponse struct {
-	OK     bool            `json:"ok"`
-	Error  string          `json:"error"`
-	Items  []starsListItem `json:"items"`
-	Paging starsListPaging `json:"paging"`
+	OK               bool            `json:"ok"`
+	Error            string          `json:"error"`
+	Items            []starsListItem `json:"items"`
+	Paging           starsListPaging `json:"paging"`
+	ResponseMetadata struct {
+		NextCursor string `json:"next_cursor"`
+	} `json:"response_metadata"`
 }
 
 type starsListItem struct {
@@ -2417,6 +2454,8 @@ type StarredMessage struct {
 type starsListPaging struct {
 	Count int `json:"count"`
 	Total int `json:"total"`
+	Page  int `json:"page"`
+	Pages int `json:"pages"`
 }
 
 // GetStarredChannels calls stars.list and returns the IDs of
@@ -2428,18 +2467,45 @@ type starsListPaging struct {
 // Best-effort: on error the caller proceeds with an empty star list and
 // the stars section stays hidden (no regression vs pre-fix behavior).
 func (c *Client) starsList(ctx context.Context) (starsListResponse, error) {
-	var slr starsListResponse
-	raw, err := c.postForm(ctx, "stars.list", url.Values{"limit": {"1000"}})
-	if err != nil {
-		return slr, fmt.Errorf("stars.list: %w", err)
+	var all starsListResponse
+	cursor := ""
+	page := 1
+	const maxPages = 20
+	for i := 0; i < maxPages; i++ {
+		form := url.Values{"limit": {"1000"}}
+		if cursor != "" {
+			form.Set("cursor", cursor)
+		} else if page > 1 {
+			form.Set("page", strconv.Itoa(page))
+		}
+		raw, err := c.postForm(ctx, "stars.list", form)
+		if err != nil {
+			return all, fmt.Errorf("stars.list: %w", err)
+		}
+		var slr starsListResponse
+		if err := json.Unmarshal(raw, &slr); err != nil {
+			return all, fmt.Errorf("parsing stars.list response: %w", err)
+		}
+		if !slr.OK {
+			return all, fmt.Errorf("stars.list API error: %s", slr.Error)
+		}
+		all.OK = true
+		all.Paging = slr.Paging
+		all.ResponseMetadata = slr.ResponseMetadata
+		all.Items = append(all.Items, slr.Items...)
+		next := strings.TrimSpace(slr.ResponseMetadata.NextCursor)
+		if next != "" && next != cursor {
+			cursor = next
+			continue
+		}
+		if slr.Paging.Total > 0 && len(all.Items) < slr.Paging.Total {
+			page++
+			cursor = ""
+			continue
+		}
+		break
 	}
-	if err := json.Unmarshal(raw, &slr); err != nil {
-		return slr, fmt.Errorf("parsing stars.list response: %w", err)
-	}
-	if !slr.OK {
-		return slr, fmt.Errorf("stars.list API error: %s", slr.Error)
-	}
-	return slr, nil
+	return all, nil
 }
 
 func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {

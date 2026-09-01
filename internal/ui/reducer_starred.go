@@ -24,8 +24,14 @@ var reduceStarred reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (a *App) applyStarredInbox(items []slackclient.StarredMessage) {
-	a.starredView.SetItems(a.decorateStarredItems(items))
+func (a *App) applyStarredInbox(items []slackclient.StarredMessage, fileIDs []string) {
+	rows := a.decorateStarredItems(items)
+	for _, id := range fileIDs {
+		if id != "" {
+			rows = append(rows, starredview.Item{FileID: id})
+		}
+	}
+	a.starredView.SetItems(rows)
 	a.sidebar.SetStarredCount(len(items))
 }
 

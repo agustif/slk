@@ -55,15 +55,20 @@ func borderFillStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Background(styles.Background)
 }
 
-// Item is one stars.list message row plus names resolved by App.
+// Item is one stars.list message row plus names resolved by App,
+// or a files.favorites.list file id (Files-rail Starred).
 type Item struct {
 	slackclient.StarredMessage
 	ChannelName string
 	ChannelType string
 	AuthorName  string
+	FileID      string
 }
 
 func (it Item) Key() string {
+	if it.FileID != "" {
+		return "file\t" + it.FileID
+	}
 	return it.ChannelID + "\t" + it.TS
 }
 
@@ -290,7 +295,7 @@ func (m *Model) View(height, width int) string {
 	case m.err != "" && len(m.items) == 0:
 		body = placeCenter(width, bodyHeight, mutedStyle().Render(m.err))
 	case len(m.items) == 0:
-		body = placeCenter(width, bodyHeight, mutedStyle().Render("no starred messages"))
+		body = placeCenter(width, bodyHeight, mutedStyle().Render("no starred items"))
 	default:
 		lines := m.renderRows(width)
 		if !m.hasSnapped || m.snappedSelection != m.selected {
@@ -400,6 +405,16 @@ func (m *Model) renderCard(it Item, width int, selected bool) []string {
 	contentWidth := width - 1
 	if contentWidth < 1 {
 		contentWidth = 1
+	}
+	if it.FileID != "" {
+		header := clipToWidth("file", contentWidth)
+		preview := clipToWidth("  "+it.FileID, contentWidth)
+		footer := clipToWidth("  Files-rail Starred", contentWidth)
+		return []string{
+			m.borderFill(header, contentWidth, selected, false),
+			m.borderFill(preview, contentWidth, selected, false),
+			m.borderFill(footer, contentWidth, selected, true),
+		}
 	}
 	header := clipToWidth(m.headerText(it), contentWidth)
 	preview := clipToWidth("  "+oneLine(it.Text), contentWidth)

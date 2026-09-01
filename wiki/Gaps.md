@@ -24,12 +24,7 @@ Channel / IM / MPIM stars (`stars.list` `type=channel|im|mpim|group`) are the si
 
 ## Product gaps vs official Slack
 
-These are OG holes a daily driver still hits. They stay omitted until a capture exists. Do not HAR-mutate a live workspace to fill them unless that is an explicit ask.
-
-| Gap | Official Slack | What this repo already knows | Why it is not built |
-|---|---|---|---|
-| **Starred files inbox** | Files rail “Starred” collection | **Write shipped both ways:** `files.favorites.add` / `.remove` `file_id` + `collection_id` (`_x_reason=add_file_to_collection` / `remove_file_from_collection`; `ok=true` on `F0BUVQHU6NL` → `Fs0BTURTUXK5`). Message menu **Add to Starred files** / **Remove from Starred files**. Same-session Move-to radio reflects membership; **reload** unchecks it. `files.collections.list` `files[]` still empty; `files.info` `is_starred=false`. JS list `files.favorites.list` `type=all` `reason=starred_unified_files` is skipped when `custom_file_sections=on` (not HAR’d). | Cannot list starred files without `files.favorites.list` / non-empty collection `files[]`. |
-| **`stars.list` beyond the first page** | Starred lists can be long | One `POST stars.list` with `limit=1000`. Response has `paging.count` / `paging.total`. JS fetcher also names `page` / `cursor`. | Next-page form not captured from a live request. Hard cap 1000 message stars. |
+OG Home holes that needed a live form are closed (Starred files list, `stars.list` paging). Do not invent APIs. Remaining: recents `object_type` for DMs (uncaptured), plus packaging below.
 
 ### Not in the table on purpose
 
@@ -43,7 +38,9 @@ These are OG holes a daily driver still hits. They stay omitted until a capture 
 - **Mentions-only / all new posts** (`:notify mentions` / `:notify all`): shipped (`users.prefs.setNotifications` multi-pref `desktop=mentions_dms` / `desktop=everything`, `_x_reason=prefs-store/setMultiChannelNotificationOverride`). Mute (`m`) is still `name=muted`.
 - **Star / unstar a channel** (`*`): shipped (`stars.add` / `stars.remove` without timestamp).
 - **Star / unstar a message** (`x` menu, or `*` in the Starred inbox): shipped (`stars.add` / `stars.remove` with timestamp).
-- **Add / remove a file in Files-rail Starred** (`x` → Add to Starred files / Remove from Starred files): shipped write (`files.favorites.add` / `.remove`). Inbox list not shipped.
+- **Add / remove a file in Files-rail Starred** (`x` → Add to Starred files / Remove from Starred files): shipped write (`files.favorites.add` / `.remove`).
+- **Starred files inbox**: shipped. `files.favorites.list` `type=all` `_x_reason=starred_unified_files`; rows from `file_ids` (JS reverse). Official client skips this call when `custom_file_sections=on`; live list can still be `file_ids:[]` after add.
+- **`stars.list` paging**: shipped. Follow `response_metadata.next_cursor`, else `page=N+1` when `paging.total` exceeds items (`limit=1000`).
 - **Starred IMs / MPIMs** in the Starred *section*: shipped (`stars.list` `type=im|mpim|group` with a channel id).
 - **Unreads section chips** (All / VIP / Starred / Channels / DMs): shipped. `s` / chips write `all_unreads_section_filter` (`all_sections`, VIP=`priority`, Starred/Channels/DMs = sidebar section ids). Boot-read applied. Custom sidebar sections are not extra chips.
 - **Unreads recommended / scientifically sort** (`f`/`F` → recommended): shipped. Pref `all_unreads_sort_order=priority` written and applied from boot. Client-side `sortScientifically`: starred then not; channels-with-mentions, channels, IMs, MPIMs; `channels_priority` desc then name.
@@ -74,10 +71,10 @@ Product code can be complete while the fork is not a drop-in install of a tagged
 
 | Gap | Status |
 |---|---|
-| **GitHub Release / semver tag** | **v0.19.0** (first fork tag was v0.17.0). Homebrew formula in [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) pins the current tag (`brew install agustif/tap/slk`); `--HEAD` still tracks `main`. |
+| **GitHub Release / semver tag** | **v0.20.0** (first fork tag was v0.17.0). Homebrew formula in [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) pins the current tag (`brew install agustif/tap/slk`); `--HEAD` still tracks `main`. |
 | **GitHub release artifacts** | Cut with GoReleaser on tag `v*` (linux/windows static, darwin cgo). `workflow_dispatch` can rebuild an existing tag. |
 | **AUR** | AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This repo ships `packaging/aur` as `slk-git`; it is **not published** to the AUR. |
-| **Nix flake** | In-tree `flake.nix` (`version = "0.19.0"`). Not a published nixpkgs/flakehub package. |
+| **Nix flake** | In-tree `flake.nix` (`version = "0.20.0"`). Not a published nixpkgs/flakehub package. |
 | **GitHub Wiki tab** | Disabled. Docs are `wiki/*.md` in this repo (linked from the README). |
 
 ## How a gap gets filled

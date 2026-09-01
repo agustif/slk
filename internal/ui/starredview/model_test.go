@@ -79,7 +79,7 @@ func TestRemoveDropsRow(t *testing.T) {
 func TestEmptyCopy(t *testing.T) {
 	m := New()
 	out := m.View(8, 40)
-	if !strings.Contains(out, "no starred messages") {
+	if !strings.Contains(out, "no starred items") {
 		t.Errorf("empty copy missing:\n%s", out)
 	}
 }
@@ -90,5 +90,17 @@ func TestErrorCopy(t *testing.T) {
 	out := m.View(8, 40)
 	if !strings.Contains(out, "stars.list failed — boom") {
 		t.Errorf("error copy missing:\n%s", out)
+	}
+}
+
+func TestFileRowRendersID(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{{FileID: "F0BUVQHU6NL"}})
+	if m.Items()[0].Key() != "file\tF0BUVQHU6NL" {
+		t.Errorf("key = %q", m.Items()[0].Key())
+	}
+	out := m.View(8, 40)
+	if !strings.Contains(out, "F0BUVQHU6NL") {
+		t.Errorf("file id missing:\n%s", out)
 	}
 }

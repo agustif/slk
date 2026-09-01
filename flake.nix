@@ -15,10 +15,10 @@
         lib = pkgs.lib;
         slk = pkgs.buildGo126Module {
           pname = "slk";
-          version = "0.19.0";
+          version = "0.20.0";
           src = ./.;
           vendorHash = "sha256-deqCUDgRvhe/Bpmy+9bIHjSBo+KTCtAN2XcGMhAj/G0=";
-          ldflags = [ "-s" "-w" "-X main.version=0.19.0" ];
+          ldflags = [ "-s" "-w" "-X main.version=0.20.0" ];
           buildInputs = [pkgs.libX11];
         };
       in {

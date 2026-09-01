@@ -1505,7 +1505,12 @@ func run() error {
 			debuglog.Cache("stars.list messages: %v", err)
 			return ui.StarredLoadedMsg{Err: err}
 		}
-		return ui.StarredLoadedMsg{Items: items}
+		fileIDs, ferr := wctx.Client.ListFavoriteFiles(ctx)
+		if ferr != nil {
+			debuglog.Cache("files.favorites.list: %v", ferr)
+			fileIDs = nil
+		}
+		return ui.StarredLoadedMsg{Items: items, FileIDs: fileIDs}
 	})
 
 	app.SetWidthSaver(func(width int) {

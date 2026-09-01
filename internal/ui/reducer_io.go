@@ -233,7 +233,7 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			}
 		}
 		a.starredMessages = stars
-		a.applyStarredInbox(m.Items)
+		a.applyStarredInbox(m.Items, m.FileIDs)
 		if a.activeChannelID != "" {
 			for _, mm := range a.modelsForChannel(a.activeChannelID) {
 				for i, msg := range mm.Messages() {

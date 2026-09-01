@@ -1,6 +1,6 @@
 # slk Implementation Status
 
-Last updated: 2026-09-01 (agustif/slk fork, v0.19.0).
+Last updated: 2026-09-01 (agustif/slk fork, v0.20.0).
 
 This file is a **snapshot**, not the feature spec. Live docs:
 
@@ -17,15 +17,15 @@ This file is a **snapshot**, not the feature spec. Live docs:
 Shipped here on top of upstream’s TUI core:
 
 - Home: Activity, Later, followed Threads, Direct Messages tab, Drafts & sent, Unreads, Starred **messages**
-- Writable Slack sections, mute, `:notify` mentions/all, `:create` / `:create private`, `:invite` email or `U…`, `:kick`, `:manager` (Channel Manager `Rl0A`), Add/remove Starred files (`files.favorites.add` / `.remove`), Unreads recommended/scientifically sort + persisted sort/filter prefs, Cmd+K Search omniswitcher, OG recents write, jump-to-date, share, people search, message actions, drafts sync, scheduled send, double-click section collapse
+- Writable Slack sections, mute, `:notify` mentions/all, `:create` / `:create private`, `:invite` email or `U…`, `:kick`, `:manager` (Channel Manager `Rl0A`), Add/remove Starred files (`files.favorites.add` / `.remove`), Starred files inbox (`files.favorites.list`), `stars.list` paging, Unreads recommended/scientifically sort + persisted sort/filter prefs, Cmd+K Search omniswitcher, OG recents write, jump-to-date, share, people search, message actions, drafts sync, scheduled send, double-click section collapse
 
 ## Not done (by policy)
 
 See [wiki/Gaps.md](../wiki/Gaps.md). Short list:
 
-- Starred files **inbox** (`files.favorites.add` / `.remove` write shipped; list not HAR’d)
 - `client.dms` form captured (`priority_mode=priority`); DMs tab still uses boot cache + history
-- Published AUR package (GitHub Release **v0.19.0** has binaries; AUR is still unpublished)
+- Recents `object_type` for DMs (channel recents write ships)
+- Published AUR package (GitHub Release **v0.20.0** has binaries; AUR is still unpublished)
 
 Permanent non-goals: huddles, canvas, lists, workflows, slash, Slack AI.
 

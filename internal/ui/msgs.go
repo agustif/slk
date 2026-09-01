@@ -194,8 +194,9 @@ type (
 		Err       error
 	}
 	StarredLoadedMsg struct {
-		Items []slackclient.StarredMessage
-		Err   error
+		Items   []slackclient.StarredMessage
+		FileIDs []string
+		Err     error
 	}
 	StarredViewActivatedMsg struct{}
 	// FollowToggledMsg is the result of following or unfollowing the

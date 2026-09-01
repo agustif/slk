@@ -103,16 +103,15 @@ Permanent non-goals (same as upstream): huddles, Slack Connect, Workflow Builder
 
 OG holes still omitted until a HAR exists — **not invented**:
 
-- Starred **files inbox** (write `files.favorites.add` / `.remove` ships in the message menu; list form not HAR’d)
-- `stars.list` past the first page (`limit=1000`)
+- Recents `object_type` for DMs (channel recents write ships)
 
-Packaging: GitHub Release **v0.19.0**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
+Packaging: GitHub Release **v0.20.0**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
 
 See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-These commands install **this fork** (`agustif/slk`). Current release: **v0.19.0** (first fork tag: v0.17.0).
+These commands install **this fork** (`agustif/slk`). Current release: **v0.20.0** (first fork tag: v0.17.0).
 
 **Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 
@@ -134,7 +133,7 @@ makepkg -si
 **Go:**
 
 ```bash
-go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.19.0
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.20.0
 ```
 
 **From source:**
@@ -176,7 +175,7 @@ the file before relaunching. Log lines are categorized
 
 In-tree wiki (this fork):
 
-- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.19.0`, GitHub Release binaries
+- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.20.0`, GitHub Release binaries
 - [Setup](wiki/Setup.md) — desktop-app auth, adding workspaces
 - [Features](wiki/Features.md) — full feature breakdown
 - [Keybindings](wiki/Keybindings.md) — every key, every mode

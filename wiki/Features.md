@@ -14,7 +14,7 @@ Pinned sidebar rows, matching Slack's left rail (not the channel list):
 4. **Direct Messages** (`✉ Direct Messages`) — full DMs column
 5. **Drafts** (`✎ Drafts`) — unsent compose + scheduled send
 6. **Unreads** (`◉ Unreads`) — Home All Unreads
-7. **Starred** (`★ Starred`) — starred **messages** (`stars.list` `type=message`)
+7. **Starred** (`★ Starred`) — starred **messages** (`stars.list` `type=message`) plus Files-rail starred **files** (`files.favorites.list` `file_ids`)
 
 The channel finder (`Ctrl+t` / `Ctrl+p`) pins the same destinations (type `activity`, `later`, `threads`, `dms`, `drafts`, `unreads`, `starred`). Double-click a **section header** (or `Enter` / `Space` on it) to collapse.
 
@@ -237,7 +237,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Leave the current public or private channel (`:leave`) — confirmation overlay, then the channel drops from the sidebar and slk switches to last-visited or Threads. On a DM, `:leave` closes the conversation (`conversations.close`).
 - Create a public channel (`:create <name>`) or a private one (`:create private <name>`) — `conversations.create` (`validate_name=true`, `team_id`; private adds `is_private=true`; no `_x_reason`).
 - Invite by email (`:invite email [email…]`) — workspace invite (`users.admin.inviteBulk`). Invite existing members (`:invite U…`) — `conversations.invite`. Remove a member (`:kick U…`) — `conversations.kick` (confirm). Make Channel Manager (`:manager U…`) — `admin.roles.addMembers` `role_id=Rl0A` (confirm).
-- Add / remove a file in Files-rail Starred (`x` → **Add to Starred files** / **Remove from Starred files**) — `files.favorites.add` / `.remove` (`file_id`, `collection_id` of `type=starred`). Not the Starred **messages** inbox.
+- Add / remove a file in Files-rail Starred (`x` → **Add to Starred files** / **Remove from Starred files**) — `files.favorites.add` / `.remove` (`file_id`, `collection_id` of `type=starred`).
+- Starred files inbox — Home ★ Starred lists `files.favorites.list` `file_ids` after starred messages (`type=all`, `_x_reason=starred_unified_files`).
 - OG Home recents — opening a channel POSTs `users.prefs.set` `name=recents` so the official client’s recents match slk.
 - **Channel members** (`I`) — overlay listing members of the active channel (filter-as-you-type, `j`/`k` to move). Presence dots appear for users already in the live presence map; `[guest]` marks `is_restricted` / `is_ultra_restricted` users. `Enter` opens a DM with the selected person (same `conversations.open` path as `Ctrl+n`). The message pane header shows the member count when it is already known.
 - Workspace picker (`:ws`) and direct jump (`1`–`9`)
