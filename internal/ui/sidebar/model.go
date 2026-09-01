@@ -2055,7 +2055,7 @@ func (m *Model) buildCache(width int) {
 		if statusW > 0 {
 			maxNameLen -= statusW
 			if maxNameLen < 3 {
-				statusSuffix, statusW = "", 0
+				statusSuffix = ""
 				maxNameLen = (width - 2) - 8
 				if maxNameLen < 5 {
 					maxNameLen = 5

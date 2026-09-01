@@ -436,7 +436,7 @@ func parseRemindDuration(s string) (int, error) {
 	if s == "tomorrow" {
 		return minutesUntilTomorrowMorning(), nil
 	}
-	mult := 1
+	var mult int
 	unit := s[len(s)-1]
 	num := s
 	switch unit {

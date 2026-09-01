@@ -67,10 +67,6 @@ func borderSelectStyle(focused bool) lipgloss.Style {
 		Background(styles.SelectionTintColor(focused))
 }
 
-func borderFillStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(styles.Background)
-}
-
 // ClickKind is what a mouse click hit in the Activity panel.
 type ClickKind int
 
@@ -1135,17 +1131,6 @@ func (m *Model) itemTitle(it Item) string {
 			return "Activity"
 		}
 		return it.Type
-	}
-}
-
-func channelGlyph(channelType string) string {
-	switch channelType {
-	case "private":
-		return lipgloss.NewStyle().Foreground(styles.Warning).Render("◆ ")
-	case "dm", "group_dm":
-		return lipgloss.NewStyle().Foreground(styles.TextMuted).Render("● ")
-	default:
-		return "# "
 	}
 }
 

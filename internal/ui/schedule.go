@@ -123,10 +123,10 @@ func parseScheduleSpec(spec string, now time.Time) (time.Time, error) {
 
 func validatePostAt(postAt, now time.Time) error {
 	if !postAt.After(now) {
-		return fmt.Errorf("Time must be in the future")
+		return fmt.Errorf("time must be in the future")
 	}
 	if postAt.After(now.Add(maxScheduleAhead)) {
-		return fmt.Errorf("Time must be within 120 days")
+		return fmt.Errorf("time must be within 120 days")
 	}
 	return nil
 }

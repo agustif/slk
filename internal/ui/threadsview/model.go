@@ -75,13 +75,6 @@ func borderSelectStyle(focused bool) lipgloss.Style {
 		Background(styles.SelectionTintColor(focused))
 }
 
-// borderFillStyle returns the row-fill style for unselected cards
-// (themed Background). Selected cards use a SelectionTintColor fill
-// inside renderCard so the tint reaches the right edge.
-func borderFillStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(styles.Background)
-}
-
 // Model holds the threads-list state.
 type Model struct {
 	summaries    []cache.ThreadSummary

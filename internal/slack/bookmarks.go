@@ -71,13 +71,7 @@ func parseBookmarksList(raw []byte) ([]Bookmark, error) {
 		if row.Title == "" {
 			continue
 		}
-		out = append(out, Bookmark{
-			ID:    row.ID,
-			Title: row.Title,
-			Link:  row.Link,
-			Type:  row.Type,
-			Emoji: row.Emoji,
-		})
+		out = append(out, Bookmark(row))
 	}
 	return out, nil
 }

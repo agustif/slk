@@ -404,13 +404,7 @@ func savedItemKey(channelID, ts string) string {
 }
 
 func flattenSavedCounts(c savedCountsJSON) SavedCounts {
-	return SavedCounts{
-		Uncompleted:        c.Uncompleted,
-		UncompletedOverdue: c.UncompletedOverdue,
-		Archived:           c.Archived,
-		Completed:          c.Completed,
-		Total:              c.Total,
-	}
+	return SavedCounts(c)
 }
 
 func parseSavedOK(raw []byte, method string) error {

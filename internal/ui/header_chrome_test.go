@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/agustif/slk/internal/ids"
 	"github.com/agustif/slk/internal/ui/messages"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestChannelSelected_FetchesChromeWithoutBlockingMessages(t *testing.T) {
@@ -20,11 +20,6 @@ func TestChannelSelected_FetchesChromeWithoutBlockingMessages(t *testing.T) {
 	})
 	app.setChannelChromeFetcherForTest(func(id ids.ChannelID) tea.Msg {
 		chromeCalled++
-		if fetchCalled == 0 {
-			// Chrome fetch is a sibling cmd, not sequenced after
-			// messages; the closure may run in either order when
-			// drained. Record that it ran.
-		}
 		return ChannelChromeMsg{
 			ChannelID: string(id),
 			Bookmarks: []messages.Bookmark{{Title: "Handbook", URL: "https://example.com/hb"}},

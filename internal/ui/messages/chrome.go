@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/agustif/slk/internal/ui/styles"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Bookmark is a channel-header bookmark (title + URL).
@@ -227,7 +227,6 @@ func renderHeaderExtras(bookmarks []Bookmark, pins []Pin, width int) (line strin
 		b.WriteString(extrasMutedStyle().Render(pinLabel))
 		w := lipgloss.Width(pinLabel)
 		hits = append(hits, chromeHit{kind: chromeHitPins, colStart: start, colEnd: start + w})
-		col += w
 	}
 
 	line = b.String()

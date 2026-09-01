@@ -108,10 +108,6 @@ func mutedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.TextMuted)
 }
 
-func channelNameStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
-}
-
 func tabActiveStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
 }
