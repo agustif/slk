@@ -26,7 +26,7 @@ build() {
   cd slk
   export CGO_ENABLED=0
   export GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
-  go build -ldflags='-s -w' -o slk ./cmd/slk
+  go build -ldflags="-s -w -X main.version=${pkgver}" -o slk ./cmd/slk
 }
 
 package() {

@@ -191,11 +191,15 @@ release:
     - **Fedora/RHEL:** `sudo rpm -i slk_*.rpm`
     - **Alpine:** `sudo apk add --allow-untrusted slk_*.apk`
     - **Windows:** download the `.zip`, extract `slk.exe`, add to `PATH`
+    - **Homebrew:** `brew install agustif/tap/slk`
     - **Go:** `go install github.com/agustif/slk/cmd/slk@{{ .Tag }}`
 
     Verify downloads with `checksums.txt`.
     {{- end }}
 
 # Homebrew for this fork is the tap github.com/agustif/homebrew-tap
-# (`brew install --HEAD agustif/tap/slk`). Do not upload casks to
-# gammons/homebrew-tap — that is upstream.
+# (`brew install agustif/tap/slk`). Do not upload casks to
+# gammons/homebrew-tap — that is upstream. The formula builds from the
+# GitHub source tarball (not a GoReleaser bottle); bump url/sha256 there
+# when cutting a tag. HOMEBREW_TAP_GITHUB_TOKEN is reserved if we later
+# add a goreleaser `brews:` block.

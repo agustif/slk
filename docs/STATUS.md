@@ -1,6 +1,6 @@
 # slk Implementation Status
 
-Last updated: 2026-09-01 (agustif/slk fork, v0.17.0).
+Last updated: 2026-09-01 (agustif/slk fork, v0.18.0).
 
 This file is a **snapshot**, not the feature spec. Live docs:
 
@@ -27,7 +27,7 @@ See [wiki/Gaps.md](../wiki/Gaps.md). Short list:
 - Mentions-only notification prefs
 - Starred files (`type=file`; IM/MPIM conversation stars ship in the Starred section)
 - Unreads recommended / scientifically sort; persisted Unreads sort/section prefs
-- Published AUR package (GitHub Release **v0.17.0** exists)
+- Published AUR package (GitHub Release **v0.18.0**)
 
 Permanent non-goals: huddles, canvas, lists, workflows, slash, Slack AI.
 

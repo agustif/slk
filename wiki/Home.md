@@ -9,7 +9,7 @@ OG-parity daily driver: only reverse-engineered official-client APIs. No invente
 
 ## Getting started
 
-1. **[[Installation]]** — Homebrew `agustif/tap/slk` (v0.17.0), Go `@v0.17.0`, in-tree AUR PKGBUILD, GitHub Release binaries.
+1. **[[Installation]]** — Homebrew `agustif/tap/slk` (v0.18.0), Go `@v0.18.0`, in-tree AUR PKGBUILD, GitHub Release binaries.
 2. **[[Setup]]** — Slack desktop app session (`--add-workspace`). No DevTools, no tokens to copy.
 3. **[[Configuration]]** — `config.toml`, custom themes, XDG paths, per-workspace settings.
 
