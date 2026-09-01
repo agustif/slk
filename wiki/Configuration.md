@@ -61,8 +61,8 @@ quiet_hours = "22:00-08:00"   # 24h local; overnight wrap ok; empty = off
 # to diagnose a misbehaving command.
 
 # Muted channels and DMs never notify — including on mentions and keywords —
-# matching Slack. Mute is users.prefs.setNotifications name=muted.
-# Mentions-only (all / mentions / nothing) is not captured — see wiki/Gaps.md.
+# matching Slack. Mute is users.prefs.setNotifications name=muted (`m`).
+# Mentions-only / all new posts: :notify mentions / :notify all.
 
 [cache]
 message_retention_days = 30

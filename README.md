@@ -27,8 +27,8 @@ Upstream marketing site: [getslk.sh](https://getslk.sh) · This fork’s docs: [
 - Home surfaces matching Slack: **Activity**, **Later**, **Threads**, **Direct Messages**, **Drafts**, **Unreads**, **Starred**
 - Threads side panel + a followed-threads view (`subscriptions.thread`)
 - Jump to date (`J` / `:date` / `:jump`), share/forward (`x` → Share or `:share`)
-- Workspace search (`Ctrl+f`) with Messages / Files / People tabs
-- Message actions menu (`x` / right-click): react, reply, save for later, remind, permalink, share, pin, follow, download, edit/delete, mark unread, star
+- Workspace search (`Ctrl+f`) with Messages / Files / People tabs; **Cmd+K** / `Ctrl+k` omniswitcher (channels, people, messages, files)
+- Message actions menu (`x` / right-click): react, reply, save for later, remind, permalink, share, pin, follow, download, add to / remove from Starred files, edit/delete, mark unread, star
 - Per-channel drafts synced to Slack (`drafts.list` / create / update / delete) plus scheduled send (`Ctrl+g`)
 - Slack-native sidebar sections, **writable** (`:move` / `:section` / `:rename` / `:section-delete`); or glob-based config sections
 - Automatic auth from the Slack desktop app — no tokens to copy, no Slack App required
@@ -53,7 +53,7 @@ Everything here was captured from the official client (HAR / browser protocol). 
 | **Threads** | Followed threads | `subscriptions.thread` (followed set), not upstream’s cache-only “threads you participated in”. `t` follow/unfollow. |
 | **Direct Messages** (`✉ Direct Messages`) | DMs tab | Full 1:1 + group + app DM list with last-message preview. Home stays compact. Esc / ← Home returns. `:leave` **closes** a DM (`conversations.close`). |
 | **Drafts** (`✎ Drafts`) | Drafts & sent | `drafts.list` (`is_active`, `next_ts`) + `chat.scheduledMessages.list`. Open restores compose; `D` deletes / cancels. |
-| **Unreads** (`◉ Unreads`) | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`). Header Mark as Read / Undo via `conversations.mark`. Session-local `f`/`F` sort and `s`/chip section filters (All / VIP / Starred / Channels / DMs). |
+| **Unreads** (`◉ Unreads`) | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`). Header Mark as Read / Undo via `conversations.mark`. `f`/`F` sort (sidebar / alphabetical / recommended / newest / oldest) writes and boot-reads `all_unreads_sort_order`. `s`/chip filters (All / VIP / Starred / Channels / DMs) write `all_unreads_section_filter`. |
 | **Starred** (`★ Starred`) | Starred items | `stars.list` `type=message`. Enter opens the message; `*` unstars. Channel stars stay in the Starred sidebar *section*. |
 
 ### Messaging
@@ -76,11 +76,15 @@ Everything here was captured from the official client (HAR / browser protocol). 
 ### Sidebar, channels, header
 
 - **Writable Slack sections** — `:move`, `:section <name>`, `:rename`, `:section-delete`, `:section-up` / `:section-down` (`users.channelSections.*`). Upstream sections are read-only.
-- **Mute** — `m` writes Slack’s per-channel notification pref. Muted rows dim, drop unread dots, and suppress desktop notifications (including mentions).
+- **Mute** — `m` writes Slack’s per-channel mute pref. Muted rows dim, drop unread dots, and suppress desktop notifications (including mentions).
+- **Notify** — `:notify all` / `:notify mentions` writes all-new-posts vs mentions-only (`desktop=everything` / `desktop=mentions_dms`).
 - **Collapse** — `Enter` / `Space` on a section header, or **double-click** the header (two left-clicks within ~500ms).
 - **Channel topic** under the name; **bookmarks** (clickable) and pin count on the header row.
 - **Channel members** — `I` overlay; Enter opens a DM.
 - **Leave** — `:leave` leaves a channel or closes a DM.
+- **Create** — `:create <name>` public, `:create private <name>` private (`conversations.create`).
+- **Invite** — `:invite email…` workspace invite; `:invite U…` existing members (`conversations.invite`). `:kick U…` removes a member. `:manager U…` makes a Channel Manager (`admin.roles.addMembers` `Rl0A`).
+- **Recents** — opening a channel writes Slack Home recents (`users.prefs.set` `name=recents`).
 - **DM presentation** — Home can split 1:1 vs group DMs (`[sidebar] group_dms = "split"` default) or keep one Direct Messages section (`"together"`). Compact peer avatars; workspace-rail team logos.
 - **Sort atoms** — `[sidebar.sort]` pipelines (`slack`, `alphabetical`, `recent`, `vip_first`, `unread_first`, `starred_first`) plus `[sidebar.vip]` extras on top of Slack VIP people.
 
@@ -99,19 +103,16 @@ Permanent non-goals (same as upstream): huddles, Slack Connect, Workflow Builder
 
 OG holes still omitted until a HAR exists — **not invented**:
 
-- Create channel / invite members (Join / Leave already exist)
-- Mentions-only notification prefs (`users.prefs.setNotifications` is captured for `muted` only)
-- Starred **file** items (`stars.list`; message inbox ships; IM/MPIM conversation stars are the Starred *section*)
-- Unreads “recommended / scientifically” sort and persisted sort/section prefs
+- Starred **files inbox** (write `files.favorites.add` / `.remove` ships in the message menu; list form not HAR’d)
 - `stars.list` past the first page (`limit=1000`)
 
-Packaging: GitHub Release **v0.18.1**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
+Packaging: GitHub Release **v0.19.0**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
 
 See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-These commands install **this fork** (`agustif/slk`). Current release: **v0.18.1** (first fork tag: v0.17.0).
+These commands install **this fork** (`agustif/slk`). Current release: **v0.19.0** (first fork tag: v0.17.0).
 
 **Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 
@@ -133,7 +134,7 @@ makepkg -si
 **Go:**
 
 ```bash
-go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.18.1
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.19.0
 ```
 
 **From source:**
@@ -175,7 +176,7 @@ the file before relaunching. Log lines are categorized
 
 In-tree wiki (this fork):
 
-- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.18.1`, GitHub Release binaries
+- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.19.0`, GitHub Release binaries
 - [Setup](wiki/Setup.md) — desktop-app auth, adding workspaces
 - [Features](wiki/Features.md) — full feature breakdown
 - [Keybindings](wiki/Keybindings.md) — every key, every mode

@@ -6,6 +6,9 @@
 package ui
 
 import (
+	"errors"
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/agustif/slk/internal/ui/contextmenu"
@@ -39,10 +42,13 @@ func (a *App) contextMenuItems() ([]contextmenu.Item, bool) {
 	}
 	own := a.isOwnMessage(msg)
 	hasFile := false
+	hasStarableFile := false
 	for _, att := range msg.Attachments {
+		if att.FileID != "" {
+			hasStarableFile = true
+		}
 		if att.Kind == "file" && att.DownloadURL != "" {
 			hasFile = true
-			break
 		}
 	}
 	hasLinks := len(messages.ExtractLinks(msg.Text)) > 0
@@ -81,6 +87,8 @@ func (a *App) contextMenuItems() ([]contextmenu.Item, bool) {
 		{Label: starLabel, Action: contextmenu.ActionStar, Enabled: true},
 		{Label: followLabel, Action: contextmenu.ActionFollowThread, Enabled: followEnabled},
 		{Label: "Download file", Action: contextmenu.ActionDownloadFile, Enabled: hasFile},
+		{Label: "Add to Starred files", Action: contextmenu.ActionStarFile, Enabled: hasStarableFile},
+		{Label: "Remove from Starred files", Action: contextmenu.ActionUnstarFile, Enabled: hasStarableFile},
 		{Label: "Open links", Action: contextmenu.ActionOpenLinks, Enabled: hasLinks},
 		{Label: "Edit message", Action: contextmenu.ActionEdit, Enabled: own},
 		{Label: "Delete message", Action: contextmenu.ActionDelete, Enabled: own},
@@ -174,6 +182,10 @@ func (a *App) dispatchContextMenuAction(action contextmenu.ActionID) tea.Cmd {
 		return a.openSharePicker()
 	case contextmenu.ActionDownloadFile:
 		return a.downloadFilesOfSelected()
+	case contextmenu.ActionStarFile:
+		return a.starFileOfSelected()
+	case contextmenu.ActionUnstarFile:
+		return a.unstarFileOfSelected()
 	case contextmenu.ActionOpenLinks:
 		return a.openLinksOfSelected()
 	case contextmenu.ActionEdit:
@@ -192,4 +204,58 @@ func (a *App) dispatchContextMenuAction(action contextmenu.ActionID) tea.Cmd {
 		return a.setLaterState("in_progress")
 	}
 	return nil
+}
+
+func (a *App) starFileOfSelected() tea.Cmd {
+	msg, ok := a.selectedMessageItem()
+	if !ok {
+		return toastWithClear(a, "No message selected", 2*time.Second)
+	}
+	var fileID string
+	for _, att := range msg.Attachments {
+		if att.FileID != "" {
+			fileID = att.FileID
+			break
+		}
+	}
+	if fileID == "" {
+		return toastWithClear(a, "No file on this message", 2*time.Second)
+	}
+	svc := a.fileStar
+	return func() tea.Msg {
+		if err := svc.AddToStarred(fileID); err != nil {
+			if errors.Is(err, errServiceNoop) {
+				return nil
+			}
+			return ToastMsg{Text: "Could not star file: " + truncateReason(err.Error(), 40)}
+		}
+		return ToastMsg{Text: "Added file to Starred"}
+	}
+}
+
+func (a *App) unstarFileOfSelected() tea.Cmd {
+	msg, ok := a.selectedMessageItem()
+	if !ok {
+		return toastWithClear(a, "No message selected", 2*time.Second)
+	}
+	var fileID string
+	for _, att := range msg.Attachments {
+		if att.FileID != "" {
+			fileID = att.FileID
+			break
+		}
+	}
+	if fileID == "" {
+		return toastWithClear(a, "No file on this message", 2*time.Second)
+	}
+	svc := a.fileStar
+	return func() tea.Msg {
+		if err := svc.RemoveFromStarred(fileID); err != nil {
+			if errors.Is(err, errServiceNoop) {
+				return nil
+			}
+			return ToastMsg{Text: "Could not unstar file: " + truncateReason(err.Error(), 40)}
+		}
+		return ToastMsg{Text: "Removed file from Starred"}
+	}
 }

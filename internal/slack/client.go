@@ -609,6 +609,480 @@ func (c *Client) JoinChannel(ctx context.Context, channelID string) error {
 	return nil
 }
 
+// CreateChannel creates a channel via conversations.create as captured
+// from the official web client (2026-09-01 Test Workspace):
+// name, validate_name=true, team_id. Private channels also send
+// is_private=true (public omits the key). No _x_reason (transport
+// omits it for this method); _x_mode=online stays. Returns the new
+// channel id and normalized name.
+func (c *Client) CreateChannel(ctx context.Context, name string, private bool) (id, createdName string, err error) {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return "", "", fmt.Errorf("conversations.create: name required")
+	}
+	form := url.Values{
+		"name":          {name},
+		"validate_name": {"true"},
+	}
+	if private {
+		form.Set("is_private", "true")
+	}
+	if c.teamID != "" {
+		form.Set("team_id", c.teamID)
+	}
+	raw, err := c.postForm(ctx, "conversations.create", form)
+	if err != nil {
+		return "", "", fmt.Errorf("conversations.create: %w", err)
+	}
+	var res struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Channel struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"channel"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", "", fmt.Errorf("conversations.create: decoding: %w", err)
+	}
+	if !res.OK {
+		errStr := res.Error
+		if errStr == "" {
+			errStr = "ok=false"
+		}
+		return "", "", fmt.Errorf("conversations.create: %s", errStr)
+	}
+	if res.Channel.ID == "" {
+		return "", "", fmt.Errorf("conversations.create: empty channel id")
+	}
+	outName := res.Channel.Name
+	if outName == "" {
+		outName = name
+	}
+	return res.Channel.ID, outName, nil
+}
+
+// InviteEmails invites people by email via users.admin.inviteBulk
+// (2026-09-01 channel-invite flow). source=invite_emails_to_channel,
+// invites JSON [{email, type:regular}], restricted/ultra_restricted
+// false, optional channels= current channel, team_id.
+// _x_reason=send-workspace-invites-from-channel-invite.
+func (c *Client) InviteEmails(ctx context.Context, emails []string, channelID string) error {
+	var invites []map[string]string
+	for _, e := range emails {
+		e = strings.TrimSpace(strings.ToLower(e))
+		if e == "" || !strings.Contains(e, "@") {
+			continue
+		}
+		invites = append(invites, map[string]string{"email": e, "type": "regular"})
+	}
+	if len(invites) == 0 {
+		return fmt.Errorf("users.admin.inviteBulk: no emails")
+	}
+	invJSON, err := json.Marshal(invites)
+	if err != nil {
+		return fmt.Errorf("users.admin.inviteBulk: %w", err)
+	}
+	ctx = slackhttp.WithReason(ctx, "send-workspace-invites-from-channel-invite")
+	form := url.Values{
+		"source":           {"invite_emails_to_channel"},
+		"restricted":       {"false"},
+		"ultra_restricted": {"false"},
+		"invites":          {string(invJSON)},
+	}
+	if channelID != "" {
+		form.Set("channels", channelID)
+	}
+	if c.teamID != "" {
+		form.Set("team_id", c.teamID)
+	}
+	raw, err := c.postForm(ctx, "users.admin.inviteBulk", form)
+	if err != nil {
+		return fmt.Errorf("users.admin.inviteBulk: %w", err)
+	}
+	var res struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Invites []struct {
+			Email string `json:"email"`
+			OK    *bool  `json:"ok"`
+			Error string `json:"error"`
+		} `json:"invites"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return fmt.Errorf("users.admin.inviteBulk: decoding: %w", err)
+	}
+	if !res.OK {
+		errStr := res.Error
+		if errStr == "" {
+			errStr = "ok=false"
+		}
+		return fmt.Errorf("users.admin.inviteBulk: %s", errStr)
+	}
+	for _, inv := range res.Invites {
+		if inv.Error != "" {
+			return fmt.Errorf("users.admin.inviteBulk: %s: %s", inv.Email, inv.Error)
+		}
+		if inv.OK != nil && !*inv.OK {
+			return fmt.Errorf("users.admin.inviteBulk: invite failed for %s", inv.Email)
+		}
+	}
+	return nil
+}
+
+// InviteUsers adds existing workspace members to a channel via
+// conversations.invite (2026-09-01 Test Workspace, #slk-har-priv2):
+// channel, invite_all=false, users, empty subteams, force=true,
+// _x_reason=submit-invite-channel-invite-modal.
+func (c *Client) InviteUsers(ctx context.Context, channelID string, userIDs []string) error {
+	if channelID == "" {
+		return fmt.Errorf("conversations.invite: channel required")
+	}
+	var users []string
+	for _, u := range userIDs {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		users = append(users, u)
+	}
+	if len(users) == 0 {
+		return fmt.Errorf("conversations.invite: no users")
+	}
+	ctx = slackhttp.WithReason(ctx, "submit-invite-channel-invite-modal")
+	form := url.Values{
+		"channel":    {channelID},
+		"invite_all": {"false"},
+		"users":      {strings.Join(users, ",")},
+		"subteams":   {""},
+		"force":      {"true"},
+	}
+	raw, err := c.postForm(ctx, "conversations.invite", form)
+	if err != nil {
+		return fmt.Errorf("conversations.invite: %w", err)
+	}
+	return parseSlackAPIAck("conversations.invite", raw)
+}
+
+// KickUser removes a member from a channel via conversations.kick
+// (2026-09-01 Test Workspace): channel, user,
+// _x_reason=submitKickFromChannel.
+func (c *Client) KickUser(ctx context.Context, channelID, userID string) error {
+	if channelID == "" || userID == "" {
+		return fmt.Errorf("conversations.kick: channel and user required")
+	}
+	ctx = slackhttp.WithReason(ctx, "submitKickFromChannel")
+	form := url.Values{
+		"channel": {channelID},
+		"user":    {userID},
+	}
+	raw, err := c.postForm(ctx, "conversations.kick", form)
+	if err != nil {
+		return fmt.Errorf("conversations.kick: %w", err)
+	}
+	return parseSlackAPIAck("conversations.kick", raw)
+}
+
+// ChannelManagerRoleID is the official client's role_id for Channel
+// Manager (admin.roles.entity.listAssignments on a channel, 2026-09-01).
+const ChannelManagerRoleID = "Rl0A"
+
+// AddChannelManagers POSTs admin.roles.addMembers as captured from
+// "Make channel manager": role_id=Rl0A, role_scopes=channel id,
+// user_ids, _x_reason=add-channel-managers. The Test Workspace write
+// returned ok=false error=no_valid_users for an invitee who had not
+// finished signup; the form is still the attested shape.
+func (c *Client) AddChannelManagers(ctx context.Context, channelID string, userIDs []string) error {
+	if channelID == "" {
+		return fmt.Errorf("admin.roles.addMembers: channel required")
+	}
+	var users []string
+	for _, u := range userIDs {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		users = append(users, u)
+	}
+	if len(users) == 0 {
+		return fmt.Errorf("admin.roles.addMembers: no users")
+	}
+	ctx = slackhttp.WithReason(ctx, "add-channel-managers")
+	form := url.Values{
+		"role_id":     {ChannelManagerRoleID},
+		"role_scopes": {channelID},
+		"user_ids":    {strings.Join(users, ",")},
+	}
+	raw, err := c.postForm(ctx, "admin.roles.addMembers", form)
+	if err != nil {
+		return fmt.Errorf("admin.roles.addMembers: %w", err)
+	}
+	return parseSlackAPIAck("admin.roles.addMembers", raw)
+}
+
+// RecentsNavItem is one entry in the users.prefs.set name=recents
+// payload (2026-09-01 Test Workspace channel switch).
+type RecentsNavItem struct {
+	ID         string `json:"id"`
+	ObjectType string `json:"object_type"`
+	Timestamp  int64  `json:"timestamp"`
+}
+
+// RecentsObjectChannel is the captured object_type for a public or
+// private channel id in the recents navigation list.
+const RecentsObjectChannel = "CHANNEL"
+
+// SetRecents writes users.prefs.set name=recents as captured:
+// value={"navigation":[{id, object_type:CHANNEL, timestamp:ms}]},
+// _x_reason=prefs-api/setUserPrefByApi. Empty items is a no-op.
+func (c *Client) SetRecents(ctx context.Context, items []RecentsNavItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(struct {
+		Navigation []RecentsNavItem `json:"navigation"`
+	}{Navigation: items})
+	if err != nil {
+		return fmt.Errorf("users.prefs.set recents: %w", err)
+	}
+	ctx = slackhttp.WithReason(ctx, "prefs-api/setUserPrefByApi")
+	form := url.Values{
+		"name":  {"recents"},
+		"value": {string(payload)},
+	}
+	raw, err := c.postForm(ctx, "users.prefs.set", form)
+	if err != nil {
+		return fmt.Errorf("users.prefs.set recents: %w", err)
+	}
+	return parseSlackAPIAck("users.prefs.set", raw)
+}
+
+// All Unreads sort values captured from Obvious AI (T099JCA82HJ,
+// 2026-09-01): users.prefs.set name=all_unreads_sort_order,
+// _x_reason=prefs. "Sorted by recommended order" / scientifically is
+// priority. slk's session-local "alpha" maps to alphabetical on the wire.
+const (
+	UnreadsSortAlphabetical = "alphabetical"
+	UnreadsSortPriority     = "priority"
+	UnreadsSortOldest       = "oldest"
+	UnreadsSortNewest       = "newest"
+	UnreadsSortSidebar      = "sidebar"
+)
+
+// SetAllUnreadsSortOrder POSTs users.prefs.set name=all_unreads_sort_order
+// as captured from the Home All Unreads sort menu.
+func (c *Client) SetAllUnreadsSortOrder(ctx context.Context, order string) error {
+	switch order {
+	case "alpha":
+		order = UnreadsSortAlphabetical
+	case UnreadsSortAlphabetical, UnreadsSortPriority, UnreadsSortOldest, UnreadsSortNewest, UnreadsSortSidebar:
+	default:
+		return fmt.Errorf("users.prefs.set all_unreads_sort_order: unknown %q", order)
+	}
+	ctx = slackhttp.WithReason(ctx, "prefs")
+	form := url.Values{
+		"name":  {"all_unreads_sort_order"},
+		"value": {order},
+	}
+	raw, err := c.postForm(ctx, "users.prefs.set", form)
+	if err != nil {
+		return fmt.Errorf("users.prefs.set all_unreads_sort_order: %w", err)
+	}
+	return parseSlackAPIAck("users.prefs.set", raw)
+}
+
+// All Unreads section-filter values captured from Obvious AI
+// (T099JCA82HJ, 2026-09-01): users.prefs.set name=all_unreads_section_filter,
+// _x_reason=all-unreads-section-filter-menu-item-select.
+// All conversations = all_sections (also in the 2026-08-31 Unreads HAR).
+// VIP unreads = priority. Starred / Channels / Direct messages write
+// the matching sidebar section id (L…).
+const (
+	UnreadsFilterAllSections = "all_sections"
+	UnreadsFilterVIP         = "priority"
+)
+
+// SetAllUnreadsSectionFilter POSTs the captured Unreads section-filter pref.
+func (c *Client) SetAllUnreadsSectionFilter(ctx context.Context, value string) error {
+	if value == "" {
+		return fmt.Errorf("users.prefs.set all_unreads_section_filter: value required")
+	}
+	switch value {
+	case UnreadsFilterAllSections, UnreadsFilterVIP:
+	default:
+		if len(value) < 2 || value[0] != 'L' {
+			return fmt.Errorf("users.prefs.set all_unreads_section_filter: unknown %q", value)
+		}
+	}
+	ctx = slackhttp.WithReason(ctx, "all-unreads-section-filter-menu-item-select")
+	form := url.Values{
+		"name":  {"all_unreads_section_filter"},
+		"value": {value},
+	}
+	raw, err := c.postForm(ctx, "users.prefs.set", form)
+	if err != nil {
+		return fmt.Errorf("users.prefs.set all_unreads_section_filter: %w", err)
+	}
+	return parseSlackAPIAck("users.prefs.set", raw)
+}
+
+// FileCollectionTypeStarred is files.collections.list type=starred
+// (Files rail Starred, 2026-09-01).
+const FileCollectionTypeStarred = "starred"
+
+// FileCollection is one files.collections.list entry.
+type FileCollection struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Sort string `json:"sort"`
+}
+
+// ListFileCollections POSTs files.collections.list as captured
+// (_x_reason=fetch_file_collections). The Starred collection's files
+// array was empty even after a successful files.favorites.add.
+func (c *Client) ListFileCollections(ctx context.Context) ([]FileCollection, error) {
+	ctx = slackhttp.WithReason(ctx, "fetch_file_collections")
+	raw, err := c.postForm(ctx, "files.collections.list", url.Values{})
+	if err != nil {
+		return nil, fmt.Errorf("files.collections.list: %w", err)
+	}
+	var resp struct {
+		OK          bool             `json:"ok"`
+		Error       string           `json:"error"`
+		Collections []FileCollection `json:"collections"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("files.collections.list: %w", err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return nil, fmt.Errorf("files.collections.list: %s", resp.Error)
+		}
+		return nil, fmt.Errorf("files.collections.list: ok=false")
+	}
+	return resp.Collections, nil
+}
+
+// AddFileToCollection POSTs files.favorites.add as captured from
+// Unified Files "Move to… Starred" (2026-09-01): file_id, collection_id,
+// _x_reason=add_file_to_collection. Response was {"ok":true}.
+func (c *Client) AddFileToCollection(ctx context.Context, fileID, collectionID string) error {
+	if fileID == "" || collectionID == "" {
+		return fmt.Errorf("files.favorites.add: file_id and collection_id required")
+	}
+	ctx = slackhttp.WithReason(ctx, "add_file_to_collection")
+	form := url.Values{
+		"file_id":       {fileID},
+		"collection_id": {collectionID},
+	}
+	raw, err := c.postForm(ctx, "files.favorites.add", form)
+	if err != nil {
+		return fmt.Errorf("files.favorites.add: %w", err)
+	}
+	return parseSlackAPIAck("files.favorites.add", raw)
+}
+
+// RemoveFileFromCollection POSTs files.favorites.remove as captured
+// from Unified Files Move to… Starred when already checked (2026-09-01):
+// file_id, collection_id, _x_reason=remove_file_from_collection.
+// Response was {"ok":true}.
+func (c *Client) RemoveFileFromCollection(ctx context.Context, fileID, collectionID string) error {
+	if fileID == "" || collectionID == "" {
+		return fmt.Errorf("files.favorites.remove: file_id and collection_id required")
+	}
+	ctx = slackhttp.WithReason(ctx, "remove_file_from_collection")
+	form := url.Values{
+		"file_id":       {fileID},
+		"collection_id": {collectionID},
+	}
+	raw, err := c.postForm(ctx, "files.favorites.remove", form)
+	if err != nil {
+		return fmt.Errorf("files.favorites.remove: %w", err)
+	}
+	return parseSlackAPIAck("files.favorites.remove", raw)
+}
+
+func (c *Client) starredCollectionID(ctx context.Context) (string, error) {
+	cols, err := c.ListFileCollections(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, col := range cols {
+		if col.Type == FileCollectionTypeStarred {
+			return col.ID, nil
+		}
+	}
+	return "", fmt.Errorf("files.favorites: no starred collection")
+}
+
+// AddFileToStarredCollection lists collections, finds type=starred,
+// and POSTs files.favorites.add.
+func (c *Client) AddFileToStarredCollection(ctx context.Context, fileID string) error {
+	id, err := c.starredCollectionID(ctx)
+	if err != nil {
+		return err
+	}
+	return c.AddFileToCollection(ctx, fileID, id)
+}
+
+// RemoveFileFromStarredCollection lists collections, finds type=starred,
+// and POSTs files.favorites.remove.
+func (c *Client) RemoveFileFromStarredCollection(ctx context.Context, fileID string) error {
+	id, err := c.starredCollectionID(ctx)
+	if err != nil {
+		return err
+	}
+	return c.RemoveFileFromCollection(ctx, fileID, id)
+}
+
+// NotifyLevel is a captured users.prefs.setNotifications desktop value.
+const (
+	NotifyEverything = "everything"
+	NotifyMentions   = "mentions_dms"
+)
+
+// SetChannelNotifyLevel writes the official client's multi-pref form
+// (2026-09-01): channel_ids, prefs JSON, sync=true,
+// _x_reason=prefs-store/setMultiChannelNotificationOverride.
+// everything: desktop=everything. mentions: desktop=mentions_dms.
+func (c *Client) SetChannelNotifyLevel(ctx context.Context, channelID, level string) error {
+	if channelID == "" {
+		return fmt.Errorf("users.prefs.setNotifications: channel required")
+	}
+	var prefs string
+	switch level {
+	case NotifyMentions:
+		prefs = `[{"name":"desktop","value":"mentions_dms","sync":true},{"name":"follow_all_threads","value":"false","sync":false},{"name":"suppress_at_channel","value":"false","sync":false}]`
+	case NotifyEverything:
+		prefs = `[{"name":"desktop","value":"everything","sync":true},{"name":"follow_all_threads","value":"false","sync":false},{"name":"badge_all_unreads","value":"false","sync":false}]`
+	default:
+		return fmt.Errorf("users.prefs.setNotifications: unknown level %q", level)
+	}
+	ctx = slackhttp.WithReason(ctx, "prefs-store/setMultiChannelNotificationOverride")
+	form := url.Values{
+		"global":      {"false"},
+		"channel_ids": {channelID},
+		"prefs":       {prefs},
+		"sync":        {"true"},
+	}
+	raw, err := c.postForm(ctx, "users.prefs.setNotifications", form)
+	if err != nil {
+		return err
+	}
+	var parsed struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return fmt.Errorf("parsing users.prefs.setNotifications response: %w (body=%q)", err, truncateForLog(raw))
+	}
+	if !parsed.OK {
+		return fmt.Errorf("users.prefs.setNotifications returned ok=false (error=%q)", parsed.Error)
+	}
+	return nil
+}
+
 // LeaveChannel leaves a public or private channel via conversations.leave.
 // Returns nil on success. Idempotent: leaving a channel you're already out
 // of (Slack's not_in_channel) is a no-op and returns no error here.
@@ -1157,8 +1631,12 @@ func (c *Client) UploadFile(
 type UnreadInfo struct {
 	ChannelID string
 	Count     int
-	HasUnread bool
-	LastRead  string // Slack message timestamp
+	// MentionCount is client.counts mention_count (OG unreadHighlightCnt).
+	// Distinct from Count, which is forced to 1 when there are unreads
+	// but no mentions.
+	MentionCount int
+	HasUnread    bool
+	LastRead     string // Slack message timestamp
 }
 
 // ThreadsAggregate captures Slack's server-side notion of whether the
@@ -1245,9 +1723,10 @@ func (c *Client) GetCounts() (CountsSnapshot, error) {
 	var unreads []UnreadInfo
 	for _, ch := range result.Channels {
 		info := UnreadInfo{
-			ChannelID: ch.ID,
-			LastRead:  ch.LastRead,
-			HasUnread: ch.HasUnreads,
+			ChannelID:    ch.ID,
+			LastRead:     ch.LastRead,
+			HasUnread:    ch.HasUnreads,
+			MentionCount: ch.MentionCount,
 		}
 		if ch.HasUnreads {
 			info.Count = ch.MentionCount
@@ -1259,9 +1738,10 @@ func (c *Client) GetCounts() (CountsSnapshot, error) {
 	}
 	for _, ch := range result.Mpims {
 		info := UnreadInfo{
-			ChannelID: ch.ID,
-			LastRead:  ch.LastRead,
-			HasUnread: ch.HasUnreads,
+			ChannelID:    ch.ID,
+			LastRead:     ch.LastRead,
+			HasUnread:    ch.HasUnreads,
+			MentionCount: ch.MentionCount,
 		}
 		if ch.HasUnreads {
 			info.Count = max(ch.MentionCount, 1)

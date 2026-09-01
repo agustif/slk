@@ -887,3 +887,24 @@ func TestShareModeTitleInView(t *testing.T) {
 		t.Error("share-mode view still says Switch Channel")
 	}
 }
+
+func TestOpenOmni_TitleAndSearchRow(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{{ID: "C1", Name: "general", Type: "channel", Joined: true}})
+	m.OpenOmni()
+	if m.Title() != omniTitle {
+		t.Fatalf("title = %q", m.Title())
+	}
+	if !m.Omni() {
+		t.Fatal("Omni()=false")
+	}
+	m.HandleKey("g")
+	m.SetOmniHits([]Item{
+		{ID: "g", Name: `Search Slack for "g"`, Type: "search", Joined: true},
+		{ID: "U1", Name: "gabe", Type: "user", UserID: "U1", Joined: true},
+	})
+	got := m.HandleKey("enter")
+	if got == nil || got.Type != "search" || got.ID != "g" {
+		t.Fatalf("enter = %+v, want search row", got)
+	}
+}

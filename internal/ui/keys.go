@@ -30,6 +30,7 @@ type KeyMap struct {
 	ToggleThread        key.Binding
 	FuzzyFinder         key.Binding
 	FuzzyFinderAlt      key.Binding
+	OmniSearch          key.Binding
 	Top                 key.Binding
 	Bottom              key.Binding
 	PageUp              key.Binding
@@ -53,6 +54,11 @@ type KeyMap struct {
 	PrevUnread          key.Binding
 	WorkspaceFinder     key.Binding
 	LeaveChannel        key.Binding
+	CreateChannel       key.Binding
+	InviteEmails        key.Binding
+	KickUser            key.Binding
+	AddChannelManager   key.Binding
+	NotifyLevel         key.Binding
 	ListPins            key.Binding
 	NewMessage          key.Binding
 	ThemeSwitcher       key.Binding
@@ -178,6 +184,7 @@ func DefaultKeyMap() KeyMap {
 		ToggleThread:    key.NewBinding(key.WithKeys("ctrl+]"), key.WithHelp("ctrl+]", "toggle thread")),
 		FuzzyFinder:     key.NewBinding(key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "switch channel")),
 		FuzzyFinderAlt:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch channel")),
+		OmniSearch:      key.NewBinding(key.WithKeys("ctrl+k", "cmd+k", "super+k"), key.WithHelp("ctrl+k", "search (Cmd+K)")),
 		Top:             key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "top")),
 		Bottom:          key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "bottom")),
 		PageUp:          key.NewBinding(key.WithKeys("pgup"), key.WithHelp("PgUp", "page up")),
@@ -205,6 +212,11 @@ func DefaultKeyMap() KeyMap {
 		// (1-9 also switch workspaces directly).
 		WorkspaceFinder:     key.NewBinding(key.WithHelp(":ws", "switch workspace")),
 		LeaveChannel:        key.NewBinding(key.WithHelp(":leave", "leave channel / close DM")),
+		CreateChannel:       key.NewBinding(key.WithHelp(":create", "create [private] channel")),
+		InviteEmails:        key.NewBinding(key.WithHelp(":invite", "invite email or U…")),
+		KickUser:            key.NewBinding(key.WithHelp(":kick", "remove member")),
+		AddChannelManager:   key.NewBinding(key.WithHelp(":manager", "make Channel Manager")),
+		NotifyLevel:         key.NewBinding(key.WithHelp(":notify", "all / mentions")),
 		ListPins:            key.NewBinding(key.WithHelp(":pins", "list pinned messages")),
 		NewMessage:          key.NewBinding(key.WithKeys("ctrl+n"), key.WithHelp("ctrl+n", "new message")),
 		ThemeSwitcher:       key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "switch theme (per workspace)")),
@@ -216,7 +228,7 @@ func DefaultKeyMap() KeyMap {
 		ToggleSection:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle section (or double-click header)")),
 		ToggleStar:          key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "star/unstar")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
-		NavForward:          key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "navigate forward")),
+		NavForward:          key.NewBinding(key.WithKeys("alt+right"), key.WithHelp("alt+right", "navigate forward")),
 		Help:                key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
 		ChannelMembers:      key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "channel members")),
 		SaveThread:          key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),

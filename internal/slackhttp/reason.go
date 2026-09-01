@@ -170,6 +170,15 @@ var xReasonExcludedMethods = map[string]struct{}{
 	"features.access.policies.list": {},
 }
 
+// xModeWithoutReasonMethods are workspace-API methods the official
+// client sends with _x_mode=online and NO _x_reason. The 2026-07-30
+// HARs had 0/163 of that pair; the 2026-09-01 Test Workspace capture
+// of conversations.create is the attested exception (public create:
+// name, validate_name=true, team_id, then _x_mode/_x_sonic/_x_app_name).
+var xModeWithoutReasonMethods = map[string]struct{}{
+	"conversations.create": {},
+}
+
 // sendsXReason reports whether a workspace-API form body for the given
 // API method should carry _x_reason. method is the name produced by
 // methodFromPath.
@@ -191,6 +200,9 @@ var xReasonExcludedMethods = map[string]struct{}{
 // a param the caller supplied. That seam is pinned by
 // TestEnvelopeBody_BodySuppliedReasonSurvivesOnExcludedEndpoints.
 func sendsXReason(method string) bool {
+	if _, ok := xModeWithoutReasonMethods[method]; ok {
+		return false
+	}
 	_, excluded := xReasonExcludedMethods[method]
 	return !excluded
 }

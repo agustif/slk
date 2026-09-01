@@ -191,6 +191,38 @@ func (s *SectionStore) populateStarsLocked(channelIDs []string) {
 	}
 }
 
+// IDByType returns the first sidebar section id with the given type
+// (stars, channels, direct_messages, …). Empty when missing.
+func (s *SectionStore) IDByType(sectionType string) string {
+	if s == nil || sectionType == "" {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.ready {
+		return ""
+	}
+	for _, sec := range s.sectionsByID {
+		if sec.Type == sectionType {
+			return sec.ID
+		}
+	}
+	return ""
+}
+
+// TypeByID returns the section type for id, or "".
+func (s *SectionStore) TypeByID(id string) string {
+	if s == nil || id == "" {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if sec := s.sectionsByID[id]; sec != nil {
+		return sec.Type
+	}
+	return ""
+}
+
 // StarredChannelIDs returns a copy of the stars section's channel list.
 // Empty when the store isn't ready or has no stars section.
 func (s *SectionStore) StarredChannelIDs() []string {

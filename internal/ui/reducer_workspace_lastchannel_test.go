@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/agustif/slk/internal/ui/sidebar"
+	"github.com/agustif/slk/internal/ui/unreadsview"
 )
 
 // TestWorkspaceReadyRestoresLastChannel is the headline of the
@@ -43,5 +44,25 @@ func TestWorkspaceReadyRestoresLastChannel(t *testing.T) {
 	// Channel was archived/left since the last visit -> first channel.
 	if sel, ok := selectOnReady("CGONE"); !ok || sel.ID != "C1" {
 		t.Errorf("stale LastChannelID: want C1 fallback, got ok=%v id=%q", ok, sel.ID)
+	}
+}
+
+func TestWorkspaceReadyAppliesUnreadsPrefs(t *testing.T) {
+	a := NewApp()
+	_, _ = a.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
+	_, _ = a.Update(WorkspaceReadyMsg{
+		TeamID:        "T1",
+		InitialActive: true,
+		UnreadsSort:   unreadsview.SortPriority,
+		UnreadsFilter: unreadsview.FilterVIP,
+		Channels: []sidebar.ChannelItem{
+			{ID: "C1", Name: "general", Type: "channel"},
+		},
+	})
+	if a.unreadsView.Sort() != unreadsview.SortPriority {
+		t.Errorf("sort = %q, want priority", a.unreadsView.Sort())
+	}
+	if a.unreadsView.Filter() != unreadsview.FilterVIP {
+		t.Errorf("filter = %q, want vip", a.unreadsView.Filter())
 	}
 }

@@ -253,6 +253,7 @@ type App struct {
 	// Defaulted to a no-op adapter in NewApp so call sites can dispatch
 	// without nil-checks.
 	messageSvc MessageService
+	fileStar   FileStarService
 
 	uploader UploadFunc
 
@@ -364,6 +365,10 @@ type App struct {
 	// that changes the query, including the one that empties it.
 	pendingPeopleSearchGen uint64
 
+	// omniSearchSession is the search.inline search_session_id reused
+	// for one Cmd+K overlay session.
+	omniSearchSession string
+
 	// channelSearchDebounce is the finder's debounce window. A field
 	// rather than the constant so tests can collapse it.
 	channelSearchDebounce time.Duration
@@ -462,7 +467,7 @@ type App struct {
 	// openURLCmd; tests inject fakes.
 	browserOpener func(url string) tea.Cmd
 
-	// navHistory owns the per-workspace ctrl+h / ctrl+k browser-style
+	// navHistory owns the per-workspace ctrl+h / alt+right browser-style
 	// jump list. See internal/ui/navhistory.go. Lazy-initialized on
 	// first push for each team. Cleared only when slk exits — the
 	// stacks are session-only by design.
@@ -685,6 +690,7 @@ func NewApp() *App {
 		unreads:               noopUnreadsService,
 		laterSaved:            map[string]bool{},
 		messageSvc:            noopMessageService,
+		fileStar:              noopFileStarService,
 		channels:              noopChannelService,
 		searchSvc:             noopSearchService,
 		lastChannelByTeam:     map[string]string{},
@@ -2442,6 +2448,14 @@ func (a *App) SetMessageService(s MessageService) {
 		s = noopMessageService
 	}
 	a.messageSvc = s
+}
+
+// SetFileStarService wires files.favorites.add / .remove (Files rail Starred).
+func (a *App) SetFileStarService(s FileStarService) {
+	if s == nil {
+		s = noopFileStarService
+	}
+	a.fileStar = s
 }
 
 // SetUploader wires the upload callback used by Ctrl+V smart-paste

@@ -9,11 +9,14 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/agustif/slk/internal/ids"
+	slackclient "github.com/agustif/slk/internal/slack"
 	"github.com/agustif/slk/internal/ui/wintree"
 )
 
@@ -32,6 +35,11 @@ var commands = map[string]commandFunc{
 	"only":           cmdOnlyWindow,
 	"on":             cmdOnlyWindow,
 	"leave":          cmdLeave,
+	"create":         cmdCreate,
+	"invite":         cmdInvite,
+	"kick":           cmdKick,
+	"manager":        cmdManager,
+	"notify":         cmdNotify,
 	"schedule":       cmdSchedule,
 	"scheduled":      cmdScheduledList,
 	"move":           cmdMove,
@@ -72,6 +80,134 @@ func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 
 func cmdLeave(a *App, _ []string) tea.Cmd {
 	return a.beginLeaveChannel()
+}
+
+func cmdCreate(a *App, args []string) tea.Cmd {
+	private := false
+	if len(args) > 0 && strings.EqualFold(args[0], "private") {
+		private = true
+		args = args[1:]
+	}
+	name := strings.TrimSpace(strings.ToLower(strings.Join(args, "-")))
+	if name == "" {
+		return toastWithClear(a, "Usage: :create [private] <name>", 2*time.Second)
+	}
+	channels := a.channels
+	return func() tea.Msg { return channels.Create(name, private) }
+}
+
+func cmdInvite(a *App, args []string) tea.Cmd {
+	if len(args) == 0 {
+		return toastWithClear(a, "Usage: :invite email|U… […]", 2*time.Second)
+	}
+	id, _, chType, ok := a.activeChannelMeta()
+	if !ok {
+		return toastWithClear(a, "No channel to invite to", 2*time.Second)
+	}
+	if isDirectMessage(chType) {
+		return toastWithClear(a, "Invite from a channel, not a DM", 2*time.Second)
+	}
+	var emails, users []string
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "U") && !strings.Contains(arg, "@"):
+			users = append(users, arg)
+		case strings.Contains(arg, "@"):
+			emails = append(emails, arg)
+		default:
+			return toastWithClear(a, "Usage: :invite email|U… […]", 2*time.Second)
+		}
+	}
+	if len(emails) > 0 && len(users) > 0 {
+		return toastWithClear(a, "Invite emails and user IDs separately", 2*time.Second)
+	}
+	channels := a.channels
+	if len(users) > 0 {
+		return func() tea.Msg { return channels.InviteUsers(users, ids.ChannelID(id)) }
+	}
+	return func() tea.Msg { return channels.InviteEmails(emails, ids.ChannelID(id)) }
+}
+
+func cmdKick(a *App, args []string) tea.Cmd {
+	if len(args) != 1 || !strings.HasPrefix(args[0], "U") {
+		return toastWithClear(a, "Usage: :kick U…", 2*time.Second)
+	}
+	id, name, chType, ok := a.activeChannelMeta()
+	if !ok {
+		return toastWithClear(a, "No channel", 2*time.Second)
+	}
+	if isDirectMessage(chType) {
+		return toastWithClear(a, "Kick from a channel, not a DM", 2*time.Second)
+	}
+	userID := args[0]
+	a.confirmPrompt.Open(
+		"Remove "+userID+" from #"+name+"?",
+		"They can be re-invited with :invite.",
+		func() tea.Msg {
+			return KickUserMsg{ChannelID: id, Channel: name, UserID: userID}
+		},
+	)
+	a.SetMode(ModeConfirm)
+	return nil
+}
+
+func cmdManager(a *App, args []string) tea.Cmd {
+	if len(args) == 0 {
+		return toastWithClear(a, "Usage: :manager U… [U…]", 2*time.Second)
+	}
+	var users []string
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "U") || strings.Contains(arg, "@") {
+			return toastWithClear(a, "Usage: :manager U… [U…]", 2*time.Second)
+		}
+		users = append(users, arg)
+	}
+	id, name, chType, ok := a.activeChannelMeta()
+	if !ok {
+		return toastWithClear(a, "No channel", 2*time.Second)
+	}
+	if isDirectMessage(chType) {
+		return toastWithClear(a, "Channel Manager is for channels, not DMs", 2*time.Second)
+	}
+	who := users[0]
+	if len(users) > 1 {
+		who = fmt.Sprintf("%d people", len(users))
+	}
+	a.confirmPrompt.Open(
+		"Make "+who+" a Channel Manager of #"+name+"?",
+		"Uses admin.roles.addMembers role_id=Rl0A.",
+		func() tea.Msg {
+			return AddChannelManagersMsg{ChannelID: id, Channel: name, UserIDs: users}
+		},
+	)
+	a.SetMode(ModeConfirm)
+	return nil
+}
+
+func cmdNotify(a *App, args []string) tea.Cmd {
+	if len(args) != 1 {
+		return toastWithClear(a, "Usage: :notify all|mentions", 2*time.Second)
+	}
+	level, ok := parseNotifyLevel(args[0])
+	if !ok {
+		return toastWithClear(a, "Usage: :notify all|mentions", 2*time.Second)
+	}
+	id, _, _, found := a.activeChannelMeta()
+	if !found {
+		return toastWithClear(a, "No channel", 2*time.Second)
+	}
+	channels := a.channels
+	return func() tea.Msg { return channels.SetNotifyLevel(ids.ChannelID(id), level) }
+}
+
+func parseNotifyLevel(s string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "all", "everything":
+		return slackclient.NotifyEverything, true
+	case "mentions", "mentions_dms":
+		return slackclient.NotifyMentions, true
+	}
+	return "", false
 }
 
 // beginLeaveChannel opens the leave-channel confirm overlay, or the

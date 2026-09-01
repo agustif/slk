@@ -27,6 +27,8 @@ const (
 	ActionStar          ActionID = "star"
 	ActionFollowThread  ActionID = "follow_thread"
 	ActionDownloadFile  ActionID = "download_file"
+	ActionStarFile      ActionID = "star_file"
+	ActionUnstarFile    ActionID = "unstar_file"
 	ActionOpenLinks     ActionID = "open_links"
 	ActionEdit          ActionID = "edit"
 	ActionDelete        ActionID = "delete"

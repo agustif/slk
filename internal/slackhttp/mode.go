@@ -61,18 +61,21 @@ var xModeExcludedMethods = map[string]struct{}{
 //
 // An unknown method sends _x_mode, matching the 149/163 majority.
 //
-// The sendsXReason guard makes the captures' one empty cell
-// unreachable BY CONSTRUCTION rather than by the two tables happening
-// to nest: 0 of the 163 captured form bodies carry _x_mode without
-// _x_reason, and "has _x_mode, lacks _x_reason" is the single-predicate
-// separator reason.go's defaultReasons table exists to close. Today
-// xReasonExcludedMethods is a strict subset of the map above, so the
-// guard never fires and is pure redundancy — which is the point. It is
-// here so that an edit adding an endpoint to one table and forgetting
-// the other cannot put that shape on the wire. Pinned by
-// TestSendsXModeImpliesSendsXReason and, at the wire level, by
-// TestEnvelopeBody_NeverSendsXModeWithoutXReason.
+// The sendsXReason guard makes the July 30 captures' empty cell
+// unreachable BY CONSTRUCTION for methods not in
+// xModeWithoutReasonMethods: 0 of those 163 form bodies carry
+// _x_mode without _x_reason. conversations.create (2026-09-01)
+// is the attested exception and is returned true from sendsXMode
+// before this guard. Today xReasonExcludedMethods is a strict
+// subset of xModeExcludedMethods, so the guard never fires for
+// the July 30 tables and is pure redundancy — which is the point.
+// Pinned by TestSendsXModeImpliesSendsXReason and, at the wire
+// level, by TestEnvelopeBody_NeverSendsXModeWithoutXReason
+// (July 30 corpus) plus TestEnvelopeBody_ConversationsCreateOmitsReasonKeepsMode.
 func sendsXMode(method string) bool {
+	if _, ok := xModeWithoutReasonMethods[method]; ok {
+		return true
+	}
 	if !sendsXReason(method) {
 		return false
 	}

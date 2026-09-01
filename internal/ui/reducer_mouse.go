@@ -447,7 +447,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			case unreadsview.ClickHeader:
 				return a.markSelectedUnreadCmd()
 			case unreadsview.ClickFilter:
-				return nil
+				return a.persistUnreadsFilterCmd()
 			}
 			return nil
 		}

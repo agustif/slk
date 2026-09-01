@@ -69,6 +69,12 @@ func TestMessageContextMenu_IncludesLaterPinFollow(t *testing.T) {
 	if it := got[contextmenu.ActionSaveForLater]; it.Label != "Save for later" {
 		t.Errorf("later label = %q, want Save for later", it.Label)
 	}
+	if _, ok := got[contextmenu.ActionStarFile]; !ok {
+		t.Error("missing Add to Starred files")
+	}
+	if _, ok := got[contextmenu.ActionUnstarFile]; !ok {
+		t.Error("missing Remove from Starred files")
+	}
 }
 
 func TestMessageContextMenu_EnterAddReactionOpensPicker(t *testing.T) {

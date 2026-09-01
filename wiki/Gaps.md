@@ -17,10 +17,10 @@ Sidebar switcher, in this order:
 | `⚑ Threads` | Followed threads | `subscriptions.thread` |
 | `✉ Direct Messages` | DMs tab | cache + `conversations.history` limit=1; `:leave` → `conversations.close` |
 | `✎ Drafts` | Drafts & sent | `drafts.list` + `chat.scheduledMessages.list` |
-| `◉ Unreads` | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`) |
+| `◉ Unreads` | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`). Sort pref `all_unreads_sort_order` including scientifically=`priority`. |
 | `★ Starred` | Starred **messages** | `stars.list` `type=message` |
 
-Channel / IM / MPIM stars (`stars.list` `type=channel|im|mpim|group`) are the sidebar **Starred section**, not this inbox. Join (`conversations.join`) and Leave (`conversations.leave` / `conversations.close`) exist. Mute writes `users.prefs.setNotifications` `name=muted`.
+Channel / IM / MPIM stars (`stars.list` `type=channel|im|mpim|group`) are the sidebar **Starred section**, not this inbox. Join, Leave, public/private create, email invite, and existing-member invite/kick exist. Mute writes `name=muted`. Mentions-only / all-new-posts write the multi-pref form. Channel views also POST OG Home recents (`users.prefs.set` `name=recents`).
 
 ## Product gaps vs official Slack
 
@@ -28,21 +28,34 @@ These are OG holes a daily driver still hits. They stay omitted until a capture 
 
 | Gap | Official Slack | What this repo already knows | Why it is not built |
 |---|---|---|---|
-| **Create channel** | New channel UI | Public method `conversations.create`. slk wraps **join** and **leave** only. | No HAR of the official client's create form / `_x_reason` / response. No slk wrapper. |
-| **Invite members** | Add people to a channel | Members overlay (`I`) is read + open DM (`conversations.open`). | No HAR of `conversations.invite` (or the current client equivalent). No slk wrapper. |
-| **Mentions-only notifications** | Channel pref: all / mentions / nothing | Mute: `users.prefs.setNotifications` `name=muted`. Boot `all_notifications_prefs` includes `suppress_at_channel`. | Mentions-only **pref `name` / `value`** were not captured. Writing `muted` or guessing `suppress_at_channel` as mentions-only would invent a pref. |
-| **Starred files inbox** | Starred items includes files | `stars.list` comments mention `type=file`. Inbox is `type=message` only. | File-item JSON (file id, name, permalink, …) not captured for this parse. |
-| **Unreads “recommended / scientifically” sort** | Home All Unreads extra sorts | Session-local `f`/`F`: sidebar / alphabetical / newest / oldest. | Sort algorithm unknown. Not in the 2026-08-31 Unreads capture. |
-| **Unreads sort / section-filter persistence** | Official client remembers sort and `all_unreads_section_filter` | Session-local `f`/`F` sort and `s`/chip filters (All / VIP / Starred / Channels / DMs). VIP/Starred use sidebar `prefs.vip_users` / `stars.list`; Channels vs DMs use conversation type. | Pref names/values other than captured `all_unreads_section_filter=all_sections` were not captured; slk does not write them. |
-| **`stars.list` beyond the first page** | Starred lists can be long | One `POST stars.list` with `limit=1000`. Response has `paging.count` / `paging.total`. | Next-page form (cursor / page / offset) not captured. Hard cap 1000 message stars. |
+| **Starred files inbox** | Files rail “Starred” collection | **Write shipped both ways:** `files.favorites.add` / `.remove` `file_id` + `collection_id` (`_x_reason=add_file_to_collection` / `remove_file_from_collection`; `ok=true` on `F0BUVQHU6NL` → `Fs0BTURTUXK5`). Message menu **Add to Starred files** / **Remove from Starred files**. Same-session Move-to radio reflects membership; **reload** unchecks it. `files.collections.list` `files[]` still empty; `files.info` `is_starred=false`. JS list `files.favorites.list` `type=all` `reason=starred_unified_files` is skipped when `custom_file_sections=on` (not HAR’d). | Cannot list starred files without `files.favorites.list` / non-empty collection `files[]`. |
+| **`stars.list` beyond the first page** | Starred lists can be long | One `POST stars.list` with `limit=1000`. Response has `paging.count` / `paging.total`. JS fetcher also names `page` / `cursor`. | Next-page form not captured from a live request. Hard cap 1000 message stars. |
 
 ### Not in the table on purpose
 
 - **Join** a public channel from the finder: shipped (`conversations.join`).
+- **Create** a public or private channel (`:create <name>` / `:create private <name>`): shipped (`conversations.create`; private adds `is_private=true`).
+- **Invite by email** (`:invite email…`): shipped (`users.admin.inviteBulk`).
+- **Invite existing members** (`:invite U…`): shipped (`conversations.invite` `force=true`, empty `subteams`, `_x_reason=submit-invite-channel-invite-modal`).
+- **Kick** (`:kick U…`): shipped (`conversations.kick`, `_x_reason=submitKickFromChannel`).
+- **Channel Manager** (`:manager U…`): shipped (`admin.roles.addMembers` `role_id=Rl0A`). Official picker still says “No matches” for Workspace Tester; slk posts the captured form for a `U…` id. Success extra JSON keys uncaptured (`parseSlackAPIAck` is `ok`).
+- **OG recents**: shipped write (`users.prefs.set` `name=recents` on channel view; `object_type=CHANNEL` for `C…` ids). DM recents type not captured.
+- **Mentions-only / all new posts** (`:notify mentions` / `:notify all`): shipped (`users.prefs.setNotifications` multi-pref `desktop=mentions_dms` / `desktop=everything`, `_x_reason=prefs-store/setMultiChannelNotificationOverride`). Mute (`m`) is still `name=muted`.
 - **Star / unstar a channel** (`*`): shipped (`stars.add` / `stars.remove` without timestamp).
 - **Star / unstar a message** (`x` menu, or `*` in the Starred inbox): shipped (`stars.add` / `stars.remove` with timestamp).
+- **Add / remove a file in Files-rail Starred** (`x` → Add to Starred files / Remove from Starred files): shipped write (`files.favorites.add` / `.remove`). Inbox list not shipped.
 - **Starred IMs / MPIMs** in the Starred *section*: shipped (`stars.list` `type=im|mpim|group` with a channel id).
-- **Unreads section chips** (All / VIP / Starred / Channels / DMs): shipped session-local; the Slack pref is not written.
+- **Unreads section chips** (All / VIP / Starred / Channels / DMs): shipped. `s` / chips write `all_unreads_section_filter` (`all_sections`, VIP=`priority`, Starred/Channels/DMs = sidebar section ids). Boot-read applied. Custom sidebar sections are not extra chips.
+- **Unreads recommended / scientifically sort** (`f`/`F` → recommended): shipped. Pref `all_unreads_sort_order=priority` written and applied from boot. Client-side `sortScientifically`: starred then not; channels-with-mentions, channels, IMs, MPIMs; `channels_priority` desc then name.
+
+### Captured, not a product gap
+
+Wire forms live in [[Protocol]]. They are not Home-inbox holes:
+
+- **`client.dms`**: `count=250`, `priority_mode=priority` (string), `_x_reason=dms-tab-populate`, response `ims`/`mpims`. DMs tab already ships from boot cache + history; not wired.
+- **`files.recentlyDeleted`**: `_x_reason=get-deleted-files`, `files:[]`. Files-rail support.
+
+Third-party session catalogs (karbassi, rusq, slack-ruby, ErikKalkoken) are **hints**. Chinese Gitee/GitCode/CSDN searches found no xoxc method map. Do not wrap from those lists.
 
 ## Permanent non-goals
 
@@ -61,12 +74,12 @@ Product code can be complete while the fork is not a drop-in install of a tagged
 
 | Gap | Status |
 |---|---|
-| **GitHub Release / semver tag** | **v0.18.1** (first fork tag was v0.17.0). Homebrew formula in [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) pins the current tag (`brew install agustif/tap/slk`); `--HEAD` still tracks `main`. |
+| **GitHub Release / semver tag** | **v0.19.0** (first fork tag was v0.17.0). Homebrew formula in [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) pins the current tag (`brew install agustif/tap/slk`); `--HEAD` still tracks `main`. |
 | **GitHub release artifacts** | Cut with GoReleaser on tag `v*` (linux/windows static, darwin cgo). `workflow_dispatch` can rebuild an existing tag. |
 | **AUR** | AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This repo ships `packaging/aur` as `slk-git`; it is **not published** to the AUR. |
-| **Nix flake** | In-tree `flake.nix` (`version = "0.18.1"`). Not a published nixpkgs/flakehub package. |
+| **Nix flake** | In-tree `flake.nix` (`version = "0.19.0"`). Not a published nixpkgs/flakehub package. |
 | **GitHub Wiki tab** | Disabled. Docs are `wiki/*.md` in this repo (linked from the README). |
 
 ## How a gap gets filled
 
-See [[Protocol#how-a-new-method-gets-in]]. Short version: HAR the official web client, wrap only that shape, no live mutating probes.
+See [[Protocol#how-a-new-method-gets-in]]. Short version: HAR the official web client, wrap only that shape, no live mutating probes. A public or third-party method name is not a capture.

@@ -135,6 +135,13 @@ func (m *Model) Open() {
 	m.highlightTerms = nil
 }
 
+// OpenQuery opens the workspace-search modal with query prefilled
+// (Cmd+K "Search Slack for …").
+func (m *Model) OpenQuery(q string) {
+	m.Open()
+	m.query = q
+}
+
 // Kind is the active Messages/Files/People tab.
 func (m Model) Kind() Kind { return m.kind }
 

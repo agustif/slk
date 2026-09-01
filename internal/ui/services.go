@@ -475,15 +475,19 @@ func (d draftsAdapter) DeleteScheduled(channelID ids.ChannelID, scheduledID stri
 }
 
 type UnreadsServiceFuncs struct {
-	List       func(teamID ids.TeamID, gen uint64) tea.Msg
-	MarkRead   func(channelID ids.ChannelID, ts ids.MessageTS) error
-	MarkUnread func(channelID ids.ChannelID, ts ids.MessageTS) error
+	List         func(teamID ids.TeamID, gen uint64) tea.Msg
+	MarkRead     func(channelID ids.ChannelID, ts ids.MessageTS) error
+	MarkUnread   func(channelID ids.ChannelID, ts ids.MessageTS) error
+	SetSortOrder func(order string) error
+	SetFilter    func(filter string) error
 }
 
 type UnreadsService interface {
 	List(teamID ids.TeamID, gen uint64) tea.Msg
 	MarkRead(channelID ids.ChannelID, ts ids.MessageTS) error
 	MarkUnread(channelID ids.ChannelID, ts ids.MessageTS) error
+	SetSortOrder(order string) error
+	SetFilter(filter string) error
 }
 
 func NewUnreadsService(fns UnreadsServiceFuncs) UnreadsService {
@@ -515,6 +519,20 @@ func (u unreadsAdapter) MarkUnread(channelID ids.ChannelID, ts ids.MessageTS) er
 		return nil
 	}
 	return u.fns.MarkUnread(channelID, ts)
+}
+
+func (u unreadsAdapter) SetSortOrder(order string) error {
+	if u.fns.SetSortOrder == nil {
+		return errServiceNoop
+	}
+	return u.fns.SetSortOrder(order)
+}
+
+func (u unreadsAdapter) SetFilter(filter string) error {
+	if u.fns.SetFilter == nil {
+		return errServiceNoop
+	}
+	return u.fns.SetFilter(filter)
 }
 
 // MessageService is the App's interface to Slack's per-message
@@ -793,6 +811,11 @@ type ChannelService interface {
 	// reducer can drop late results from cancelled submits.
 	OpenConversation(userIDs []string, requestID uint64) tea.Cmd
 
+	// SearchOmni asks Cmd+K sources (people, search.inline messages,
+	// autocomplete files) for query. Empty or a failed source returns
+	// fewer rows; never nil-panic.
+	SearchOmni(query, currentChannel string, recent []string) []channelfinder.Item
+
 	// SearchRemote asks the server which channels match query,
 	// including ones the user has not joined, and blocks until it
 	// answers. Callers run it from a tea.Cmd, debounced — see
@@ -809,6 +832,30 @@ type ChannelService interface {
 	// tea.Msg (typically ChannelMutedMsg) so the reducer can roll
 	// back an optimistic sidebar update on error.
 	SetMuted(channelID ids.ChannelID, muted bool) tea.Msg
+
+	// Create sends conversations.create. private=true sends
+	// is_private=true (2026-09-01 private-create capture). Returns
+	// ChannelCreatedMsg or ChannelCreateFailedMsg.
+	Create(name string, private bool) tea.Msg
+
+	// InviteEmails sends users.admin.inviteBulk for the given emails
+	// against channelID (workspace invite from the channel-invite
+	// flow). Returns ChannelInvitedMsg or ChannelInviteFailedMsg.
+	InviteEmails(emails []string, channelID ids.ChannelID) tea.Msg
+
+	// InviteUsers sends conversations.invite for existing members.
+	InviteUsers(userIDs []string, channelID ids.ChannelID) tea.Msg
+
+	// Kick sends conversations.kick for userID in channelID.
+	Kick(channelID ids.ChannelID, userID string) tea.Msg
+
+	// AddManagers sends admin.roles.addMembers role_id=Rl0A for
+	// userIDs on channelID (Make Channel Manager).
+	AddManagers(channelID ids.ChannelID, userIDs []string) tea.Msg
+
+	// SetNotifyLevel writes the captured multi-pref notify form
+	// (desktop=everything or mentions_dms). Returns ChannelNotifySetMsg.
+	SetNotifyLevel(channelID ids.ChannelID, level string) tea.Msg
 
 	// FetchChrome loads bookmarks and pins for the channel header
 	// extras row. Fired in parallel with Fetch on channel select
@@ -836,7 +883,14 @@ type ChannelServiceFuncs struct {
 	MembershipFetch  func(channelID ids.ChannelID)
 	OpenConversation func(userIDs []string, requestID uint64) tea.Cmd
 	SearchRemote     func(query string) []channelfinder.Item
+	SearchOmni       func(query, currentChannel string, recent []string) []channelfinder.Item
 	SetMuted         func(channelID ids.ChannelID, muted bool) tea.Msg
+	Create           func(name string, private bool) tea.Msg
+	InviteEmails     func(emails []string, channelID ids.ChannelID) tea.Msg
+	InviteUsers      func(userIDs []string, channelID ids.ChannelID) tea.Msg
+	Kick             func(channelID ids.ChannelID, userID string) tea.Msg
+	AddManagers      func(channelID ids.ChannelID, userIDs []string) tea.Msg
+	SetNotifyLevel   func(channelID ids.ChannelID, level string) tea.Msg
 	FetchChrome      func(channelID ids.ChannelID) tea.Msg
 }
 
@@ -952,6 +1006,13 @@ func (c channelAdapter) SearchRemote(query string) []channelfinder.Item {
 	return c.fns.SearchRemote(query)
 }
 
+func (c channelAdapter) SearchOmni(query, currentChannel string, recent []string) []channelfinder.Item {
+	if c.fns.SearchOmni == nil {
+		return nil
+	}
+	return c.fns.SearchOmni(query, currentChannel, recent)
+}
+
 func (c channelAdapter) OpenConversation(userIDs []string, requestID uint64) tea.Cmd {
 	if c.fns.OpenConversation == nil {
 		return nil
@@ -966,11 +1027,85 @@ func (c channelAdapter) SetMuted(channelID ids.ChannelID, muted bool) tea.Msg {
 	return c.fns.SetMuted(channelID, muted)
 }
 
+func (c channelAdapter) Create(name string, private bool) tea.Msg {
+	if c.fns.Create == nil {
+		return nil
+	}
+	return c.fns.Create(name, private)
+}
+
+func (c channelAdapter) InviteEmails(emails []string, channelID ids.ChannelID) tea.Msg {
+	if c.fns.InviteEmails == nil {
+		return nil
+	}
+	return c.fns.InviteEmails(emails, channelID)
+}
+
+func (c channelAdapter) InviteUsers(userIDs []string, channelID ids.ChannelID) tea.Msg {
+	if c.fns.InviteUsers == nil {
+		return nil
+	}
+	return c.fns.InviteUsers(userIDs, channelID)
+}
+
+func (c channelAdapter) Kick(channelID ids.ChannelID, userID string) tea.Msg {
+	if c.fns.Kick == nil {
+		return nil
+	}
+	return c.fns.Kick(channelID, userID)
+}
+
+func (c channelAdapter) AddManagers(channelID ids.ChannelID, userIDs []string) tea.Msg {
+	if c.fns.AddManagers == nil {
+		return nil
+	}
+	return c.fns.AddManagers(channelID, userIDs)
+}
+
+func (c channelAdapter) SetNotifyLevel(channelID ids.ChannelID, level string) tea.Msg {
+	if c.fns.SetNotifyLevel == nil {
+		return nil
+	}
+	return c.fns.SetNotifyLevel(channelID, level)
+}
+
 func (c channelAdapter) FetchChrome(channelID ids.ChannelID) tea.Msg {
 	if c.fns.FetchChrome == nil {
 		return nil
 	}
 	return c.fns.FetchChrome(channelID)
+}
+
+// FileStarService writes Files-rail Starred via files.favorites.add
+// / files.favorites.remove.
+type FileStarService interface {
+	AddToStarred(fileID string) error
+	RemoveFromStarred(fileID string) error
+}
+
+type fileStarAdapter struct {
+	add    func(fileID string) error
+	remove func(fileID string) error
+}
+
+func NewFileStarService(add, remove func(fileID string) error) FileStarService {
+	return fileStarAdapter{add: add, remove: remove}
+}
+
+var noopFileStarService FileStarService = fileStarAdapter{}
+
+func (f fileStarAdapter) AddToStarred(fileID string) error {
+	if f.add == nil {
+		return errServiceNoop
+	}
+	return f.add(fileID)
+}
+
+func (f fileStarAdapter) RemoveFromStarred(fileID string) error {
+	if f.remove == nil {
+		return errServiceNoop
+	}
+	return f.remove(fileID)
 }
 
 // SearchService runs message searches. SearchChannel queries the local

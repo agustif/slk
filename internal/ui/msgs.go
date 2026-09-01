@@ -440,6 +440,8 @@ type (
 		SectionsProvider sidebar.SectionsProvider
 		ActivityUnread   int
 		LaterCount       int
+		UnreadsSort      string
+		UnreadsFilter    string
 	}
 	// ReadStateChangedMsg is sent whenever the persistent read state changes,
 	// so panels that read from cache.GetWorkspaceReadState re-render.
@@ -556,6 +558,10 @@ type (
 		// the workspace-rail logo. Empty until boot (or a cached
 		// icon_url) supplies one; initials stay until then.
 		IconURL string
+		// UnreadsSort / UnreadsFilter are Home All Unreads prefs from
+		// client.userBoot, already mapped onto slk chip/sort ids.
+		UnreadsSort   string
+		UnreadsFilter string
 	}
 	// CustomEmojisLoadedMsg is sent when a workspace's custom emoji list
 	// finishes loading in the background, after WorkspaceReadyMsg has
@@ -594,6 +600,7 @@ type (
 		Query  string
 		Gen    uint64
 		Items  []channelfinder.Item
+		Omni   []channelfinder.Item
 	}
 	SpinnerTickMsg    struct{}
 	LoadingTimeoutMsg struct{}
@@ -881,6 +888,79 @@ type ChannelReopenedMsg struct {
 type ChannelReopenFailedMsg struct {
 	ID  string
 	Err error
+}
+
+// ChannelCreatedMsg is sent after conversations.create succeeds.
+type ChannelCreatedMsg struct {
+	ID      string
+	Name    string
+	Private bool
+}
+
+// ChannelCreateFailedMsg is sent when conversations.create fails.
+type ChannelCreateFailedMsg struct {
+	Name string
+	Err  error
+}
+
+// ChannelInvitedMsg is sent after users.admin.inviteBulk or
+// conversations.invite succeeds.
+type ChannelInvitedMsg struct {
+	Emails    []string
+	UserIDs   []string
+	ChannelID string
+}
+
+// ChannelInviteFailedMsg is sent when invite fails.
+type ChannelInviteFailedMsg struct {
+	Emails  []string
+	UserIDs []string
+	Err     error
+}
+
+// KickUserMsg is emitted when the user confirms :kick.
+type KickUserMsg struct {
+	ChannelID string
+	Channel   string
+	UserID    string
+}
+
+type ChannelKickedMsg struct {
+	ChannelID string
+	Channel   string
+	UserID    string
+}
+
+type ChannelKickFailedMsg struct {
+	Channel string
+	UserID  string
+	Err     error
+}
+
+// AddChannelManagersMsg is emitted when the user confirms :manager.
+type AddChannelManagersMsg struct {
+	ChannelID string
+	Channel   string
+	UserIDs   []string
+}
+
+type ChannelManagersAddedMsg struct {
+	ChannelID string
+	Channel   string
+	UserIDs   []string
+}
+
+type ChannelManagersAddFailedMsg struct {
+	Channel string
+	UserIDs []string
+	Err     error
+}
+
+// ChannelNotifySetMsg is the result of ChannelService.SetNotifyLevel.
+type ChannelNotifySetMsg struct {
+	ChannelID string
+	Level     string
+	Err       error
 }
 
 type ScheduledListMsg struct {

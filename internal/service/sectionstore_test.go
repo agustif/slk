@@ -261,6 +261,25 @@ func TestSectionStore_PopulateStars_ReplacesPreviousStarList(t *testing.T) {
 // SetStarred is the optimistic path used by the TUI `*` toggle: add a
 // channel, the stars section becomes renderable; remove the last one,
 // includeInSidebar hides it again.
+func TestSectionStore_IDByTypeAndTypeByID(t *testing.T) {
+	sections := []slk.SidebarSection{
+		{ID: "ST", Type: "stars", Name: "Starred", Next: "CH", LastUpdate: 1, ChannelIDs: []string{"C1"}},
+		{ID: "CH", Type: "channels", Name: "Channels", Next: "DM", LastUpdate: 1},
+		{ID: "DM", Type: "direct_messages", Name: "DMs", Next: "", LastUpdate: 1},
+	}
+	store := NewSectionStore()
+	_ = store.Bootstrap(context.Background(), &fakeSectionsClient{sections: sections})
+	if got := store.IDByType("stars"); got != "ST" {
+		t.Errorf("stars id = %q", got)
+	}
+	if got := store.TypeByID("DM"); got != "direct_messages" {
+		t.Errorf("DM type = %q", got)
+	}
+	if got := store.IDByType("missing"); got != "" {
+		t.Errorf("missing = %q", got)
+	}
+}
+
 func TestSectionStore_SetStarred_ShowsAndHidesStarsSection(t *testing.T) {
 	sections := []slk.SidebarSection{
 		{ID: "ST", Type: "stars", Name: "", Next: "U", LastUpdate: 1},

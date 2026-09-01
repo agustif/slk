@@ -917,6 +917,17 @@ func TestPrefsUnmarshalJSONCopiesItsInput(t *testing.T) {
 	}
 }
 
+func TestPrefsUnmarshalJSON_AllUnreadsPrefs(t *testing.T) {
+	var p Prefs
+	body := []byte(`{"all_unreads_sort_order":"priority","all_unreads_section_filter":"all_sections","vip_users":"U1"}`)
+	if err := p.UnmarshalJSON(body); err != nil {
+		t.Fatal(err)
+	}
+	if p.AllUnreadsSortOrder != "priority" || p.AllUnreadsSectionFilter != "all_sections" || p.VipUsers != "U1" {
+		t.Errorf("sort=%q filter=%q vip=%q", p.AllUnreadsSortOrder, p.AllUnreadsSectionFilter, p.VipUsers)
+	}
+}
+
 // -------------------------------------------------------------- errors
 
 // TestUserBoot_OKFalseIsAnError pins Slack's application-level failure

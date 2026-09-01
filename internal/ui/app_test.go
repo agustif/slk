@@ -4504,28 +4504,16 @@ func TestCtrlHTriggersNavBack(t *testing.T) {
 	}
 }
 
-func TestCtrlKTriggersNavForward(t *testing.T) {
+func TestCtrlKOpensOmniSearch(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
-	app.setChannelLookupFuncForTest(func(channelID ids.ChannelID) (string, string, bool) {
-		return string(channelID), "channel", true
-	})
-
-	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "a", Type: "channel"})
-	_, _ = app.Update(ChannelSelectedMsg{ID: "C2", Name: "b", Type: "channel"})
-	app.navHistory.Stack("T1").cursor = 0
-
 	cmd := app.handleNormalMode(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
-	if cmd == nil {
-		t.Fatal("expected cmd from ctrl+k dispatch")
+	_ = cmd
+	if app.mode != ModeChannelFinder {
+		t.Fatalf("mode = %v, want ModeChannelFinder", app.mode)
 	}
-	got := cmd()
-	cs, ok := got.(ChannelSelectedMsg)
-	if !ok {
-		t.Fatalf("want ChannelSelectedMsg, got %T", got)
-	}
-	if cs.ID != "C2" || !cs.FromHistory {
-		t.Errorf("want ID=C2 FromHistory=true, got %+v", cs)
+	if !app.channelFinder.Omni() {
+		t.Fatal("finder should be in Cmd+K Search mode")
 	}
 }
 

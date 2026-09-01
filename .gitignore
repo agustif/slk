@@ -12,3 +12,5 @@ slk-debug.log
 # credentials and real message content, so they must never be
 # committed. Sanitized extracts belong in testdata/ instead.
 *.har
+.playwriter-hook.js
+.playwriter-eval.js

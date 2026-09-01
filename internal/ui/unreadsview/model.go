@@ -20,25 +20,28 @@ const (
 )
 
 const (
-	SortSidebar = "sidebar"
-	SortAlpha   = "alpha"
-	SortNewest  = "newest"
-	SortOldest  = "oldest"
+	SortSidebar  = "sidebar"
+	SortAlpha    = "alpha"
+	SortPriority = "priority"
+	SortNewest   = "newest"
+	SortOldest   = "oldest"
 )
 
-var unreadsSorts = []string{SortSidebar, SortAlpha, SortNewest, SortOldest}
+var unreadsSorts = []string{SortSidebar, SortAlpha, SortPriority, SortNewest, SortOldest}
 
 var sortLabels = map[string]string{
-	SortSidebar: "sidebar",
-	SortAlpha:   "alphabetical",
-	SortNewest:  "newest",
-	SortOldest:  "oldest",
+	SortSidebar:  "sidebar",
+	SortAlpha:    "alphabetical",
+	SortPriority: "recommended",
+	SortNewest:   "newest",
+	SortOldest:   "oldest",
 }
 
-// Session-local All Unreads section chips. Slack's Home chips are All /
-// VIP / Starred / Channels / DMs. Only all_unreads_section_filter=all_sections
-// was captured; slk does not write that pref. VIP/Starred use the same
-// conversation flags the sidebar already has (prefs.vip_users / stars.list).
+// All Unreads section chips. Slack's Home menu is All / VIP / Starred /
+// Channels / DMs plus workspace sidebar sections. slk chips write
+// all_unreads_section_filter (all_sections, VIP=priority, others =
+// sidebar section ids). VIP/Starred membership still uses
+// prefs.vip_users / stars.list.
 const (
 	FilterAll      = "all"
 	FilterVIP      = "vip"
@@ -93,8 +96,10 @@ type Block struct {
 	Messages    []Message
 	MarkedRead  bool
 	MarkedCount int
-	IsStarred   bool
-	IsVIP       bool
+	IsStarred    bool
+	IsVIP        bool
+	Priority     float64
+	MentionCount int
 }
 
 type selRow struct {
@@ -241,8 +246,10 @@ func (m *Model) Clear() {
 
 func ClampSort(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case SortAlpha, SortNewest, SortOldest:
+	case SortAlpha, SortPriority, SortNewest, SortOldest:
 		return strings.ToLower(strings.TrimSpace(s))
+	case "alphabetical":
+		return SortAlpha
 	default:
 		return SortSidebar
 	}
@@ -295,6 +302,54 @@ func ClampFilter(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case FilterVIP, FilterStarred, FilterChannels, FilterDMs:
 		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return FilterAll
+	}
+}
+
+// WireFilter maps a slk Unreads chip to the captured
+// all_unreads_section_filter value. idByType looks up sidebar section
+// ids (stars / channels / direct_messages). Empty means do not POST.
+func WireFilter(chip string, idByType func(string) string) string {
+	if idByType == nil {
+		idByType = func(string) string { return "" }
+	}
+	switch ClampFilter(chip) {
+	case FilterAll:
+		return slackclient.UnreadsFilterAllSections
+	case FilterVIP:
+		return slackclient.UnreadsFilterVIP
+	case FilterStarred:
+		return idByType("stars")
+	case FilterChannels:
+		return idByType("channels")
+	case FilterDMs:
+		return idByType("direct_messages")
+	default:
+		return ""
+	}
+}
+
+// ChipFromWire maps a captured all_unreads_section_filter value onto
+// slk's All / VIP / Starred / Channels / DMs chips. Unknown section
+// ids (custom sidebar sections) fall back to All.
+func ChipFromWire(wire string, typeByID func(string) string) string {
+	switch wire {
+	case "", slackclient.UnreadsFilterAllSections:
+		return FilterAll
+	case slackclient.UnreadsFilterVIP:
+		return FilterVIP
+	}
+	if typeByID == nil {
+		return FilterAll
+	}
+	switch typeByID(wire) {
+	case "stars":
+		return FilterStarred
+	case "channels":
+		return FilterChannels
+	case "direct_messages":
+		return FilterDMs
 	default:
 		return FilterAll
 	}
@@ -481,6 +536,8 @@ func (m *Model) applySort() {
 				return na < nb
 			}
 			return a.ChannelID < b.ChannelID
+		case SortPriority:
+			return scientificLess(a, b)
 		case SortNewest:
 			ta, tb := a.LatestTS, b.LatestTS
 			if ta != tb {
@@ -516,6 +573,48 @@ func (b Block) displayName() string {
 		return b.ChannelName
 	}
 	return b.ChannelID
+}
+
+// scientificLess is the official client's sortScientifically (gantry
+// UnreadsView, 2026-09-01): starred, then unstarred; within each group
+// public+private channels (mentions first), then IMs, then MPIMs; each
+// bucket by channels_priority descending then display name.
+func scientificLess(a, b Block) bool {
+	if a.IsStarred != b.IsStarred {
+		return a.IsStarred
+	}
+	ka, kb := scientificTypeRank(a), scientificTypeRank(b)
+	if ka != kb {
+		return ka < kb
+	}
+	if ka == 0 {
+		ma, mb := a.MentionCount > 0, b.MentionCount > 0
+		if ma != mb {
+			return ma
+		}
+	}
+	if a.Priority != b.Priority {
+		return a.Priority > b.Priority
+	}
+	na, nb := strings.ToLower(a.displayName()), strings.ToLower(b.displayName())
+	if na != nb {
+		return na < nb
+	}
+	return a.ChannelID < b.ChannelID
+}
+
+func scientificTypeRank(b Block) int {
+	if isDirectConversation(b.ChannelType, b.ChannelID) {
+		switch b.ChannelType {
+		case "group_dm":
+			return 2
+		}
+		if b.ChannelID != "" && b.ChannelID[0] == 'G' {
+			return 2
+		}
+		return 1
+	}
+	return 0
 }
 
 func (m *Model) rebuildRows() {

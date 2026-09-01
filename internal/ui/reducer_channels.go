@@ -28,6 +28,11 @@
 //	                                add to sidebar + open it.
 //	ChannelJoinFailedMsg          - finder-driven join failed:
 //	                                log warning (toast TBD).
+//	ChannelCreatedMsg             - :create succeeded: add + open + toast.
+//	ChannelCreateFailedMsg        - :create API failed: toast.
+//	ChannelInvitedMsg             - :invite succeeded: toast.
+//	ChannelInviteFailedMsg        - :invite API failed: toast.
+//	ChannelNotifySetMsg           - :notify result: toast (or error).
 //	LeaveChannelMsg               - user confirmed :leave: dispatch
 //	                                ChannelService.Leave.
 //	ChannelLeftMsg                - leave succeeded: drop from sidebar,
@@ -66,6 +71,7 @@ package ui
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -213,35 +219,64 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case ChannelJoinedMsg:
-		// Add the newly-joined channel to the sidebar (so it shows
-		// up in the regular list) and mark it joined in the finder.
-		// Then dispatch a ChannelSelectedMsg to open it.
-		newItem := sidebar.ChannelItem{
-			ID:   m.ID,
-			Name: m.Name,
-			Type: "channel",
+		return openCreatedChannel(a, m.ID, m.Name, "channel"), true
+
+	case ChannelCreatedMsg:
+		chType := "channel"
+		if m.Private {
+			chType = "private"
 		}
-		items := a.sidebar.Items()
-		// Avoid double-add if a presence/list event raced ahead.
-		alreadyInSidebar := false
-		for _, it := range items {
-			if it.ID == m.ID {
-				alreadyInSidebar = true
+		toast := toastWithClear(a, "Created #"+m.Name, 2*time.Second)
+		return tea.Batch(toast, openCreatedChannel(a, m.ID, m.Name, chType)), true
+
+	case ChannelCreateFailedMsg:
+		return toastWithClear(a, fmt.Sprintf("Create failed: %v", m.Err), 3*time.Second), true
+
+	case ChannelInvitedMsg:
+		return toastWithClear(a, inviteToast(m), 2*time.Second), true
+
+	case ChannelInviteFailedMsg:
+		return toastWithClear(a, "Invite failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+
+	case KickUserMsg:
+		channels := a.channels
+		chID, userID := ids.ChannelID(m.ChannelID), m.UserID
+		return func() tea.Msg { return channels.Kick(chID, userID) }, true
+
+	case ChannelKickedMsg:
+		return toastWithClear(a, "Removed "+m.UserID+" from #"+m.Channel, 2*time.Second), true
+
+	case ChannelKickFailedMsg:
+		return toastWithClear(a, "Kick failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+
+	case AddChannelManagersMsg:
+		channels := a.channels
+		chID, users := ids.ChannelID(m.ChannelID), m.UserIDs
+		return func() tea.Msg { return channels.AddManagers(chID, users) }, true
+
+	case ChannelManagersAddedMsg:
+		who := strings.Join(m.UserIDs, ", ")
+		if len(m.UserIDs) == 0 {
+			who = "member"
+		}
+		return toastWithClear(a, "Made "+who+" a Channel Manager of #"+m.Channel, 2*time.Second), true
+
+	case ChannelManagersAddFailedMsg:
+		return toastWithClear(a, "Channel Manager failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+
+	case ChannelNotifySetMsg:
+		if m.Err != nil {
+			return toastWithClear(a, "Notify failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+		}
+		label := notifyPrefLabel(m.Level)
+		name := m.ChannelID
+		for _, it := range a.sidebar.Items() {
+			if it.ID == m.ChannelID {
+				name = it.Name
 				break
 			}
 		}
-		if !alreadyInSidebar {
-			items = append(items, newItem)
-			a.SetChannels(items)
-		}
-		a.channelFinder.MarkJoined(m.ID)
-		a.sidebar.SelectByID(m.ID)
-		id, name := m.ID, m.Name
-		return func() tea.Msg {
-			// ChannelJoinedMsg only fires for public channels via
-			// the channel finder; type is always "channel".
-			return ChannelSelectedMsg{ID: id, Name: name, Type: "channel"}
-		}, true
+		return toastWithClear(a, "#"+name+": "+label, 2*time.Second), true
 
 	case ChannelJoinFailedMsg:
 		// Nothing fancy yet -- could surface a status-bar toast
@@ -302,13 +337,20 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		channels := a.channels
 		team, gen, query := a.activeTeamID, m.gen, m.query
+		omni := a.channelFinder.Omni()
+		cur := a.activeChannelID
+		recent := a.sidebar.ChannelIDsInOrder()
 		return func() tea.Msg {
-			return RemoteChannelsFoundMsg{
+			msg := RemoteChannelsFoundMsg{
 				TeamID: team,
 				Query:  query,
 				Gen:    gen,
 				Items:  channels.SearchRemote(query),
 			}
+			if omni {
+				msg.Omni = channels.SearchOmni(query, cur, recent)
+			}
+			return msg
 		}, true
 
 	case ChannelChromeMsg:
@@ -332,13 +374,68 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		a.channelFinder.SetBrowseable(m.Items)
+		if a.channelFinder.Omni() {
+			a.channelFinder.SetOmniHits(m.Omni)
+		}
 		return nil, true
 	}
 	return nil, false
 }
 
-// reduceChannelLeft removes the left channel from the sidebar and
-// finder, then switches to last-visited (nav history) or Threads.
+// openCreatedChannel adds id to the sidebar (if missing), marks it
+// joined in the finder, and returns a ChannelSelectedMsg to open it.
+func openCreatedChannel(a *App, id, name, chType string) tea.Cmd {
+	if chType == "" {
+		chType = "channel"
+	}
+	newItem := sidebar.ChannelItem{
+		ID:   id,
+		Name: name,
+		Type: chType,
+	}
+	items := a.sidebar.Items()
+	alreadyInSidebar := false
+	for _, it := range items {
+		if it.ID == id {
+			alreadyInSidebar = true
+			break
+		}
+	}
+	if !alreadyInSidebar {
+		items = append(items, newItem)
+		a.SetChannels(items)
+	}
+	a.channelFinder.MarkJoined(id)
+	a.sidebar.SelectByID(id)
+	return func() tea.Msg {
+		return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
+	}
+}
+
+func inviteToast(m ChannelInvitedMsg) string {
+	if len(m.UserIDs) == 1 {
+		return "Invited " + m.UserIDs[0]
+	}
+	if len(m.UserIDs) > 1 {
+		return fmt.Sprintf("Invited %d members", len(m.UserIDs))
+	}
+	if len(m.Emails) == 1 {
+		return "Invited " + m.Emails[0]
+	}
+	return fmt.Sprintf("Invited %d people", len(m.Emails))
+}
+
+func notifyPrefLabel(level string) string {
+	switch level {
+	case "mentions_dms":
+		return "mentions only"
+	case "everything":
+		return "all new posts"
+	default:
+		return level
+	}
+}
+
 func reduceChannelClosed(a *App, m ChannelClosedMsg) tea.Cmd {
 	items := a.sidebar.Items()
 	out := make([]sidebar.ChannelItem, len(items))
@@ -359,6 +456,8 @@ func reduceChannelClosed(a *App, m ChannelClosedMsg) tea.Cmd {
 	return toast
 }
 
+// reduceChannelLeft removes the left channel from the sidebar and
+// finder, then switches to last-visited (nav history) or Threads.
 func reduceChannelLeft(a *App, m ChannelLeftMsg) tea.Cmd {
 	items := a.sidebar.Items()
 	next := make([]sidebar.ChannelItem, 0, len(items))

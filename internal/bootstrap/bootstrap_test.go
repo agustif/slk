@@ -117,9 +117,11 @@ func cannedBootResult() *boot.Result {
 			SnoozeEnabled: true,
 		},
 		Prefs: boot.Prefs{
-			MutedChannels:         "C_LEGACY_MUTED,C_LEGACY_MUTED_2",
-			AllNotificationsPrefs: `{"channels":{"C_PRIVATE":{"muted":true}}}`,
-			Raw:                   json.RawMessage(`{"muted_channels":"C_LEGACY_MUTED,C_LEGACY_MUTED_2"}`),
+			MutedChannels:           "C_LEGACY_MUTED,C_LEGACY_MUTED_2",
+			AllNotificationsPrefs:   `{"channels":{"C_PRIVATE":{"muted":true}}}`,
+			AllUnreadsSortOrder:     "priority",
+			AllUnreadsSectionFilter: "all_sections",
+			Raw:                     json.RawMessage(`{"muted_channels":"C_LEGACY_MUTED,C_LEGACY_MUTED_2"}`),
 		},
 		Self: boot.Self{
 			ID:       "U_SELF",
@@ -774,6 +776,8 @@ func TestRun_CarriesEveryMappedFieldFromUserBoot(t *testing.T) {
 		{"MutePrefsRaw", res.MutePrefsRaw, want.Prefs.AllNotificationsPrefs},
 		{"LegacyMutedRaw", res.LegacyMutedRaw, want.Prefs.MutedChannels},
 		{"VIPUsersRaw", res.VIPUsersRaw, want.Prefs.VipUsers},
+		{"AllUnreadsSortOrder", res.AllUnreadsSortOrder, want.Prefs.AllUnreadsSortOrder},
+		{"AllUnreadsSectionFilter", res.AllUnreadsSectionFilter, want.Prefs.AllUnreadsSectionFilter},
 	} {
 		if !reflect.DeepEqual(tc.got, tc.want) {
 			t.Errorf("Result.%s = %#v; want %#v", tc.field, tc.got, tc.want)

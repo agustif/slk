@@ -271,6 +271,12 @@ type Prefs struct {
 	// VipUsers is Slack's comma-separated list of VIP people/apps
 	// (prefs.vip_users). Empty when the user has none.
 	VipUsers string
+	// AllUnreadsSortOrder is prefs.all_unreads_sort_order (sidebar /
+	// alphabetical / priority / newest / oldest). Empty when unset.
+	AllUnreadsSortOrder string
+	// AllUnreadsSectionFilter is prefs.all_unreads_section_filter
+	// (all_sections, priority for VIP unreads, or a sidebar section id).
+	AllUnreadsSectionFilter string
 	// Raw is the whole prefs object, undecoded, including the two
 	// fields above. Pulling those out is additive, not a move.
 	Raw json.RawMessage
@@ -281,9 +287,11 @@ type Prefs struct {
 // which a single struct cannot do: encoding/json refuses to map two
 // fields of one struct to the same JSON key.
 type prefsWire struct {
-	MutedChannels         string `json:"muted_channels"`
-	AllNotificationsPrefs string `json:"all_notifications_prefs"`
-	VipUsers              string `json:"vip_users"`
+	MutedChannels           string `json:"muted_channels"`
+	AllNotificationsPrefs   string `json:"all_notifications_prefs"`
+	VipUsers                string `json:"vip_users"`
+	AllUnreadsSortOrder     string `json:"all_unreads_sort_order"`
+	AllUnreadsSectionFilter string `json:"all_unreads_section_filter"`
 }
 
 // UnmarshalJSON decodes the two named prefs and keeps the rest verbatim.
@@ -295,6 +303,8 @@ func (p *Prefs) UnmarshalJSON(b []byte) error {
 	p.MutedChannels = w.MutedChannels
 	p.AllNotificationsPrefs = w.AllNotificationsPrefs
 	p.VipUsers = w.VipUsers
+	p.AllUnreadsSortOrder = w.AllUnreadsSortOrder
+	p.AllUnreadsSectionFilter = w.AllUnreadsSectionFilter
 	// Cloned, not aliased. This is encoding/json's stated contract for
 	// an Unmarshaler — "UnmarshalJSON must copy the JSON data if it
 	// wishes to retain the data after returning" — and aliasing here

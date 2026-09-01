@@ -97,6 +97,9 @@ func TestCycleSort(t *testing.T) {
 	if len(got) != 2 || got[0] != "C1" || got[1] != "C2" {
 		t.Fatalf("alpha order = %v, want C1 C2", got)
 	}
+	if !m.CycleSort(1) || m.Sort() != SortPriority {
+		t.Fatalf("f → %q, want priority", m.Sort())
+	}
 	if !m.CycleSort(1) || m.Sort() != SortNewest {
 		t.Fatalf("f → %q, want newest", m.Sort())
 	}
@@ -113,6 +116,75 @@ func TestCycleSort(t *testing.T) {
 	}
 	if !m.CycleSort(1) || m.Sort() != SortSidebar {
 		t.Fatalf("wrap → %q, want sidebar", m.Sort())
+	}
+}
+
+func TestWireFilterAndChipFromWire(t *testing.T) {
+	idByType := func(t string) string {
+		switch t {
+		case "stars":
+			return "LSTAR"
+		case "channels":
+			return "LCH"
+		case "direct_messages":
+			return "LDM"
+		default:
+			return ""
+		}
+	}
+	typeByID := func(id string) string {
+		switch id {
+		case "LSTAR":
+			return "stars"
+		case "LCH":
+			return "channels"
+		case "LDM":
+			return "direct_messages"
+		default:
+			return ""
+		}
+	}
+	if got := WireFilter(FilterAll, idByType); got != slackclient.UnreadsFilterAllSections {
+		t.Errorf("all = %q", got)
+	}
+	if got := WireFilter(FilterVIP, idByType); got != slackclient.UnreadsFilterVIP {
+		t.Errorf("vip = %q", got)
+	}
+	if got := WireFilter(FilterStarred, idByType); got != "LSTAR" {
+		t.Errorf("starred = %q", got)
+	}
+	if got := ChipFromWire("priority", typeByID); got != FilterVIP {
+		t.Errorf("chip vip = %q", got)
+	}
+	if got := ChipFromWire("LDM", typeByID); got != FilterDMs {
+		t.Errorf("chip dms = %q", got)
+	}
+	if got := ChipFromWire("LCUSTOM", typeByID); got != FilterAll {
+		t.Errorf("unknown section = %q", got)
+	}
+}
+
+func TestScientificSort_StarredMentionsThenPriority(t *testing.T) {
+	m := New()
+	m.SetBlocks([]Block{
+		{ChannelID: "C_low", ChannelName: "aaa", ChannelType: "channel", Priority: 1, MentionCount: 0},
+		{ChannelID: "D1", ChannelName: "dm-high", ChannelType: "dm", Priority: 99},
+		{ChannelID: "C_mention", ChannelName: "zzz", ChannelType: "channel", Priority: 0.1, MentionCount: 2},
+		{ChannelID: "C_star", ChannelName: "starred", ChannelType: "channel", Priority: 0, IsStarred: true},
+	})
+	m.SetSort(SortPriority)
+	ids := make([]string, 0, 4)
+	for _, b := range m.Blocks() {
+		ids = append(ids, b.ChannelID)
+	}
+	want := []string{"C_star", "C_mention", "C_low", "D1"}
+	if len(ids) != len(want) {
+		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Fatalf("ids = %v, want %v", ids, want)
+		}
 	}
 }
 

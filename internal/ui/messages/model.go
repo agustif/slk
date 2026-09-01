@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/agustif/slk/internal/debuglog"
 	emojiutil "github.com/agustif/slk/internal/emoji"
 	imgpkg "github.com/agustif/slk/internal/image"
@@ -21,6 +20,7 @@ import (
 	"github.com/agustif/slk/internal/ui/selection"
 	"github.com/agustif/slk/internal/ui/styles"
 	"github.com/agustif/slk/internal/usergroups"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type MessageItem struct {
@@ -72,8 +72,9 @@ type Attachment struct {
 	DownloadURL string
 	Size        int64
 
+	// FileID is the Slack file id (F…). Set for images and other files.
+	FileID string
 	// Populated only for Kind == "image":
-	FileID string      // Slack file ID for cache key
 	Mime   string      // e.g. "image/png"
 	Thumbs []ThumbSpec // sorted ascending; empty for non-image
 }

@@ -165,6 +165,13 @@ type WorkspaceContext struct {
 	// Nil-check before use; sidebar vip_first unions this with
 	// [sidebar.vip] config extras.
 	VIPStore *service.VIPStore
+	// ChannelsPriority is client.userBoot channels_priority, used by
+	// All Unreads scientifically / recommended sort.
+	ChannelsPriority map[string]float64
+	// AllUnreadsSortOrder / AllUnreadsSectionFilter are Home All
+	// Unreads prefs from client.userBoot (wire values).
+	AllUnreadsSortOrder     string
+	AllUnreadsSectionFilter string
 	// ThreadsHasUnreads is the workspace-wide threads-have-any-unread
 	// signal returned by client.counts on startup. The local SQLite
 	// heuristic for per-thread unread state can produce false positives
@@ -233,6 +240,10 @@ type WorkspaceContext struct {
 	// updated on every ChannelSelectedMsg via the visit recorder.
 	// Used to populate channelfinder.Item.LastVisited for sort.
 	LastVisitedByChannel map[string]int64
+	// RecentsNav is the OG Home recents list posted as
+	// users.prefs.set name=recents (move-to-front on channel view).
+	// Session-local; timestamps are unix milliseconds as captured.
+	RecentsNav []slackclient.RecentsNavItem
 	// UserResolver dispatches background users.info lookups for
 	// unknown message authors. Set in connectWorkspace once the
 	// in-memory UserNames map and the *tea.Program are both available.
@@ -266,6 +277,17 @@ func (w *WorkspaceContext) UserGroups() map[string]string {
 // workspace. The caller must not mutate the map afterwards.
 func (w *WorkspaceContext) SetUserGroups(groups map[string]string) {
 	w.userGroups.Store(&groups)
+}
+
+func unreadsViewPrefs(wctx *WorkspaceContext) (sortOrder, filter string) {
+	if wctx == nil {
+		return "", ""
+	}
+	var typeByID func(string) string
+	if wctx.SectionStore != nil {
+		typeByID = wctx.SectionStore.TypeByID
+	}
+	return wctx.AllUnreadsSortOrder, unreadsview.ChipFromWire(wctx.AllUnreadsSectionFilter, typeByID)
 }
 
 // StoreUserStatus records a user's custom Slack status. Safe for
@@ -1649,10 +1671,19 @@ func run() error {
 					return
 				}
 				wctx.LastVisitedByChannel[chIDStr] = time.Now().Unix()
+				items := bumpRecentsNav(wctx, chIDStr)
 				teamID := wctx.TeamID
+				client := wctx.Client
 				go func() {
 					if err := db.RecordChannelVisit(teamID, chIDStr); err != nil {
 						log.Printf("warning: recording channel visit %s/%s: %v", teamID, chIDStr, err)
+					}
+					if client != nil && len(items) > 0 {
+						ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+						defer cancel()
+						if err := client.SetRecents(ctx, items); err != nil {
+							log.Printf("warning: set recents: %v", err)
+						}
 					}
 				}()
 			},
@@ -1699,6 +1730,13 @@ func run() error {
 					return nil
 				}
 				return searchChannelsRemote(ctx, wctx.Edge, wctx.LastVisitedByChannel, query)
+			},
+			SearchOmni: func(query, currentChannel string, recent []string) []channelfinder.Item {
+				wctx := router.Active()
+				if wctx == nil {
+					return nil
+				}
+				return searchOmniRemote(ctx, wctx, query, currentChannel, "", recent)
 			},
 			MembershipFetch: func(channelID ids.ChannelID) {
 				wctx := router.Active()
@@ -1874,6 +1912,108 @@ func run() error {
 				}
 				return ui.ChannelReopenedMsg{ID: chIDStr}
 			},
+			Create: func(name string, private bool) tea.Msg {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelCreateFailedMsg{Name: name, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				id, createdName, err := wctx.Client.CreateChannel(ctx, name, private)
+				if err != nil {
+					return ui.ChannelCreateFailedMsg{Name: name, Err: err}
+				}
+				chType := "channel"
+				if private {
+					chType = "private"
+				}
+				item := sidebar.ChannelItem{ID: id, Name: createdName, Type: chType}
+				wctx.Channels = append(wctx.Channels, item)
+				wctx.FinderItems = append(wctx.FinderItems, channelfinder.Item{
+					ID: id, Name: createdName, Type: chType, Joined: true,
+				})
+				return ui.ChannelCreatedMsg{ID: id, Name: createdName, Private: private}
+			},
+			InviteUsers: func(userIDs []string, channelID ids.ChannelID) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelInviteFailedMsg{UserIDs: userIDs, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.InviteUsers(ctx, chIDStr, userIDs); err != nil {
+					return ui.ChannelInviteFailedMsg{UserIDs: userIDs, Err: err}
+				}
+				return ui.ChannelInvitedMsg{UserIDs: userIDs, ChannelID: chIDStr}
+			},
+			Kick: func(channelID ids.ChannelID, userID string) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelKickFailedMsg{UserID: userID, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.KickUser(ctx, chIDStr, userID); err != nil {
+					return ui.ChannelKickFailedMsg{UserID: userID, Err: err}
+				}
+				name := chIDStr
+				for _, ch := range wctx.Channels {
+					if ch.ID == chIDStr {
+						name = ch.Name
+						break
+					}
+				}
+				return ui.ChannelKickedMsg{ChannelID: chIDStr, Channel: name, UserID: userID}
+			},
+			AddManagers: func(channelID ids.ChannelID, userIDs []string) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelManagersAddFailedMsg{UserIDs: userIDs, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.AddChannelManagers(ctx, chIDStr, userIDs); err != nil {
+					return ui.ChannelManagersAddFailedMsg{UserIDs: userIDs, Err: err}
+				}
+				name := chIDStr
+				for _, ch := range wctx.Channels {
+					if ch.ID == chIDStr {
+						name = ch.Name
+						break
+					}
+				}
+				return ui.ChannelManagersAddedMsg{ChannelID: chIDStr, Channel: name, UserIDs: userIDs}
+			},
+			InviteEmails: func(emails []string, channelID ids.ChannelID) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelInviteFailedMsg{Emails: emails, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.InviteEmails(ctx, emails, chIDStr); err != nil {
+					return ui.ChannelInviteFailedMsg{Emails: emails, Err: err}
+				}
+				return ui.ChannelInvitedMsg{Emails: emails, ChannelID: chIDStr}
+			},
+			SetNotifyLevel: func(channelID ids.ChannelID, level string) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelNotifySetMsg{ChannelID: chIDStr, Level: level, Err: errors.New("no active workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				err := wctx.Client.SetChannelNotifyLevel(ctx, chIDStr, level)
+				if err != nil {
+					log.Printf("Warning: set channel notify %s=%s: %v", chIDStr, level, err)
+				}
+				return ui.ChannelNotifySetMsg{ChannelID: chIDStr, Level: level, Err: err}
+			},
 			SetMuted: func(channelID ids.ChannelID, muted bool) tea.Msg {
 				chIDStr := string(channelID)
 				wctx := router.Active()
@@ -1965,6 +2105,27 @@ func run() error {
 			},
 			SearchWorkspace: searchWorkspaceFunc(router, db, tsFormat),
 		}))
+
+		app.SetFileStarService(ui.NewFileStarService(
+			func(fileID string) error {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				return wctx.Client.AddFileToStarredCollection(ctx, fileID)
+			},
+			func(fileID string) error {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				return wctx.Client.RemoveFileFromStarredCollection(ctx, fileID)
+			},
+		))
 
 		app.SetMessageService(ui.NewMessageService(ui.MessageServiceFuncs{
 			Send: func(channelID ids.ChannelID, text string) tea.Msg {
@@ -2389,11 +2550,17 @@ func run() error {
 						sem <- struct{}{}
 						defer func() { <-sem }()
 						hist, herr := wctx.Client.UnreadHistory(ctx, u.ChannelID, u.LastRead)
+						var b unreadsview.Block
 						if herr != nil {
-							blocks[i] = unreadsview.Block{ChannelID: u.ChannelID, LastRead: u.LastRead}
-							return
+							b = unreadsview.Block{ChannelID: u.ChannelID, LastRead: u.LastRead}
+						} else {
+							b = unreadsview.BlockFromHistory(u.ChannelID, u.LastRead, hist)
 						}
-						blocks[i] = unreadsview.BlockFromHistory(u.ChannelID, u.LastRead, hist)
+						b.MentionCount = u.MentionCount
+						if wctx.ChannelsPriority != nil {
+							b.Priority = wctx.ChannelsPriority[u.ChannelID]
+						}
+						blocks[i] = b
 					}(i, u)
 				}
 				wg.Wait()
@@ -2407,6 +2574,43 @@ func run() error {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				return wctx.Client.MarkChannel(ctx, string(channelID), string(ts))
+			},
+			SetSortOrder: func(order string) error {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("no workspace")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := wctx.Client.SetAllUnreadsSortOrder(ctx, order); err != nil {
+					return err
+				}
+				if order == "alpha" {
+					order = slackclient.UnreadsSortAlphabetical
+				}
+				wctx.AllUnreadsSortOrder = order
+				return nil
+			},
+			SetFilter: func(filter string) error {
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("no workspace")
+				}
+				var idByType func(string) string
+				if wctx.SectionStore != nil {
+					idByType = wctx.SectionStore.IDByType
+				}
+				wire := unreadsview.WireFilter(filter, idByType)
+				if wire == "" {
+					return nil
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := wctx.Client.SetAllUnreadsSectionFilter(ctx, wire); err != nil {
+					return err
+				}
+				wctx.AllUnreadsSectionFilter = wire
+				return nil
 			},
 			MarkUnread: func(channelID ids.ChannelID, ts ids.MessageTS) error {
 				wctx := router.Active()
@@ -2855,6 +3059,7 @@ func run() error {
 				}
 			}
 		}
+		sortOrder, filter := unreadsViewPrefs(wctx)
 
 		return ui.WorkspaceSwitchedMsg{
 			TeamID:           wctx.TeamID,
@@ -2873,6 +3078,8 @@ func run() error {
 			SectionsProvider: sectionsProviderAdapter{store: wctx.SectionStore},
 			ActivityUnread:   wctx.ActivityUnread,
 			LaterCount:       wctx.LaterCount,
+			UnreadsSort:      sortOrder,
+			UnreadsFilter:    filter,
 		}
 	})
 
@@ -3057,6 +3264,7 @@ func run() error {
 					}
 				}
 			}
+			sortOrder, filter := unreadsViewPrefs(wctx)
 
 			p.Send(ui.WorkspaceReadyMsg{
 				TeamID:           wctx.TeamID,
@@ -3078,6 +3286,8 @@ func run() error {
 				LastChannelID:    mostRecentlyVisitedChannel(wctx.LastVisitedByChannel),
 				ActivityUnread:   wctx.ActivityUnread,
 				LaterCount:       wctx.LaterCount,
+				UnreadsSort:      sortOrder,
+				UnreadsFilter:    filter,
 			})
 
 			// Fetch workspace custom emojis in the background. When done,
@@ -3404,6 +3614,9 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 	// and hydrateFirstSight writes the cache rows the sidebar's
 	// channel list is later reconciled against.
 	applyBootUsers(wctx, res)
+	wctx.ChannelsPriority = res.ChannelsPriority
+	wctx.AllUnreadsSortOrder = res.AllUnreadsSortOrder
+	wctx.AllUnreadsSectionFilter = res.AllUnreadsSectionFilter
 	wctx.IconURL = res.Team.Icon.URL()
 	// conversations.view returns the workspace's custom emoji next to
 	// the history it was asked for, which is what emoji.list would
@@ -3713,8 +3926,8 @@ func extractAttachments(files []slack.File) []messages.Attachment {
 		att := messages.Attachment{Kind: kind, Name: name, URL: pickAttachmentURL(f, kind)}
 		att.DownloadURL = f.URLPrivate
 		att.Size = int64(f.Size)
+		att.FileID = f.ID
 		if kind == "image" {
-			att.FileID = f.ID
 			att.Mime = f.Mimetype
 			att.Thumbs = collectThumbs(f)
 		}
@@ -5070,6 +5283,30 @@ func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 		}
 	}
 	return ids
+}
+
+// bumpRecentsNav move-to-fronts a channel in the OG recents list.
+// Only C-prefixed ids are written: the 2026-09-01 capture used
+// object_type=CHANNEL for those. DMs are not posted until captured.
+func bumpRecentsNav(wctx *WorkspaceContext, channelID string) []slackclient.RecentsNavItem {
+	if wctx == nil || channelID == "" || channelID[0] != 'C' {
+		return nil
+	}
+	item := slackclient.RecentsNavItem{
+		ID:         channelID,
+		ObjectType: slackclient.RecentsObjectChannel,
+		Timestamp:  time.Now().UnixMilli(),
+	}
+	out := []slackclient.RecentsNavItem{item}
+	for _, it := range wctx.RecentsNav {
+		if it.ID != channelID {
+			out = append(out, it)
+		}
+	}
+	wctx.RecentsNav = out
+	copied := make([]slackclient.RecentsNavItem, len(out))
+	copy(copied, out)
+	return copied
 }
 
 // mostRecentlyVisitedChannel returns the channel ID with the latest

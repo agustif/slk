@@ -13,9 +13,12 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/agustif/slk/internal/ids"
+	"github.com/agustif/slk/internal/ui/searchresults"
 )
 
 func handleChannelFinderMode(a *App, msg tea.KeyMsg) tea.Cmd {
@@ -48,6 +51,53 @@ func handleChannelFinderMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		}
 		if result.Type == "starred" {
 			return func() tea.Msg { return StarredViewActivatedMsg{} }
+		}
+		if result.Type == "search" {
+			q := result.ID
+			a.searchResults.OpenQuery(q)
+			a.SetMode(ModeWorkspaceSearch)
+			if a.searchResults.StartSearch() {
+				return workspaceSearchCmd(a, 1)
+			}
+			return nil
+		}
+		if result.Type == "user" {
+			uid := result.UserID
+			if uid == "" {
+				uid = result.ID
+			}
+			if uid == "" {
+				return toastWithClear(a, "No user to message", 2*time.Second)
+			}
+			a.newMessageInFlightID++
+			a.newMessageCancelled = false
+			reqID := a.newMessageInFlightID
+			return a.channels.OpenConversation([]string{uid}, reqID)
+		}
+		if result.Type == "message" {
+			if result.ID == "" || result.TS == "" {
+				return nil
+			}
+			a.pendingLinkNav = &pendingLinkNav{
+				channelID: result.ID,
+				messageTS: result.TS,
+			}
+			id, name, typ := result.ID, result.Name, "channel"
+			if n, t, ok := a.channels.Lookup(ids.ChannelID(result.ID)); ok {
+				name, typ = n, t
+			}
+			return func() tea.Msg {
+				return ChannelSelectedMsg{ID: id, Name: name, Type: typ}
+			}
+		}
+		if result.Type == "file" {
+			return selectSearchFile(searchresults.Item{
+				Kind:      searchresults.KindFiles,
+				FileID:    result.FileID,
+				FileName:  result.Name,
+				FileURL:   result.FileURL,
+				Permalink: result.FileURL,
+			})
 		}
 		// Already-joined: switch immediately. Not joined: kick off
 		// a join command; ChannelJoinedMsg will fold the channel

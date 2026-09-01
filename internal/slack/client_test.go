@@ -1250,6 +1250,452 @@ func TestGetStarredMessages_ParsesMessageItems(t *testing.T) {
 	}
 }
 
+func TestCreateChannel_PostsCapturedForm(t *testing.T) {
+	var path, name, validate, team, isPrivate string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		name = r.PostForm.Get("name")
+		validate = r.PostForm.Get("validate_name")
+		team = r.PostForm.Get("team_id")
+		isPrivate = r.PostForm.Get("is_private")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":{"id":"C9","name":"slk-har-test"}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	c.teamID = "T1"
+	id, created, err := c.CreateChannel(context.Background(), "SLK-HAR-TEST", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/conversations.create" {
+		t.Errorf("path = %q", path)
+	}
+	if name != "slk-har-test" || validate != "true" || team != "T1" {
+		t.Errorf("form name=%q validate=%q team=%q", name, validate, team)
+	}
+	if isPrivate != "" {
+		t.Errorf("public create must omit is_private, got %q", isPrivate)
+	}
+	if id != "C9" || created != "slk-har-test" {
+		t.Errorf("id=%q name=%q", id, created)
+	}
+}
+
+func TestCreateChannel_PrivateSetsIsPrivate(t *testing.T) {
+	var isPrivate, name string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		isPrivate = r.PostForm.Get("is_private")
+		name = r.PostForm.Get("name")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":{"id":"C8","name":"slk-har-priv2","is_private":true}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	id, created, err := c.CreateChannel(context.Background(), "slk-har-priv2", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isPrivate != "true" || name != "slk-har-priv2" {
+		t.Errorf("is_private=%q name=%q", isPrivate, name)
+	}
+	if id != "C8" || created != "slk-har-priv2" {
+		t.Errorf("id=%q name=%q", id, created)
+	}
+}
+
+func TestInviteEmails_PostsBulkForm(t *testing.T) {
+	var path, source, channels, invites, restricted, ultra, team string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		source = r.PostForm.Get("source")
+		channels = r.PostForm.Get("channels")
+		invites = r.PostForm.Get("invites")
+		restricted = r.PostForm.Get("restricted")
+		ultra = r.PostForm.Get("ultra_restricted")
+		team = r.PostForm.Get("team_id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"invites":[{"email":"a@b.c","invite_id":"I1"}]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	c.teamID = "T1"
+	if err := c.InviteEmails(context.Background(), []string{"a@b.c"}, "C9"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/users.admin.inviteBulk" {
+		t.Errorf("path = %q", path)
+	}
+	if source != "invite_emails_to_channel" || channels != "C9" || restricted != "false" || ultra != "false" || team != "T1" {
+		t.Errorf("source=%q channels=%q restricted=%q ultra=%q team=%q", source, channels, restricted, ultra, team)
+	}
+	if !strings.Contains(invites, `"email":"a@b.c"`) || !strings.Contains(invites, `"type":"regular"`) {
+		t.Errorf("invites = %s", invites)
+	}
+}
+
+func TestCreateChannel_EmptyName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("should not POST")
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if _, _, err := c.CreateChannel(context.Background(), "  ", false); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestInviteUsers_PostsCapturedForm(t *testing.T) {
+	var path, channel, users, inviteAll, force string
+	var hasSubteams bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		channel = r.PostForm.Get("channel")
+		users = r.PostForm.Get("users")
+		inviteAll = r.PostForm.Get("invite_all")
+		force = r.PostForm.Get("force")
+		_, hasSubteams = r.PostForm["subteams"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":{"id":"C9"}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.InviteUsers(context.Background(), "C9", []string{"U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/conversations.invite" {
+		t.Errorf("path = %q", path)
+	}
+	if channel != "C9" || users != "U1" || inviteAll != "false" || force != "true" {
+		t.Errorf("channel=%q users=%q invite_all=%q force=%q", channel, users, inviteAll, force)
+	}
+	if !hasSubteams {
+		t.Error("captured form includes empty subteams=")
+	}
+}
+
+func TestKickUser_PostsCapturedForm(t *testing.T) {
+	var path, channel, user string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		channel = r.PostForm.Get("channel")
+		user = r.PostForm.Get("user")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"errors":{}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.KickUser(context.Background(), "C9", "U1"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/conversations.kick" || channel != "C9" || user != "U1" {
+		t.Errorf("path=%q channel=%q user=%q", path, channel, user)
+	}
+}
+
+func TestSetRecents_PostsCapturedForm(t *testing.T) {
+	var path, name, value string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		name = r.PostForm.Get("name")
+		value = r.PostForm.Get("value")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	err := c.SetRecents(context.Background(), []RecentsNavItem{
+		{ID: "C9", ObjectType: RecentsObjectChannel, Timestamp: 1788233990362},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/users.prefs.set" || name != "recents" {
+		t.Errorf("path=%q name=%q", path, name)
+	}
+	if !strings.Contains(value, `"id":"C9"`) || !strings.Contains(value, `"object_type":"CHANNEL"`) || !strings.Contains(value, `"navigation"`) {
+		t.Errorf("value = %s", value)
+	}
+}
+
+func TestSetAllUnreadsSortOrder_PostsCapturedForm(t *testing.T) {
+	var path, name, value string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		name = r.PostForm.Get("name")
+		value = r.PostForm.Get("value")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetAllUnreadsSortOrder(context.Background(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/users.prefs.set" || name != "all_unreads_sort_order" || value != UnreadsSortAlphabetical {
+		t.Errorf("path=%q name=%q value=%q", path, name, value)
+	}
+	if err := c.SetAllUnreadsSortOrder(context.Background(), UnreadsSortPriority); err != nil {
+		t.Fatal(err)
+	}
+	if value != UnreadsSortPriority {
+		t.Errorf("priority value = %q", value)
+	}
+	if err := c.SetAllUnreadsSortOrder(context.Background(), "invented"); err == nil {
+		t.Fatal("expected error for unknown sort")
+	}
+}
+
+func TestSetAllUnreadsSectionFilter_PostsCapturedForm(t *testing.T) {
+	var path, name, value string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		name = r.PostForm.Get("name")
+		value = r.PostForm.Get("value")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetAllUnreadsSectionFilter(context.Background(), UnreadsFilterVIP); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/users.prefs.set" || name != "all_unreads_section_filter" || value != UnreadsFilterVIP {
+		t.Errorf("path=%q name=%q value=%q", path, name, value)
+	}
+	if err := c.SetAllUnreadsSectionFilter(context.Background(), "L0ARTKQH049"); err != nil {
+		t.Fatal(err)
+	}
+	if value != "L0ARTKQH049" {
+		t.Errorf("section id value = %q", value)
+	}
+	if err := c.SetAllUnreadsSectionFilter(context.Background(), "invented"); err == nil {
+		t.Fatal("expected error for unknown filter")
+	}
+}
+
+func TestAddChannelManagers_PostsCapturedForm(t *testing.T) {
+	var path, role, scopes, users string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		role = r.PostForm.Get("role_id")
+		scopes = r.PostForm.Get("role_scopes")
+		users = r.PostForm.Get("user_ids")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.AddChannelManagers(context.Background(), "C9", []string{"U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/admin.roles.addMembers" {
+		t.Errorf("path = %q", path)
+	}
+	if role != ChannelManagerRoleID || scopes != "C9" || users != "U1" {
+		t.Errorf("role=%q scopes=%q users=%q", role, scopes, users)
+	}
+}
+
+func TestAddFileToCollection_PostsCapturedForm(t *testing.T) {
+	var path, fileID, collectionID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		fileID = r.PostForm.Get("file_id")
+		collectionID = r.PostForm.Get("collection_id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.AddFileToCollection(context.Background(), "F0BUVQHU6NL", "Fs0BTURTUXK5"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.favorites.add" {
+		t.Errorf("path = %q", path)
+	}
+	if fileID != "F0BUVQHU6NL" || collectionID != "Fs0BTURTUXK5" {
+		t.Errorf("file_id=%q collection_id=%q", fileID, collectionID)
+	}
+}
+
+func TestListFileCollections_ParsesStarred(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/files.collections.list" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"collections":[{"id":"Fs0BTURTUXK5","name":"Starred","type":"starred","sort":"date_added","files":[]}]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	cols, err := c.ListFileCollections(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cols) != 1 || cols[0].ID != "Fs0BTURTUXK5" || cols[0].Type != FileCollectionTypeStarred {
+		t.Errorf("cols = %+v", cols)
+	}
+}
+
+func TestAddFileToStarredCollection_UsesStarredID(t *testing.T) {
+	var gotFile, gotCol string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/files.collections.list":
+			_, _ = w.Write([]byte(`{"ok":true,"collections":[{"id":"Fs9","name":"Starred","type":"starred"}]}`))
+		case "/api/files.favorites.add":
+			gotFile = r.PostForm.Get("file_id")
+			gotCol = r.PostForm.Get("collection_id")
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Errorf("path = %q", r.URL.Path)
+			_, _ = w.Write([]byte(`{"ok":false}`))
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.AddFileToStarredCollection(context.Background(), "F1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotFile != "F1" || gotCol != "Fs9" {
+		t.Errorf("file=%q col=%q", gotFile, gotCol)
+	}
+}
+
+func TestRemoveFileFromCollection_PostsCapturedForm(t *testing.T) {
+	var path, fileID, collectionID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		fileID = r.PostForm.Get("file_id")
+		collectionID = r.PostForm.Get("collection_id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.RemoveFileFromCollection(context.Background(), "F0BUVQHU6NL", "Fs0BTURTUXK5"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.favorites.remove" {
+		t.Errorf("path = %q", path)
+	}
+	if fileID != "F0BUVQHU6NL" || collectionID != "Fs0BTURTUXK5" {
+		t.Errorf("file_id=%q collection_id=%q", fileID, collectionID)
+	}
+}
+
+func TestRemoveFileFromStarredCollection_UsesStarredID(t *testing.T) {
+	var gotFile, gotCol string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/files.collections.list":
+			_, _ = w.Write([]byte(`{"ok":true,"collections":[{"id":"Fs9","name":"Starred","type":"starred"}]}`))
+		case "/api/files.favorites.remove":
+			gotFile = r.PostForm.Get("file_id")
+			gotCol = r.PostForm.Get("collection_id")
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			t.Errorf("path = %q", r.URL.Path)
+			_, _ = w.Write([]byte(`{"ok":false}`))
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.RemoveFileFromStarredCollection(context.Background(), "F1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotFile != "F1" || gotCol != "Fs9" {
+		t.Errorf("file=%q col=%q", gotFile, gotCol)
+	}
+}
+
+func TestInviteEmails_NoEmails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("should not POST")
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.InviteEmails(context.Background(), []string{"not-an-email", " "}, "C9"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestSetChannelNotifyLevel_MentionsForm(t *testing.T) {
+	var path, ids, prefs, reason string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		ids = r.PostForm.Get("channel_ids")
+		prefs = r.PostForm.Get("prefs")
+		reason = r.PostForm.Get("_x_reason")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetChannelNotifyLevel(context.Background(), "C9", NotifyMentions); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/users.prefs.setNotifications" {
+		t.Errorf("path = %q", path)
+	}
+	if ids != "C9" {
+		t.Errorf("channel_ids = %q", ids)
+	}
+	if !strings.Contains(prefs, `"mentions_dms"`) {
+		t.Errorf("prefs = %s", prefs)
+	}
+	if !strings.Contains(prefs, `"suppress_at_channel"`) {
+		t.Errorf("prefs missing suppress_at_channel = %s", prefs)
+	}
+	_ = reason
+}
+
+func TestSetChannelNotifyLevel_EverythingForm(t *testing.T) {
+	var prefs string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		prefs = r.PostForm.Get("prefs")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetChannelNotifyLevel(context.Background(), "C9", NotifyEverything); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prefs, `"everything"`) || !strings.Contains(prefs, `"badge_all_unreads"`) {
+		t.Errorf("prefs = %s", prefs)
+	}
+}
+
+func TestSetChannelNotifyLevel_Unknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("should not POST")
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetChannelNotifyLevel(context.Background(), "C9", "muted"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestStarMessage_PostsTimestamp(t *testing.T) {
 	var path, channel, ts string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -7,8 +7,9 @@
 | `Tab` / `Shift+Tab` | Normal | Cycle focus |
 | `Enter` | Normal (sidebar) | Open selected channel, Threads, Activity, Later, Direct Messages, Drafts, Unreads, or Starred, or toggle a section header |
 | `Ctrl+t` / `Ctrl+p` | Any | Fuzzy channel finder (Home-view shortcuts: Activity, Later, Threads, Direct Messages, Drafts, Unreads, Starred; unjoined public channels join on select) |
+| `Ctrl+k` / `Cmd+k` | Any | Search omniswitcher (OG Cmd+K): channels, people, message snippets, files. Enter on “Search Slack for …” opens workspace search |
 | `Ctrl+n` | Any | New message — pick people, open a DM |
-| `Ctrl+h` / `Ctrl+k` | Normal | Channel history back / forward |
+| `Ctrl+h` / `Alt+Right` | Normal | Channel history back / forward |
 | `[` / `]` | Normal | Narrow / widen sidebar |
 | `?` | Normal | Keybindings overlay |
 | `f` / `F` | Normal (Activity) | Next / previous Activity tab (Slack views, including custom Unreads / Reactions / VIP) |
@@ -35,8 +36,8 @@
 | `D` | Normal (Drafts) | Delete the selected draft or cancel the scheduled message |
 | Enter | Normal (Drafts, load more) | Fetch the next page of drafts |
 | `Enter` | Normal (Unreads) | Open the selected message in its channel, or Mark as Read / Undo on a channel header |
-| `f` / `F` | Normal (Unreads) | Cycle local sort (sidebar / alphabetical / newest / oldest). Not persisted. |
-| `s` | Normal (Unreads) | Cycle local section filter (All / VIP / Starred / Channels / DMs). Click the chips too. Not persisted. |
+| `f` / `F` | Normal (Unreads) | Cycle sort (sidebar / alphabetical / recommended / newest / oldest). Writes `all_unreads_sort_order`. |
+| `s` | Normal (Unreads) | Cycle section filter (All / VIP / Starred / Channels / DMs). Click the chips too. Writes `all_unreads_section_filter`. |
 | Click message | Unreads | Open the message (same as Enter) |
 | Click header | Unreads | Mark as Read, or Undo when the header is already marked |
 | `Enter` | Normal (Starred) | Open the selected starred message in its channel |
@@ -70,7 +71,8 @@
 | `/` | Normal | Search in channel (vim-style; searches cached history of the current channel) |
 | `n` / `N` | Normal | Next / previous search match (wraps) |
 | `a` / `A` | Normal | Jump to next / previous unread channel (wraps) |
-| `m` | Normal | Mute / unmute the selected sidebar channel, or the active channel if the message pane is focused (not mentions-only; see [[Gaps]]) |
+| `m` | Normal | Mute / unmute the selected sidebar channel, or the active channel if the message pane is focused |
+| `:notify all` / `:notify mentions` | Normal | Channel notify: all new posts (`desktop=everything`) or mentions only (`desktop=mentions_dms`) |
 | `Esc` | Normal (search active) | Clear active search |
 | `Ctrl+f` | Any | Search workspace (Slack server-side; Messages/Files/People tabs; supports `from:@user`, `in:#channel`, `before:YYYY-MM-DD`) |
 | `Tab` / `Shift+Tab` | Workspace search | Switch Messages / Files / People |
@@ -89,6 +91,12 @@
 | `Ctrl+shift+y` | Any | Set default theme (all workspaces) |
 | `:ws` | Normal | Workspace picker |
 | `:leave` | Normal | Leave the current channel, or close the current DM (with confirmation) |
+| `:create <name>` | Normal | Create a public channel (`conversations.create`) |
+| `:create private <name>` | Normal | Create a private channel (`is_private=true`) |
+| `:invite email [email…]` | Normal | Workspace email invite (`users.admin.inviteBulk`) |
+| `:invite U…` | Normal | Add existing members (`conversations.invite`) |
+| `:kick U…` | Normal | Remove a member (`conversations.kick`, with confirmation) |
+| `:manager U…` | Normal | Make Channel Manager (`admin.roles.addMembers` `role_id=Rl0A`, with confirmation) |
 | `Esc` | Normal (Direct Messages view) | Return to Home (the compact sidebar) |
 | Enter | Normal (Direct Messages, Home row) | Return to Home |
 | `:reminders` | Command | List pending reminders; Enter marks the highlighted one complete |
@@ -108,6 +116,8 @@
 | `P` | Normal (message) | Pin / unpin the selected message |
 | `:pins` | Command | List pinned messages in the current channel; Enter jumps to one |
 | Star message | Message actions (`x`) | Star / unstar the selected message (`stars.add` / `stars.remove` with timestamp) |
+| Add to Starred files | Message actions (`x`) | `files.favorites.add` into the Files-rail Starred collection |
+| Remove from Starred files | Message actions (`x`) | `files.favorites.remove` from the Files-rail Starred collection |
 | `t` | Normal (thread panel) | Follow / unfollow the open thread |
 | `S` | Normal (thread) | Save thread to markdown file (`~/.local/share/slk/exports/` or `$XDG_DATA_HOME/slk/exports/`) |
 | `yy` | Normal (message) | Yank selected message text |

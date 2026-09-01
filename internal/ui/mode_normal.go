@@ -237,13 +237,19 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case a.focusedPanel == PanelMessages && a.view == ViewDrafts && key.Matches(msg, a.keys.Delete):
 		return a.deleteSelectedDraftCmd()
 	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivityFilter):
-		a.unreadsView.CycleSort(1)
+		if a.unreadsView.CycleSort(1) {
+			return a.persistUnreadsSortCmd()
+		}
 		return nil
 	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivityFilterPrev):
-		a.unreadsView.CycleSort(-1)
+		if a.unreadsView.CycleSort(-1) {
+			return a.persistUnreadsSortCmd()
+		}
 		return nil
 	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivitySort):
-		a.unreadsView.CycleFilter(1)
+		if a.unreadsView.CycleFilter(1) {
+			return a.persistUnreadsFilterCmd()
+		}
 		return nil
 	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivitySort):
 		if a.activityView.CycleSort() {
@@ -324,6 +330,14 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.shareFromChannel = ""
 		a.shareFromTS = ""
 		a.channelFinder.Open()
+		a.SetMode(ModeChannelFinder)
+
+	case key.Matches(msg, a.keys.OmniSearch):
+		a.channelFinder.SetShareMode(false)
+		a.shareFromChannel = ""
+		a.shareFromTS = ""
+		a.omniSearchSession = ""
+		a.channelFinder.OpenOmni()
 		a.SetMode(ModeChannelFinder)
 
 	case key.Matches(msg, a.keys.NewMessage):

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -91,6 +92,39 @@ func (a *App) decorateUnreadBlocks(in []unreadsview.Block) []unreadsview.Block {
 		}
 	}
 	return out
+}
+
+func (a *App) persistUnreadsSortCmd() tea.Cmd {
+	order := a.unreadsView.Sort()
+	svc := a.unreads
+	return func() tea.Msg {
+		if err := svc.SetSortOrder(order); err != nil {
+			if errors.Is(err, errServiceNoop) {
+				return nil
+			}
+			return ToastMsg{Text: "Could not save Unreads sort: " + truncateReason(err.Error(), 40)}
+		}
+		return nil
+	}
+}
+
+func (a *App) persistUnreadsFilterCmd() tea.Cmd {
+	filter := a.unreadsView.Filter()
+	svc := a.unreads
+	return func() tea.Msg {
+		if err := svc.SetFilter(filter); err != nil {
+			if errors.Is(err, errServiceNoop) {
+				return nil
+			}
+			return ToastMsg{Text: "Could not save Unreads filter: " + truncateReason(err.Error(), 40)}
+		}
+		return nil
+	}
+}
+
+func (a *App) applyUnreadsPrefs(sortOrder, filter string) {
+	a.unreadsView.SetSort(sortOrder)
+	a.unreadsView.SetFilter(filter)
 }
 
 func (a *App) fetchUnreadsCmd() tea.Cmd {

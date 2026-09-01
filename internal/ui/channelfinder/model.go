@@ -40,10 +40,15 @@ const StarredViewID = "__slk_view_starred"
 
 // ChannelResult is returned when the user selects a channel.
 type ChannelResult struct {
-	ID     string
-	Name   string
-	Type   string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads, starred
-	Joined bool   // false => caller should join the channel before opening it
+	ID       string
+	Name     string
+	Type     string // channel, dm, group_dm, private, threads, activity, later, dms, drafts, unreads, starred, user, message, file, search
+	Joined   bool   // false => caller should join the channel before opening it
+	TS       string // Type=message
+	ThreadTS string
+	UserID   string // Type=user
+	FileID   string
+	FileURL  string
 }
 
 // Item represents a searchable channel/DM entry.
@@ -65,10 +70,16 @@ type Item struct {
 	// opening a channel). These items are preserved across SetItems
 	// and SetBrowseable mutations so the finder always offers them.
 	Synthetic bool
+	TS        string
+	ThreadTS  string
+	UserID    string
+	FileID    string
+	FileURL   string
 }
 
 const defaultTitle = "Switch Channel"
 const shareTitle = "Share to..."
+const omniTitle = "Search"
 
 // Model is the fuzzy channel finder overlay.
 type Model struct {
@@ -79,6 +90,7 @@ type Model struct {
 	visible   bool
 	title     string
 	shareMode bool // hide synthetic + unjoined rows; title "Share to..."
+	omni      bool // Cmd+K Search: mix channels, people, messages, files
 }
 
 // New creates a new channel finder.
@@ -313,7 +325,57 @@ func (m *Model) Open() {
 	m.visible = true
 	m.query = ""
 	m.selected = 0
+	m.omni = false
+	if !m.shareMode {
+		m.title = ""
+	}
+	m.clearOmniHits()
 	m.filter()
+}
+
+// OpenOmni opens the Cmd+K Search omniswitcher (channels + people +
+// messages + files). Same overlay as the channel finder.
+func (m *Model) OpenOmni() {
+	m.shareMode = false
+	m.omni = true
+	m.title = omniTitle
+	m.visible = true
+	m.query = ""
+	m.selected = 0
+	m.clearOmniHits()
+	m.filter()
+}
+
+// Omni reports whether this overlay is the Cmd+K Search omniswitcher.
+func (m Model) Omni() bool { return m.omni }
+
+func isOmniHit(it Item) bool {
+	switch it.Type {
+	case "user", "message", "file", "search":
+		return true
+	}
+	return false
+}
+
+func (m *Model) clearOmniHits() {
+	keep := m.items[:0]
+	for _, it := range m.items {
+		if !isOmniHit(it) {
+			keep = append(keep, it)
+		}
+	}
+	m.items = keep
+}
+
+// SetOmniHits replaces people / message / file / "Search Slack" rows
+// from the Cmd+K server sources. Channel browseable rows still go
+// through SetBrowseable.
+func (m *Model) SetOmniHits(hits []Item) {
+	m.clearOmniHits()
+	m.items = append(m.items, hits...)
+	if m.visible {
+		m.filter()
+	}
 }
 
 // Close hides the overlay.
@@ -333,11 +395,17 @@ func (m *Model) HandleKey(keyStr string) *ChannelResult {
 	case "enter":
 		if len(m.filtered) > 0 {
 			idx := m.filtered[m.selected]
+			it := m.items[idx]
 			return &ChannelResult{
-				ID:     m.items[idx].ID,
-				Name:   m.items[idx].Name,
-				Type:   m.items[idx].Type,
-				Joined: m.items[idx].Joined,
+				ID:       it.ID,
+				Name:     it.Name,
+				Type:     it.Type,
+				Joined:   it.Joined,
+				TS:       it.TS,
+				ThreadTS: it.ThreadTS,
+				UserID:   it.UserID,
+				FileID:   it.FileID,
+				FileURL:  it.FileURL,
 			}
 		}
 		return nil
@@ -421,7 +489,7 @@ func (m *Model) filter() {
 	if q == "" {
 		idxs := make([]int, 0, len(m.items))
 		for i, it := range m.items {
-			if m.shareHidden(it) {
+			if m.shareHidden(it) || isOmniHit(it) {
 				continue
 			}
 			idxs = append(idxs, i)
@@ -433,6 +501,11 @@ func (m *Model) filter() {
 		return
 	}
 
+	if m.omni {
+		m.filterOmni(q)
+		return
+	}
+
 	type match struct {
 		idx   int
 		tier  int // 0 prefix, 1 substring, 2 subsequence
@@ -441,7 +514,7 @@ func (m *Model) filter() {
 
 	var matches []match
 	for i, item := range m.items {
-		if m.shareHidden(item) {
+		if m.shareHidden(item) || isOmniHit(item) {
 			continue
 		}
 		name := text.Fold(item.Name)
@@ -488,6 +561,41 @@ func (m *Model) filter() {
 	for i, mm := range matches {
 		m.filtered[i] = mm.idx
 	}
+}
+
+func (m *Model) filterOmni(q string) {
+	var search, users, msgs, files, rest []int
+	for i, it := range m.items {
+		if m.shareHidden(it) {
+			continue
+		}
+		switch it.Type {
+		case "search":
+			search = append(search, i)
+		case "user":
+			users = append(users, i)
+		case "message":
+			msgs = append(msgs, i)
+		case "file":
+			files = append(files, i)
+		default:
+			name := text.Fold(it.Name)
+			if strings.HasPrefix(name, q) || strings.Contains(name, q) {
+				rest = append(rest, i)
+				continue
+			}
+			if _, ok := subsequenceScore(name, q); ok {
+				rest = append(rest, i)
+			}
+		}
+	}
+	sort.SliceStable(rest, func(i, j int) bool {
+		return m.lessNoQuery(rest[i], rest[j])
+	})
+	m.filtered = append(search, rest...)
+	m.filtered = append(m.filtered, users...)
+	m.filtered = append(m.filtered, msgs...)
+	m.filtered = append(m.filtered, files...)
 }
 
 // typeRank returns a sort key for an item: lower comes first. 1:1 DMs
@@ -619,7 +727,11 @@ func (m Model) renderBox(termWidth int) string {
 	// Query input with blue left border
 	var inputText string
 	if m.query == "" {
-		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render("Type to filter...")
+		ph := "Type to filter..."
+		if m.omni {
+			ph = "Search Slack..."
+		}
+		placeholder := lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted).Render(ph)
 		inputText = "█ " + placeholder
 	} else {
 		inputText = m.query + "█"
@@ -683,7 +795,7 @@ func (m Model) renderBox(termWidth int) string {
 		// ANSI reset (\x1b[0m) would drop the outer foreground / faint
 		// attributes for everything after it, defeating the dim treatment.
 		var prefix, name string
-		if item.Joined {
+		if item.Joined || isOmniHit(item) {
 			prefix = channelPrefix(item)
 			nameStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary)
 			if isSelected {
@@ -780,6 +892,14 @@ func channelPrefix(item Item) string {
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("★")
 	case "dms":
 		return lipgloss.NewStyle().Foreground(styles.Accent).Render("✉")
+	case "user":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("@")
+	case "message":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("»")
+	case "file":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("▭")
+	case "search":
+		return lipgloss.NewStyle().Foreground(styles.Accent).Render("⌕")
 	case "private":
 		return lipgloss.NewStyle().Foreground(styles.Warning).Render("◆")
 	case "dm":

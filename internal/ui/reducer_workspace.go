@@ -209,6 +209,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		a.laterSaved = map[string]bool{}
 		a.draftsView.SetItems(nil)
 		a.unreadsView.Clear()
+		a.applyUnreadsPrefs(m.UnreadsSort, m.UnreadsFilter)
 		a.pendingDraftOpen = nil
 		a.sidebar.SetThreadsUnreadCount(0)
 		a.sidebar.SetActivityUnreadCount(m.ActivityUnread)
@@ -333,6 +334,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.laterSaved = map[string]bool{}
 	a.draftsView.SetItems(nil)
 	a.unreadsView.Clear()
+	a.applyUnreadsPrefs(m.UnreadsSort, m.UnreadsFilter)
 	a.pendingDraftOpen = nil
 	a.sidebar.SetThreadsUnreadCount(0)
 	a.sidebar.SetActivityUnreadCount(m.ActivityUnread)

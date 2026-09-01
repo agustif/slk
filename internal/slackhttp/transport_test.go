@@ -1144,6 +1144,22 @@ func TestEnvelopeBody_NeverSendsXModeWithoutXReason(t *testing.T) {
 	}
 }
 
+func TestEnvelopeBody_ConversationsCreateOmitsReasonKeepsMode(t *testing.T) {
+	got := doBodyReq(t, NewEnvelope(), "rands-leadership.slack.com",
+		"/api/conversations.create", "application/x-www-form-urlencoded",
+		"token=xoxc-abc&name=slk-har-test&validate_name=true&team_id=T1", "")
+	vals, err := url.ParseQuery(got)
+	if err != nil {
+		t.Fatalf("ParseQuery(%q): %v", got, err)
+	}
+	if vals.Get("_x_reason") != "" {
+		t.Errorf("body = %q; 2026-09-01 create capture omits _x_reason", got)
+	}
+	if vals.Get("_x_mode") != "online" {
+		t.Errorf("body = %q; want _x_mode=online", got)
+	}
+}
+
 func TestEnvelopeBody_LeavesMultipartAlone(t *testing.T) {
 	// Two bodies, because the realistic one is not enough on its own:
 	// its Content-Disposition carries a ';', and Go's url.ParseQuery
@@ -1597,10 +1613,17 @@ func TestSendsXModeImpliesSendsXReason(t *testing.T) {
 		"features.access.policies.listMore", "some.unmapped.method", "users.prefs.get"}
 	corpus = append(corpus, xModeAbsentEndpoints...)
 	corpus = append(corpus, xReasonAbsentEndpoints...)
+	corpus = append(corpus, "conversations.create")
 	for _, m := range corpus {
+		if _, ok := xModeWithoutReasonMethods[m]; ok {
+			if !sendsXMode(m) || sendsXReason(m) {
+				t.Errorf("conversations.create-class %q: want mode without reason", m)
+			}
+			continue
+		}
 		if sendsXMode(m) && !sendsXReason(m) {
-			t.Errorf("sendsXMode(%q) is true but sendsXReason(%q) is false; the captures "+
-				"contain zero of the 163 form bodies carrying _x_mode without _x_reason", m, m)
+			t.Errorf("sendsXMode(%q) is true but sendsXReason(%q) is false; the 2026-07-30 captures "+
+				"contain zero of the 163 form bodies carrying _x_mode without _x_reason (exception: conversations.create)", m, m)
 		}
 	}
 }
