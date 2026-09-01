@@ -52,6 +52,15 @@ var reduceUnreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 }
 
 func (a *App) decorateUnreadBlocks(in []unreadsview.Block) []unreadsview.Block {
+	type meta struct {
+		Type    string
+		Starred bool
+		VIP     bool
+	}
+	byID := map[string]meta{}
+	for _, it := range a.sidebar.AllItems() {
+		byID[it.ID] = meta{Type: it.Type, Starred: it.IsStarred, VIP: it.IsVIP}
+	}
 	out := make([]unreadsview.Block, len(in))
 	copy(out, in)
 	for i := range out {
@@ -61,6 +70,13 @@ func (a *App) decorateUnreadBlocks(in []unreadsview.Block) []unreadsview.Block {
 		}
 		if _, t, ok := a.channels.Lookup(ids.ChannelID(b.ChannelID)); ok {
 			b.ChannelType = t
+		}
+		if info, ok := byID[b.ChannelID]; ok {
+			b.IsStarred = info.Starred
+			b.IsVIP = info.VIP
+			if b.ChannelType == "" {
+				b.ChannelType = info.Type
+			}
 		}
 		for j := range b.Messages {
 			msg := &b.Messages[j]

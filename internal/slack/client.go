@@ -1903,9 +1903,10 @@ func (c *Client) GetChannelSectionsRaw(ctx context.Context) ([]byte, error) {
 	return c.callChannelSectionsList(ctx, "")
 }
 
-// starsListResponse is the JSON shape returned by stars.list. Only the
-// channel-typed items are relevant for the sidebar; message/file/IM stars
-// are ignored.
+// starsListResponse is the JSON shape returned by stars.list.
+// Conversation stars (type=channel|im|mpim|group with a channel id) fill
+// the sidebar Starred section. type=message items fill the Starred inbox.
+// type=file is unused (file-item JSON was not captured).
 type starsListResponse struct {
 	OK     bool            `json:"ok"`
 	Error  string          `json:"error"`
@@ -1938,12 +1939,11 @@ type starsListPaging struct {
 	Total int `json:"total"`
 }
 
-// GetStarredChannels calls stars.list and returns the IDs of channels the
-// user has starred. Slack's users.channelSections.list returns the stars
-// section with an empty channel_ids array (it doesn't populate built-in
-// section types); stars.list is the authoritative source for starred
-// channels. Only type=="channel" items are returned — message/file/IM stars
-// don't belong in the channel sidebar.
+// GetStarredChannels calls stars.list and returns the IDs of
+// conversations the user has starred (public/private channels and
+// IMs/MPIMs). Slack's users.channelSections.list returns the stars
+// section with an empty channel_ids array; stars.list is the
+// authoritative source. Message and file stars are not sidebar rows.
 //
 // Best-effort: on error the caller proceeds with an empty star list and
 // the stars section stays hidden (no regression vs pre-fix behavior).
@@ -1969,8 +1969,15 @@ func (c *Client) GetStarredChannels(ctx context.Context) ([]string, error) {
 	}
 	var ids []string
 	for _, it := range slr.Items {
-		if it.Type == "channel" && it.Channel != "" {
-			ids = append(ids, it.Channel)
+		// stars.list conversation stars: type=channel plus IM/MPIM
+		// items that carry a channel id (captured fixture includes
+		// type=im with channel=D…). Message/file stars are not
+		// sidebar rows.
+		switch it.Type {
+		case "channel", "im", "mpim", "group":
+			if it.Channel != "" {
+				ids = append(ids, it.Channel)
+			}
 		}
 	}
 	return ids, nil
@@ -2265,7 +2272,11 @@ func (c *Client) callListThreadSubscriptions(ctx context.Context, currentTS stri
 	if currentTS != "" {
 		form.Set("current_ts", currentTS)
 	}
-	return c.postForm(ctx, "subscriptions.thread.getView", form)
+	reason := "fetch-threads-view-via-refresh"
+	if currentTS != "" {
+		reason = "fetch-threads-view-via-load-more"
+	}
+	return c.postForm(slackhttp.WithReason(ctx, reason), "subscriptions.thread.getView", form)
 }
 
 // SubscribeThread follows a thread via Slack's internal

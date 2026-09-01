@@ -6,7 +6,7 @@ slk is intentionally not a 1:1 port of the desktop client. This **fork** additio
 
 ## On the roadmap
 
-- Custom keybinding overrides (TUI config; not a Slack API)
+- (none right now — `[keys]` overlays and Unreads section chips shipped)
 
 ## Not planned
 

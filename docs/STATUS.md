@@ -25,9 +25,9 @@ See [wiki/Gaps.md](../wiki/Gaps.md). Short list:
 
 - Create channel, invite members (Join / Leave exist)
 - Mentions-only notification prefs
-- Starred files / `type=im` items
-- Unreads recommended sort + section-filter chips
-- GitHub Release / tag, published AUR package
+- Starred files (`type=file`; IM/MPIM conversation stars ship in the Starred section)
+- Unreads recommended / scientifically sort; persisted Unreads sort/section prefs
+- Published AUR package (GitHub Release **v0.17.0** exists)
 
 Permanent non-goals: huddles, canvas, lists, workflows, slash, Slack AI.
 

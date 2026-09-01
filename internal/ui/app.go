@@ -3287,6 +3287,12 @@ func (a *App) SetThemeSaver(fn func(name string, scope themeswitcher.ThemeScope)
 	a.themeSaveFn = fn
 }
 
+// SetKeyMap replaces the key bindings (after [keys] config overlays).
+func (a *App) SetKeyMap(km KeyMap) {
+	a.keys = km
+	a.statusbar.SetHelpHint(a.defaultHelpHint())
+}
+
 // SetWidthSaver sets the callback for persisting the sidebar width.
 // The callback receives the current width after a resize.
 func (a *App) SetWidthSaver(fn func(width int)) {

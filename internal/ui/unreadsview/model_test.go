@@ -45,7 +45,7 @@ func TestView_RendersAllUnreadsAndEmpty(t *testing.T) {
 	}
 	m.SetBlocks(sampleBlocks())
 	out = m.View(14, 70)
-	for _, want := range []string{"All Unreads", "#general", "#random", "hello", "ping", "mark as read", "2 messages", "1 message", "sidebar"} {
+	for _, want := range []string{"All Unreads", "#general", "#random", "hello", "ping", "mark as read", "2 messages", "1 message", "sidebar", "VIP", "Starred", "Channels", "DMs"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q:\n%s", want, out)
 		}
@@ -183,5 +183,101 @@ func TestEmptyCopyAndLoading(t *testing.T) {
 	out := m.View(6, 40)
 	if !strings.Contains(out, "loading unreads") {
 		t.Errorf("loading missing:\n%s", out)
+	}
+}
+
+func mixedBlocks() []Block {
+	return []Block{
+		{
+			ChannelID: "C1", ChannelName: "general", ChannelType: "channel",
+			LastRead: "1.0", LatestTS: "1.1", IsStarred: true,
+			Messages: []Message{{TS: "1.1", UserID: "U1", UserName: "alice", Text: "chan"}},
+		},
+		{
+			ChannelID: "D1", ChannelName: "bob", ChannelType: "dm",
+			LastRead: "2.0", LatestTS: "2.1", IsVIP: true,
+			Messages: []Message{{TS: "2.1", UserID: "U2", UserName: "bob", Text: "dm"}},
+		},
+		{
+			ChannelID: "G1", ChannelName: "squad", ChannelType: "group_dm",
+			LastRead: "3.0", LatestTS: "3.1",
+			Messages: []Message{{TS: "3.1", UserID: "U3", UserName: "carol", Text: "gdm"}},
+		},
+	}
+}
+
+func TestCycleFilter_HidesNonMatching(t *testing.T) {
+	m := New()
+	m.SetBlocks(mixedBlocks())
+	out := m.View(16, 70)
+	for _, want := range []string{"All", "VIP", "Starred", "Channels", "DMs", "#general", "bob", "squad"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("all-filter missing %q:\n%s", want, out)
+		}
+	}
+	if !m.CycleFilter(1) || m.Filter() != FilterVIP {
+		t.Fatalf("s → %q, want vip", m.Filter())
+	}
+	out = m.View(16, 70)
+	if !strings.Contains(out, "bob") {
+		t.Errorf("VIP filter should keep bob:\n%s", out)
+	}
+	if strings.Contains(out, "#general") || strings.Contains(out, "squad") {
+		t.Errorf("VIP filter leaked non-VIP:\n%s", out)
+	}
+	if !m.SetFilter(FilterStarred) {
+		t.Fatal("SetFilter starred")
+	}
+	out = m.View(16, 70)
+	if !strings.Contains(out, "#general") {
+		t.Errorf("starred filter should keep general:\n%s", out)
+	}
+	if strings.Contains(out, "bob") {
+		t.Errorf("starred filter leaked DM:\n%s", out)
+	}
+	if !m.SetFilter(FilterChannels) {
+		t.Fatal("SetFilter channels")
+	}
+	out = m.View(16, 70)
+	if !strings.Contains(out, "#general") {
+		t.Errorf("channels filter missing general:\n%s", out)
+	}
+	if strings.Contains(out, "bob") || strings.Contains(out, "squad") {
+		t.Errorf("channels filter leaked DMs:\n%s", out)
+	}
+	if !m.SetFilter(FilterDMs) {
+		t.Fatal("SetFilter dms")
+	}
+	out = m.View(16, 70)
+	if !strings.Contains(out, "bob") || !strings.Contains(out, "squad") {
+		t.Errorf("DMs filter missing DMs:\n%s", out)
+	}
+	if strings.Contains(out, "#general") {
+		t.Errorf("DMs filter leaked channel:\n%s", out)
+	}
+	if !m.SetFilter(FilterVIP) {
+		t.Fatal("reset vip")
+	}
+	m.SetBlocks([]Block{{
+		ChannelID: "C9", ChannelName: "emptyvip", ChannelType: "channel",
+		LastRead: "1", LatestTS: "1",
+		Messages: []Message{{TS: "1", Text: "x"}},
+	}})
+	out = m.View(8, 50)
+	if !strings.Contains(out, "no VIP unreads") {
+		t.Errorf("empty VIP copy missing:\n%s", out)
+	}
+}
+
+func TestClickFilterChip(t *testing.T) {
+	m := New()
+	m.SetBlocks(mixedBlocks())
+	_ = m.View(16, 70)
+	// "All  VIP  Starred  Channels  DMs" — VIP starts at column 5.
+	if kind := m.ClickAt(1, 5); kind != ClickFilter {
+		t.Fatalf("click VIP = %v, want ClickFilter", kind)
+	}
+	if m.Filter() != FilterVIP {
+		t.Fatalf("filter after VIP click = %q", m.Filter())
 	}
 }

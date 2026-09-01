@@ -1,7 +1,13 @@
 // internal/ui/keys.go
 package ui
 
-import "charm.land/bubbles/v2/key"
+import (
+	"reflect"
+	"strings"
+	"unicode"
+
+	"charm.land/bubbles/v2/key"
+)
 
 type KeyMap struct {
 	Up                  key.Binding
@@ -99,6 +105,57 @@ type KeyMap struct {
 	ShareMessage key.Binding
 }
 
+// ApplyOverrides replaces bindings from a [keys] config table.
+// Names are snake_case KeyMap fields (toggle_star, jump_to_date).
+// Unknown names are returned so the caller can log them.
+func (km *KeyMap) ApplyOverrides(overrides map[string][]string) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	v := reflect.ValueOf(km).Elem()
+	t := v.Type()
+	idx := make(map[string]int, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		idx[toSnake(t.Field(i).Name)] = i
+	}
+	var unknown []string
+	for name, keys := range overrides {
+		i, ok := idx[name]
+		if !ok {
+			unknown = append(unknown, name)
+			continue
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		f := v.Field(i)
+		cur, ok := f.Interface().(key.Binding)
+		if !ok {
+			continue
+		}
+		h := cur.Help()
+		label := strings.Join(keys, "/")
+		f.Set(reflect.ValueOf(key.NewBinding(key.WithKeys(keys...), key.WithHelp(label, h.Desc))))
+	}
+	return unknown
+}
+
+func toSnake(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(unicode.ToLower(r))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		Up:              key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/up", "up")),
@@ -177,7 +234,7 @@ func DefaultKeyMap() KeyMap {
 		WinOnly:            key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
 		ActivityFilter:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next tab / unreads sort")),
 		ActivityFilterPrev: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev tab / unreads sort")),
-		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort")),
+		ActivitySort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle activity sort / unreads section")),
 		ActivityUnreadOnly: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle activity unread-only")),
 		ToggleMute:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute channel")),
 		MoveSection:        key.NewBinding(key.WithHelp(":move", "move channel to section")),

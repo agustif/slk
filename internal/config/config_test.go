@@ -107,6 +107,30 @@ accent = "#00FF00"
 	}
 }
 
+func TestLoadKeysStringAndArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+[keys]
+toggle_star = "*"
+help = ["?", "f1"]
+`)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.KeyOverrides()
+	if len(got["toggle_star"]) != 1 || got["toggle_star"][0] != "*" {
+		t.Errorf("toggle_star = %v", got["toggle_star"])
+	}
+	if len(got["help"]) != 2 || got["help"][0] != "?" || got["help"][1] != "f1" {
+		t.Errorf("help = %v", got["help"])
+	}
+}
+
 func TestLoadConfigMissingFile(t *testing.T) {
 	cfg, err := Load("/nonexistent/path/config.toml")
 	if err != nil {

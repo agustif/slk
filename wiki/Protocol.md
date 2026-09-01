@@ -179,7 +179,7 @@ Response modelled: `messages`, `unchanged_messages`, `latest_updates`, `has_more
 | `drafts.create` | `blocks`, `destinations`, `file_ids`, `attachments`, `client_msg_id`, `is_from_composer=true` | |
 | `drafts.update` | + `draft_id`, `client_last_updated_ts` | |
 | `drafts.delete` | `draft_id`, `client_last_updated_ts` | |
-| `stars.list` | `limit=1000` | `type=channel` → sidebar Starred **section**; `type=message` → inbox (`channel`, `date_create`, `message.{ts,user,text}`). `type=file` / `type=im` unused. Paging fields present; next-page form **not captured** |
+| `stars.list` | `limit=1000` | `type=channel|im|mpim|group` with `channel` → sidebar Starred **section**; `type=message` → inbox (`channel`, `date_create`, `message.{ts,user,text}`). `type=file` unused. Paging fields present; next-page form **not captured** |
 | `stars.add` / `stars.remove` | Channel star: `channel` only. Message star: `channel` + `timestamp`. Idempotent errors `already_starred` / `no_star` | |
 
 ### Sidebar sections
@@ -204,7 +204,7 @@ Linked-list order is `next_channel_section_id`.
 | `subscriptions.thread.getView` | `limit=8`, `fetch_threads_state=true`, `priority_mode=all`, optional `current_ts` = previous `max_ts` |
 | `subscriptions.thread.add` / `.remove` | `channel`, `thread_ts`. Idempotent: `already_subscribed` / `not_subscribed` |
 
-Capture notes (2026-05): official client also sent `limit=8` with `_x_reason=fetch-threads-view-via-refresh` / `…-load-more`. slk uses 100 + generic/default reason.
+Capture notes (2026-05): official client sent `limit=8` with `_x_reason=fetch-threads-view-via-refresh` (first page) / `fetch-threads-view-via-load-more` (when `current_ts` is set). slk matches that pairing.
 
 ### Prefs / mute / status
 
@@ -266,4 +266,4 @@ Still go through the same cookie client + `BrowserTransport` (envelope applies):
 4. Golden-test against `official-request-shape.json` if it changes the envelope.
 5. No live mutating “probe” calls. No invented prefs.
 
-See [[Gaps]] for methods we **know exist** but have not captured (`conversations.create`, invite, mentions-only pref name, `stars.list` `type=file` item, Unreads extra sorts).
+See [[Gaps]] for methods we **know exist** but have not captured (`conversations.create`, invite, mentions-only pref name, `stars.list` `type=file` item, Unreads “scientifically” sort).

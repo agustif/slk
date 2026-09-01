@@ -53,7 +53,7 @@ Everything here was captured from the official client (HAR / browser protocol). 
 | **Threads** | Followed threads | `subscriptions.thread` (followed set), not upstream’s cache-only “threads you participated in”. `t` follow/unfollow. |
 | **Direct Messages** (`✉ Direct Messages`) | DMs tab | Full 1:1 + group + app DM list with last-message preview. Home stays compact. Esc / ← Home returns. `:leave` **closes** a DM (`conversations.close`). |
 | **Drafts** (`✎ Drafts`) | Drafts & sent | `drafts.list` (`is_active`, `next_ts`) + `chat.scheduledMessages.list`. Open restores compose; `D` deletes / cancels. |
-| **Unreads** (`◉ Unreads`) | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`). Header Mark as Read / Undo via `conversations.mark`. Session-local sort only (`f`/`F`). |
+| **Unreads** (`◉ Unreads`) | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`). Header Mark as Read / Undo via `conversations.mark`. Session-local `f`/`F` sort and `s`/chip section filters (All / VIP / Starred / Channels / DMs). |
 | **Starred** (`★ Starred`) | Starred items | `stars.list` `type=message`. Enter opens the message; `*` unstars. Channel stars stay in the Starred sidebar *section*. |
 
 ### Messaging
@@ -101,22 +101,23 @@ OG holes still omitted until a HAR exists — **not invented**:
 
 - Create channel / invite members (Join / Leave already exist)
 - Mentions-only notification prefs (`users.prefs.setNotifications` is captured for `muted` only)
-- Starred **file** / `type=im` items (`stars.list`; message inbox ships)
-- Unreads “recommended / scientifically” sort, section-filter chips, persisted sort pref
+- Starred **file** items (`stars.list`; message inbox ships; IM/MPIM conversation stars are the Starred *section*)
+- Unreads “recommended / scientifically” sort and persisted sort/section prefs
 - `stars.list` past the first page (`limit=1000`)
 
-Packaging: GitHub Release **v0.17.0**; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`. Homebrew remains `--HEAD`.
+Packaging: GitHub Release **v0.17.0**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
 
 See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-These commands install **this fork** (`agustif/slk`). First fork release: **v0.17.0**. Homebrew cask is still `--HEAD` until the tap formula is versioned.
+These commands install **this fork** (`agustif/slk`). First fork release: **v0.17.0**.
 
 **Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 
 ```bash
-brew install --HEAD agustif/tap/slk
+brew install agustif/tap/slk
+# brew install --HEAD agustif/tap/slk   # track main
 ```
 
 **Arch** — AUR package `slk` is upstream. This fork’s `slk-git` PKGBUILD is in-tree and **not published** to the AUR:
@@ -171,7 +172,7 @@ the file before relaunching. Log lines are categorized
 
 In-tree wiki (this fork):
 
-- [Installation](wiki/Installation.md) — Homebrew `--HEAD`, Go `@v0.17.0`, GitHub Release binaries
+- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.17.0`, GitHub Release binaries
 - [Setup](wiki/Setup.md) — desktop-app auth, adding workspaces
 - [Features](wiki/Features.md) — full feature breakdown
 - [Keybindings](wiki/Keybindings.md) — every key, every mode

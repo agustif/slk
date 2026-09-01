@@ -1002,6 +1002,13 @@ func run() error {
 
 	// Create app
 	app := ui.NewApp()
+	if ov := cfg.KeyOverrides(); len(ov) > 0 {
+		km := ui.DefaultKeyMap()
+		if unknown := km.ApplyOverrides(ov); len(unknown) > 0 {
+			log.Printf("config: unknown [keys] names (ignored): %s", strings.Join(unknown, ", "))
+		}
+		app.SetKeyMap(km)
+	}
 	// Frame-correlated sixel output: the App publishes immutable
 	// placement snapshots into sixelFrames; terminalOutput strips the
 	// internal frame marker from Bubble Tea's window title, takes the

@@ -12,7 +12,7 @@
 | `[` / `]` | Normal | Narrow / widen sidebar |
 | `?` | Normal | Keybindings overlay |
 | `f` / `F` | Normal (Activity) | Next / previous Activity tab (Slack views, including custom Unreads / Reactions / VIP) |
-| `s` | Normal (Activity) | Cycle Activity sort (newest ↔ unreads first) |
+| `s` | Normal (Activity) | Cycle Activity sort (newest ↔ unreads first). In Unreads, cycles section chips. |
 | `u` | Normal (Activity) | Toggle Activity unread-only |
 | `Enter` | Normal (Activity) | Open the selected Activity item in its channel / thread |
 | `r` | Normal (Activity) | Open reaction picker on the selected item |
@@ -36,6 +36,7 @@
 | Enter | Normal (Drafts, load more) | Fetch the next page of drafts |
 | `Enter` | Normal (Unreads) | Open the selected message in its channel, or Mark as Read / Undo on a channel header |
 | `f` / `F` | Normal (Unreads) | Cycle local sort (sidebar / alphabetical / newest / oldest). Not persisted. |
+| `s` | Normal (Unreads) | Cycle local section filter (All / VIP / Starred / Channels / DMs). Click the chips too. Not persisted. |
 | Click message | Unreads | Open the message (same as Enter) |
 | Click header | Unreads | Mark as Read, or Undo when the header is already marked |
 | `Enter` | Normal (Starred) | Open the selected starred message in its channel |
@@ -124,4 +125,4 @@
 | `Q` | Normal | Quit immediately |
 | `Ctrl+c` | Any | Quit (with confirmation) |
 
-Custom keybinding overrides are on the roadmap. Remaining OG holes (create channel, invite, mentions-only, starred files, Unreads extra sorts): [[Gaps]].
+Override bindings in `config.toml` under `[keys]` (snake_case field names, e.g. `toggle_star = "s"`). See [[Configuration]]. Remaining OG holes (create channel, invite, mentions-only, starred files, Unreads extra sorts): [[Gaps]].

@@ -10,6 +10,12 @@ default_workspace = "work"      # the slug, not the team ID
 use_slack_sections = true       # use real Slack sidebar sections (default).
                                 # set false to use [sections.*] globs instead.
 
+# Overlay DefaultKeyMap. Names are snake_case KeyMap fields
+# (toggle_star, jump_to_date, help, fuzzy_finder). A string or array.
+# [keys]
+# toggle_star = "s"
+# help = ["?", "f1"]
+
 [appearance]
 theme = "dracula"
 timestamp_format = "3:04 PM"
@@ -343,5 +349,6 @@ Switch themes live with `Ctrl+y`.
 | `~/.local/share/slk/` | SQLite cache, tokens |
 | `~/.cache/slk/` | Avatars, image cache |
 
-There is no keybinding-override table yet (roadmap). Prefs this fork
-does not write (mentions-only, Unreads extra sorts): [[Gaps]].
+`[keys]` overlays DefaultKeyMap (snake_case field names). Prefs this fork
+does not write (mentions-only, Unreads extra sorts / section-filter
+persistence): [[Gaps]].

@@ -35,13 +35,41 @@ var sortLabels = map[string]string{
 	SortOldest:  "oldest",
 }
 
+// Session-local All Unreads section chips. Slack's Home chips are All /
+// VIP / Starred / Channels / DMs. Only all_unreads_section_filter=all_sections
+// was captured; slk does not write that pref. VIP/Starred use the same
+// conversation flags the sidebar already has (prefs.vip_users / stars.list).
+const (
+	FilterAll      = "all"
+	FilterVIP      = "vip"
+	FilterStarred  = "starred"
+	FilterChannels = "channels"
+	FilterDMs      = "dms"
+)
+
+var unreadsFilters = []string{FilterAll, FilterVIP, FilterStarred, FilterChannels, FilterDMs}
+
+var filterLabels = map[string]string{
+	FilterAll:      "All",
+	FilterVIP:      "VIP",
+	FilterStarred:  "Starred",
+	FilterChannels: "Channels",
+	FilterDMs:      "DMs",
+}
+
 type ClickKind int
 
 const (
 	ClickNone ClickKind = iota
 	ClickHeader
 	ClickMessage
+	ClickFilter
 )
+
+type filterHit struct {
+	x0, x1 int
+	filter string
+}
 
 const (
 	rowHeader = iota
@@ -65,6 +93,8 @@ type Block struct {
 	Messages    []Message
 	MarkedRead  bool
 	MarkedCount int
+	IsStarred   bool
+	IsVIP       bool
 }
 
 type selRow struct {
@@ -146,6 +176,8 @@ type Model struct {
 	blocks       []Block
 	sidebarOrder []string
 	sort         string
+	filter       string
+	filterHits   []filterHit
 	rows         []selRow
 
 	channelNames map[string]string
@@ -261,6 +293,95 @@ func (m *Model) CycleSort(dir int) bool {
 		next += n
 	}
 	return m.SetSort(unreadsSorts[next])
+}
+
+func ClampFilter(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case FilterVIP, FilterStarred, FilterChannels, FilterDMs:
+		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return FilterAll
+	}
+}
+
+func (m *Model) Filter() string { return ClampFilter(m.filter) }
+
+func (m *Model) FilterLabel() string {
+	if lab, ok := filterLabels[m.Filter()]; ok {
+		return lab
+	}
+	return filterLabels[FilterAll]
+}
+
+func (m *Model) SetFilter(s string) bool {
+	s = ClampFilter(s)
+	if m.Filter() == s {
+		return false
+	}
+	prevID, prevTS, prevHeader, had := m.selectedKey()
+	m.filter = s
+	m.rebuildRows()
+	m.selected = 0
+	if had {
+		m.restoreSelection(prevID, prevTS, prevHeader)
+	}
+	m.clampSelection()
+	m.hasSnapped = false
+	m.dirty()
+	return true
+}
+
+func (m *Model) CycleFilter(dir int) bool {
+	if dir == 0 {
+		return false
+	}
+	cur := m.Filter()
+	idx := 0
+	for i, f := range unreadsFilters {
+		if f == cur {
+			idx = i
+			break
+		}
+	}
+	n := len(unreadsFilters)
+	next := (idx + dir) % n
+	if next < 0 {
+		next += n
+	}
+	return m.SetFilter(unreadsFilters[next])
+}
+
+func isDirectConversation(channelType, channelID string) bool {
+	switch channelType {
+	case "dm", "group_dm", "app":
+		return true
+	case "channel", "private":
+		return false
+	}
+	if channelID == "" {
+		return false
+	}
+	switch channelID[0] {
+	case 'D', 'G':
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) blockVisible(b Block) bool {
+	switch m.Filter() {
+	case FilterVIP:
+		return b.IsVIP
+	case FilterStarred:
+		return b.IsStarred
+	case FilterChannels:
+		return !isDirectConversation(b.ChannelType, b.ChannelID)
+	case FilterDMs:
+		return isDirectConversation(b.ChannelType, b.ChannelID)
+	default:
+		return true
+	}
 }
 
 func (m *Model) SetSidebarOrder(ids []string) {
@@ -404,10 +525,15 @@ func (b Block) displayName() string {
 func (m *Model) rebuildRows() {
 	m.rows = m.rows[:0]
 	line := 0
+	first := true
 	for i, b := range m.blocks {
-		if i > 0 {
+		if !m.blockVisible(b) {
+			continue
+		}
+		if !first {
 			line++ // blank separator
 		}
+		first = false
 		m.rows = append(m.rows, selRow{kind: rowHeader, blockIdx: i, y0: line, y1: line + headerLines})
 		line += headerLines
 		if b.MarkedRead {
@@ -556,7 +682,20 @@ func (m *Model) ScrollDown(n int) {
 }
 
 func (m *Model) ClickAt(rowY, colX int) ClickKind {
-	_ = colX
+	if rowY < 0 {
+		return ClickNone
+	}
+	if rowY == 1 {
+		for _, h := range m.filterHits {
+			if colX >= h.x0 && colX < h.x1 {
+				if m.SetFilter(h.filter) {
+					return ClickFilter
+				}
+				return ClickNone
+			}
+		}
+		return ClickNone
+	}
 	if rowY < toolbarLines {
 		return ClickNone
 	}
@@ -618,8 +757,8 @@ func (m *Model) View(height, width int) string {
 		body = placeCenter(width, bodyHeight, mutedStyle().Render("loading unreads…"))
 	case m.err != "" && len(m.blocks) == 0:
 		body = placeCenter(width, bodyHeight, mutedStyle().Render(m.err))
-	case len(m.blocks) == 0:
-		body = placeCenter(width, bodyHeight, mutedStyle().Render("no unreads"))
+	case len(m.rows) == 0:
+		body = placeCenter(width, bodyHeight, mutedStyle().Render(m.emptyCopy()))
 	default:
 		lines := m.renderRows(width)
 		if !m.hasSnapped || m.snappedSelection != m.selected {
@@ -666,6 +805,21 @@ func placeCenter(width, height int, s string) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, s)
 }
 
+func (m *Model) emptyCopy() string {
+	switch m.Filter() {
+	case FilterVIP:
+		return "no VIP unreads"
+	case FilterStarred:
+		return "no starred unreads"
+	case FilterChannels:
+		return "no channel unreads"
+	case FilterDMs:
+		return "no DM unreads"
+	default:
+		return "no unreads"
+	}
+}
+
 func (m *Model) renderToolbar(width int) string {
 	title := tabActiveStyle().Render("All Unreads")
 	if n := m.unreadBadge(); n > 0 {
@@ -675,12 +829,44 @@ func (m *Model) renderToolbar(width int) string {
 	if pad := width - lipgloss.Width(title); pad > 0 {
 		title += strings.Repeat(" ", pad)
 	}
-	hint := mutedStyle().Render("enter open  header mark read  f/F sort · " + m.SortLabel())
+	chips, hits := m.renderFilterChips()
+	m.filterHits = hits
+	chips = clipToWidth(chips, width)
+	if pad := width - lipgloss.Width(chips); pad > 0 {
+		chips += strings.Repeat(" ", pad)
+	}
+	hint := mutedStyle().Render("enter open  header mark read  f/F sort · " + m.SortLabel() + "  s section")
 	hint = clipToWidth(hint, width)
 	if pad := width - lipgloss.Width(hint); pad > 0 {
 		hint += strings.Repeat(" ", pad)
 	}
-	return title + "\n" + hint + "\n" + blankLine(width)
+	return title + "\n" + chips + "\n" + hint
+}
+
+func (m *Model) renderFilterChips() (string, []filterHit) {
+	var b strings.Builder
+	hits := make([]filterHit, 0, len(unreadsFilters))
+	x := 0
+	cur := m.Filter()
+	for i, f := range unreadsFilters {
+		if i > 0 {
+			b.WriteString("  ")
+			x += 2
+		}
+		label := filterLabels[f]
+		if label == "" {
+			label = f
+		}
+		styled := mutedStyle().Render(label)
+		if f == cur {
+			styled = tabActiveStyle().Render(label)
+		}
+		w := lipgloss.Width(label)
+		hits = append(hits, filterHit{x0: x, x1: x + w, filter: f})
+		b.WriteString(styled)
+		x += w
+	}
+	return b.String(), hits
 }
 
 func (m *Model) unreadBadge() int {
@@ -724,10 +910,15 @@ func (m *Model) renderRows(width int) []string {
 	if m.selected >= 0 && m.selected < len(m.rows) {
 		sel = m.selected
 	}
+	first := true
 	for i, b := range m.blocks {
-		if i > 0 {
+		if !m.blockVisible(b) {
+			continue
+		}
+		if !first {
 			lines = append(lines, separator)
 		}
+		first = false
 		headerSel := sel >= 0 && m.rows[sel].kind == rowHeader && m.rows[sel].blockIdx == i
 		lines = append(lines, m.renderHeader(b, width, headerSel)...)
 		if b.MarkedRead {

@@ -25,6 +25,10 @@ type Config struct {
 	Sections      map[string]SectionDef `toml:"sections"`
 	Theme         Theme                 `toml:"theme"`
 	Workspaces    map[string]Workspace  `toml:"workspaces"`
+	// Keys overlays DefaultKeyMap. Names are snake_case field names
+	// (toggle_star, jump_to_date, help). Values are a key or a list
+	// of keys ("*", ["ctrl+s", "f1"]). Unknown names are ignored.
+	Keys map[string]any `toml:"keys"`
 }
 
 // SectionDef defines a sidebar section with channel name patterns.
@@ -490,6 +494,62 @@ func Load(path string) (Config, error) {
 	cfg.Notifications.QuietHours = ClampQuietHours(cfg.Notifications.QuietHours)
 
 	return cfg, nil
+}
+
+// KeyOverrides flattens [keys] into snake_case name → key chord list.
+// A TOML string or array of strings is accepted; other types are skipped.
+func (c Config) KeyOverrides() map[string][]string {
+	if len(c.Keys) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(c.Keys))
+	for name, raw := range c.Keys {
+		name = strings.TrimSpace(strings.ToLower(name))
+		if name == "" {
+			continue
+		}
+		keys := stringifyKeyList(raw)
+		if len(keys) == 0 {
+			continue
+		}
+		out[name] = keys
+	}
+	return out
+}
+
+func stringifyKeyList(raw any) []string {
+	switch v := raw.(type) {
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return nil
+		}
+		return []string{s}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				continue
+			}
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // ClampQuietHours returns spec if it is empty (disabled) or a valid

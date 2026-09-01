@@ -2,7 +2,7 @@
 
 Install **this fork** ([agustif/slk](https://github.com/agustif/slk)). Commands that mention `gammons/slk`, `gammons/tap`, or AUR `slk` install [upstream](https://github.com/gammons/slk) instead.
 
-First fork release: **v0.17.0**. Homebrew remains `--HEAD` until the tap formula pins a version. Go: `@v0.17.0` or `@latest`.
+First fork release: **v0.17.0**. Homebrew formula pins that tag; `--HEAD` tracks `main`. Go: `@v0.17.0` or `@latest`.
 
 ## Homebrew (macOS and Linux)
 
@@ -12,12 +12,14 @@ The formula lives in a dedicated tap, [agustif/homebrew-tap](https://github.com/
 # Drop the upstream cask if it is already installed (same binary name):
 brew uninstall --cask slk 2>/dev/null || true
 
-brew install --HEAD agustif/tap/slk
+brew install agustif/tap/slk
+# or, to track this repo's main:
+# brew install --HEAD agustif/tap/slk
 ```
 
-That auto-taps `agustif/homebrew-tap` and builds this fork’s `main` from source.
+That auto-taps [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) and builds **v0.17.0** from source (or `main` with `--HEAD`).
 
-Update later with `brew upgrade --fetch-HEAD slk`.
+Update later with `brew upgrade slk` (or `brew upgrade --fetch-HEAD slk` for HEAD).
 
 ## Arch Linux
 
@@ -67,7 +69,7 @@ make build       # binary at bin/slk
 
 ## Nix
 
-In-tree `flake.nix` builds this source (`version = "0.0.0"`). Not a published nixpkgs package.
+In-tree `flake.nix` builds this source (`version = "0.17.0"`). Not a published nixpkgs package.
 
 ```bash
 nix build
@@ -76,7 +78,7 @@ nix build
 
 ## Windows
 
-Clone and build (this fork has no GitHub release zip):
+GitHub Release **v0.17.0** includes Windows zips from GoReleaser. Or clone and build:
 
 ```powershell
 git clone https://github.com/agustif/slk.git

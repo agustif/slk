@@ -242,6 +242,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivityFilterPrev):
 		a.unreadsView.CycleSort(-1)
 		return nil
+	case a.focusedPanel == PanelMessages && a.view == ViewUnreads && key.Matches(msg, a.keys.ActivitySort):
+		a.unreadsView.CycleFilter(1)
+		return nil
 	case a.focusedPanel == PanelMessages && a.view == ViewActivity && key.Matches(msg, a.keys.ActivitySort):
 		if a.activityView.CycleSort() {
 			return a.fetchActivityCmd()

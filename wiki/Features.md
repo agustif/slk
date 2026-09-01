@@ -182,12 +182,14 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   with `conversations.mark` via `MarkChannelUnread`.
 - `f`/`F` cycle session-local sort: sidebar order, alphabetical, newest,
   oldest. Sort is not persisted (`users.prefs.set` was not captured for
-  sort). Section filters (VIP / Starred / Channels / DMs) are not in v1
-  — only `all_unreads_section_filter=all_sections` was captured, and slk
-  does not write that pref. Recommended / scientifically sort is omitted
-  (algorithm unknown). Workspace switch clears the list; opening Unreads
-  refetches counts + history. The channel finder has an Unreads shortcut
-  (`unreads`). Remaining Unreads chips / “scientifically” sort: [[Gaps]].
+  sort). `s` (or click the chips) cycles session-local section filters:
+  All / VIP / Starred / Channels / DMs. VIP uses sidebar `prefs.vip_users`
+  membership; Starred uses `stars.list` conversation stars. slk does not
+  write `all_unreads_section_filter` (only `all_sections` was captured).
+  Recommended / scientifically sort is omitted (algorithm unknown).
+  Workspace switch clears the list; opening Unreads refetches counts +
+  history. The channel finder has an Unreads shortcut (`unreads`).
+  Remaining Unreads “scientifically” sort: [[Gaps]].
 
 ## Starred items
 
@@ -198,8 +200,9 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   message in its channel (same permalink jump as Later / Unreads). `*` or
   the actions menu Unstar removes it (`stars.remove`). The sidebar badge is
   the number of starred messages (first `stars.list` page, `limit=1000`).
-  File stars (`type=file`) and IM-typed stars (`type=im`) are omitted —
-  see [[Gaps]]. The channel finder has a Starred shortcut (`starred`).
+  File stars (`type=file`) are omitted — see [[Gaps]]. IM/MPIM
+  conversation stars (`type=im|mpim|group`) land in the Starred *section*,
+  not this inbox. The channel finder has a Starred shortcut (`starred`).
   `x` on a card: Open / Unstar / Share.
 
 ## Reactions
