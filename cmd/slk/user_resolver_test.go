@@ -169,7 +169,12 @@ func TestUserResolver_BatchesMissesThroughEdge(t *testing.T) {
 	r.Request("U002")
 
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && len(batcher.calls()) == 0 {
+	for time.Now().Before(deadline) {
+		_, err1 := db.GetUser("U001")
+		_, err2 := db.GetUser("U002")
+		if err1 == nil && err2 == nil {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	calls := batcher.calls()
