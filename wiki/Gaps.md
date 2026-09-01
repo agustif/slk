@@ -65,6 +65,7 @@ Product code can be complete while the fork is not a drop-in install of a tagged
 | **GitHub release artifacts** | Cut with GoReleaser on tag `v*` (linux/windows static, darwin cgo). `workflow_dispatch` can rebuild an existing tag. |
 | **AUR** | AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This repo ships `packaging/aur` as `slk-git`; it is **not published** to the AUR. |
 | **Nix flake** | In-tree `flake.nix` (`version = "0.18.1"`). Not a published nixpkgs/flakehub package. |
+| **GitHub Wiki tab** | Disabled. Docs are `wiki/*.md` in this repo (linked from the README). |
 
 ## How a gap gets filled
 
