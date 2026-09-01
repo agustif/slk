@@ -10,10 +10,11 @@ slk is intentionally not a 1:1 port of the desktop client. This **fork** additio
 
 ## Not planned
 
-- Huddles, Slack Connect, Workflow Builder, Canvas, Lists, Slack AI
+- Huddles, Slack Connect, Workflow Builder, Lists, Slack AI
+- Canvas **editing** (Quip `Collab` / CRDT) — not a Slack `/api` form. Listing, starring, open/close, and quip id lookup are shipped
 - Bot/app management, slash commands, custom emoji management
 - Animated reactions
-- Invented prefs / sorts / endpoints (recents `object_type` for DMs — see [[Gaps]])
+- Invented prefs / sorts / endpoints (see [[Gaps]])
 
 Search (`Ctrl+f`), file upload/download, quiet hours, per-channel mute, link unfurls, and in-app toasts shipped.
 

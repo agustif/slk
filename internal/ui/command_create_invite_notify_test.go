@@ -250,6 +250,44 @@ func TestExecuteCommand_ManagerDispatchesAddManagers(t *testing.T) {
 	}
 }
 
+func TestExecuteCommand_UnmanagerDispatchesRemoveManagers(t *testing.T) {
+	a := seedChannelCmd(t, []sidebar.ChannelItem{
+		{ID: "C1", Name: "general", Type: "channel"},
+	}, "C1")
+	var gotUsers []string
+	var gotID string
+	a.SetChannelService(NewChannelService(ChannelServiceFuncs{
+		RemoveManagers: func(channelID ids.ChannelID, userIDs []string) tea.Msg {
+			gotID = string(channelID)
+			gotUsers = append([]string(nil), userIDs...)
+			return ChannelManagersRemovedMsg{ChannelID: string(channelID), Channel: "general", UserIDs: userIDs}
+		},
+	}))
+	if cmd := executeCommand(a, "unmanager U0BU3458TTK"); cmd != nil {
+		t.Fatalf("expected nil, got %T", cmd)
+	}
+	cmd := a.handleConfirmMode(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected confirm cmd")
+	}
+	res := cmd()
+	m, ok := res.(RemoveChannelManagersMsg)
+	if !ok || m.ChannelID != "C1" || len(m.UserIDs) != 1 || m.UserIDs[0] != "U0BU3458TTK" {
+		t.Fatalf("confirm msg = %T %+v", res, res)
+	}
+	_, cmd = a.Update(res)
+	if cmd == nil {
+		t.Fatal("expected RemoveManagers dispatch")
+	}
+	out := cmd()
+	if gotID != "C1" || len(gotUsers) != 1 || gotUsers[0] != "U0BU3458TTK" {
+		t.Errorf("RemoveManagers(%q, %v)", gotID, gotUsers)
+	}
+	if _, ok := out.(ChannelManagersRemovedMsg); !ok {
+		t.Fatalf("got %T", out)
+	}
+}
+
 func TestExecuteCommand_KickOpensConfirm(t *testing.T) {
 	a := seedChannelCmd(t, []sidebar.ChannelItem{
 		{ID: "C1", Name: "general", Type: "channel"},
@@ -330,7 +368,8 @@ func TestHelp_ListsCreateInviteNotify(t *testing.T) {
 		":invite": "invite email or U",
 		":notify": "all / mentions",
 		":kick":    "remove member",
-		":manager": "make Channel Manager",
+		":manager":   "make Channel Manager",
+		":unmanager": "remove Channel Manager",
 	}
 	for _, e := range entries {
 		if desc, ok := want[e.Key]; ok && strings.Contains(e.Desc, desc) {

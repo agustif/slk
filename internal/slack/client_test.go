@@ -1335,6 +1335,32 @@ func TestListFavoriteFiles_PostsCapturedForm(t *testing.T) {
 	}
 }
 
+func TestListFavoriteFiles_FallsBackToStarredCollectionFiles(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/files.favorites.list":
+			_, _ = w.Write([]byte(`{"ok":true,"favorites":[],"file_ids":[]}`))
+		case "/api/files.collections.list":
+			_, _ = w.Write([]byte(`{"ok":true,"collections":[{"id":"Fs0BTZE2TLB0","name":"Starred","type":"starred","sort":"date_added","files":[{"id":"F0BUXHC276C","position":"5000000000"}]}]}`))
+		default:
+			t.Errorf("path = %q", r.URL.Path)
+			_, _ = w.Write([]byte(`{"ok":false}`))
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	got, err := c.ListFavoriteFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "F0BUXHC276C" {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func TestCreateChannel_PostsCapturedForm(t *testing.T) {
 	var path, name, validate, team, isPrivate string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1509,6 +1535,41 @@ func TestSetRecents_PostsCapturedForm(t *testing.T) {
 	}
 }
 
+func TestRecentsObjectTypeForID(t *testing.T) {
+	if got := RecentsObjectTypeForID("C0BTX6N7JRK"); got != RecentsObjectChannel {
+		t.Errorf("C… = %q", got)
+	}
+	if got := RecentsObjectTypeForID("D0BU4SLGVE0"); got != RecentsObjectDM {
+		t.Errorf("D… = %q", got)
+	}
+	if got := RecentsObjectTypeForID("F0BUXHC276C"); got != RecentsObjectFile {
+		t.Errorf("F… = %q", got)
+	}
+	if got := RecentsObjectTypeForID("G123"); got != "" {
+		t.Errorf("G… = %q, want empty", got)
+	}
+}
+
+func TestSetRecents_PostsDMObjectType(t *testing.T) {
+	var value string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		value = r.PostForm.Get("value")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.SetRecents(context.Background(), []RecentsNavItem{
+		{ID: "D0BU4SLGVE0", ObjectType: RecentsObjectDM, Timestamp: 1788233990362},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(value, `"id":"D0BU4SLGVE0"`) || !strings.Contains(value, `"object_type":"DM"`) {
+		t.Errorf("value = %s", value)
+	}
+}
+
 func TestSetAllUnreadsSortOrder_PostsCapturedForm(t *testing.T) {
 	var path, name, value string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1630,6 +1691,148 @@ func TestListFileCollections_ParsesStarred(t *testing.T) {
 	}
 	if len(cols) != 1 || cols[0].ID != "Fs0BTURTUXK5" || cols[0].Type != FileCollectionTypeStarred {
 		t.Errorf("cols = %+v", cols)
+	}
+}
+
+func TestListFileCollections_ParsesStarredFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"collections":[{"id":"Fs0BTZE2TLB0","name":"Starred","type":"starred","sort":"date_added","files":[{"id":"F0BUXHC276C","position":"5000000000"}]}]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	cols, err := c.ListFileCollections(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cols) != 1 || len(cols[0].Files) != 1 || cols[0].Files[0].ID != "F0BUXHC276C" || cols[0].Files[0].Position != "5000000000" {
+		t.Errorf("cols = %+v", cols)
+	}
+}
+
+func TestCreateFileCollection_PostsCapturedForm(t *testing.T) {
+	var path, name, reason string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		name = r.PostForm.Get("name")
+		reason = r.PostForm.Get("_x_reason")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"collections":[{"id":"Fs0BTZ1LU6A1","name":"Files","type":"custom","position":"5000000001","sort":"date_added"}]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	col, err := c.CreateFileCollection(context.Background(), "Files", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.collections.create" || name != "Files" {
+		t.Errorf("path=%q name=%q", path, name)
+	}
+	if reason != "" && reason != "unified_files_create_collection" {
+		t.Errorf("_x_reason = %q", reason)
+	}
+	if col == nil || col.ID != "Fs0BTZ1LU6A1" || col.Type != FileCollectionTypeCustom {
+		t.Errorf("col = %+v", col)
+	}
+}
+
+func TestUpdateFileCollection_PostsCapturedForm(t *testing.T) {
+	var path, collection, name, emoji string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		collection = r.PostForm.Get("collection")
+		name = r.PostForm.Get("name")
+		emoji = r.PostForm.Get("emoji")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"collection":{"id":"Fs0BU194G1UN","name":"slk-har-section","type":"custom","emoji":"","position":"5000000002","sort":"date_added"}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	col, err := c.UpdateFileCollection(context.Background(), "Fs0BU194G1UN", "slk-har-section", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.collections.update" || collection != "Fs0BU194G1UN" || name != "slk-har-section" {
+		t.Errorf("path=%q collection=%q name=%q emoji=%q", path, collection, name, emoji)
+	}
+	if col == nil || col.Name != "slk-har-section" {
+		t.Errorf("col = %+v", col)
+	}
+}
+
+func TestDeleteFileCollection_PostsCapturedForm(t *testing.T) {
+	var path, collection string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		collection = r.PostForm.Get("collection")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.DeleteFileCollection(context.Background(), "Fs0BTZ1LU6A1"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.collections.delete" || collection != "Fs0BTZ1LU6A1" {
+		t.Errorf("path=%q collection=%q", path, collection)
+	}
+}
+
+func TestSetFileCollectionSort_PostsCapturedForm(t *testing.T) {
+	var path, collection, sort, reason string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		collection = r.PostForm.Get("collection")
+		sort = r.PostForm.Get("sort")
+		reason = r.PostForm.Get("_x_reason")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"collection":{"id":"Fs0BU194G1UN","name":"slk-har-section","type":"custom","sort":"alpha"}}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	col, err := c.SetFileCollectionSort(context.Background(), "Fs0BU194G1UN", FileCollectionSortAlpha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/files.collections.update" || collection != "Fs0BU194G1UN" || sort != "alpha" {
+		t.Errorf("path=%q collection=%q sort=%q reason=%q", path, collection, sort, reason)
+	}
+	if col == nil || col.Sort != "alpha" {
+		t.Errorf("col = %+v", col)
+	}
+	if err := func() error {
+		_, e := c.SetFileCollectionSort(context.Background(), "Fs1", "invented")
+		return e
+	}(); err == nil {
+		t.Fatal("expected unknown sort error")
+	}
+}
+
+func TestRemoveChannelManagers_PostsCapturedForm(t *testing.T) {
+	var path, role, scopes, users string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		path = r.URL.Path
+		role = r.PostForm.Get("role_id")
+		scopes = r.PostForm.Get("role_scopes")
+		users = r.PostForm.Get("user_ids")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	if err := c.RemoveChannelManagers(context.Background(), "C9", []string{"U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/admin.roles.removeMembers" {
+		t.Errorf("path = %q", path)
+	}
+	if role != ChannelManagerRoleID || scopes != "C9" || users != "U1" {
+		t.Errorf("role=%q scopes=%q users=%q", role, scopes, users)
 	}
 }
 

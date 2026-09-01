@@ -54,7 +54,7 @@ Everything here was captured from the official client (HAR / browser protocol). 
 | **Direct Messages** (`✉ Direct Messages`) | DMs tab | Full 1:1 + group + app DM list with last-message preview. Home stays compact. Esc / ← Home returns. `:leave` **closes** a DM (`conversations.close`). |
 | **Drafts** (`✎ Drafts`) | Drafts & sent | `drafts.list` (`is_active`, `next_ts`) + `chat.scheduledMessages.list`. Open restores compose; `D` deletes / cancels. |
 | **Unreads** (`◉ Unreads`) | Home All Unreads | `conversations.history` from `last_read` (`limit=28`, `ignore_replies=true`). Header Mark as Read / Undo via `conversations.mark`. `f`/`F` sort (sidebar / alphabetical / recommended / newest / oldest) writes and boot-reads `all_unreads_sort_order`. `s`/chip filters (All / VIP / Starred / Channels / DMs) write `all_unreads_section_filter`. |
-| **Starred** (`★ Starred`) | Starred items | `stars.list` `type=message`. Enter opens the message; `*` unstars. Channel stars stay in the Starred sidebar *section*. |
+| **Starred** (`★ Starred`) | Starred items | `stars.list` `type=message` plus Files-rail starred files (`files.favorites.list` `file_ids`, else collection `files[].id`). Enter opens a starred message; `*` unstars it. Channel stars stay in the Starred sidebar *section*. |
 
 ### Messaging
 
@@ -62,7 +62,7 @@ Everything here was captured from the official client (HAR / browser protocol). 
 - **Message actions menu** — `x` or right-click.
 - **Share / forward** — menu Share or `:share`; posts the permalink so Slack unfurls it (no extra comment).
 - **Pin / unpin** — `P`; header `📌 N` and `:pins` to list / jump.
-- **Star** — `*` stars a **channel** (Slack Starred sidebar section). Actions menu stars a **message** (`stars.add` with timestamp). **Starred items** inbox (`★ Starred`) lists those messages from `stars.list`.
+- **Star** — `*` stars a **channel** (Slack Starred sidebar section). Actions menu stars a **message** (`stars.add` with timestamp) or adds / removes Files-rail Starred (`files.favorites.add` / `.remove`). **Starred items** inbox (`★ Starred`) lists those messages from `stars.list` plus starred files from `files.favorites.list`.
 - **Yank** — `yy` copies the selected message text.
 - **Workspace search** — `Ctrl+f` adds **Files** and **People** tabs (`Tab` / `Shift+Tab`), pagination on messages/files, Enter on a person opens a DM (`edge.UsersSearch`).
 - **Link unfurls** — preview images render through the same image pipeline as attachments.
@@ -84,7 +84,7 @@ Everything here was captured from the official client (HAR / browser protocol). 
 - **Leave** — `:leave` leaves a channel or closes a DM.
 - **Create** — `:create <name>` public, `:create private <name>` private (`conversations.create`).
 - **Invite** — `:invite email…` workspace invite; `:invite U…` existing members (`conversations.invite`). `:kick U…` removes a member. `:manager U…` makes a Channel Manager (`admin.roles.addMembers` `Rl0A`).
-- **Recents** — opening a channel writes Slack Home recents (`users.prefs.set` `name=recents`).
+- **Recents** — opening a channel or DM writes Slack Home recents (`users.prefs.set` `name=recents`; `object_type` `CHANNEL` for `C…`, `DM` for `D…`; `FILE` attested for `F…` / canvas `F0BUXHC276C`).
 - **DM presentation** — Home can split 1:1 vs group DMs (`[sidebar] group_dms = "split"` default) or keep one Direct Messages section (`"together"`). Compact peer avatars; workspace-rail team logos.
 - **Sort atoms** — `[sidebar.sort]` pipelines (`slack`, `alphabetical`, `recent`, `vip_first`, `unread_first`, `starred_first`) plus `[sidebar.vip]` extras on top of Slack VIP people.
 
@@ -99,19 +99,15 @@ Everything here was captured from the official client (HAR / browser protocol). 
 
 Full table (capture status, why omitted): **[Remaining gaps](wiki/Gaps.md)**.
 
-Permanent non-goals (same as upstream): huddles, Slack Connect, Workflow Builder, Canvas, Lists, Slack AI, slash commands, custom emoji management, animated reactions.
+Permanent non-goals (same as upstream): huddles, Slack Connect, Workflow Builder, Lists, Slack AI, slash commands, custom emoji management, animated reactions. Canvas **editing** is Quip collab (not `/api`); listing / starring canvases as files is in-scope.
 
-OG holes still omitted until a HAR exists — **not invented**:
-
-- Recents `object_type` for DMs (channel recents write ships)
-
-Packaging: GitHub Release **v0.20.0**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
+Packaging: last released tag **v0.20.0** (working tree has unreleased protocol work; version not bumped); Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
 
 See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-These commands install **this fork** (`agustif/slk`). Current release: **v0.20.0** (first fork tag: v0.17.0).
+These commands install **this fork** (`agustif/slk`). Last released tag: **v0.20.0** (first fork tag: v0.17.0).
 
 **Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 

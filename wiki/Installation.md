@@ -2,7 +2,7 @@
 
 Install **this fork** ([agustif/slk](https://github.com/agustif/slk)). Commands that mention `gammons/slk`, `gammons/tap`, or AUR `slk` install [upstream](https://github.com/gammons/slk) instead.
 
-Current release: **v0.20.0** (first fork tag: v0.17.0). Homebrew formula pins that tag; `--HEAD` tracks `main`. Go: `@v0.20.0` or `@latest`.
+Last released tag: **v0.20.0** (first fork tag: v0.17.0). Homebrew formula pins that tag; `--HEAD` tracks `main` (may include unreleased protocol work). Go: `@v0.20.0` or `@latest`. Do not bump the version from docs.
 
 ## Homebrew (macOS and Linux)
 

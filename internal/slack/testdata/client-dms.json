@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "ims": [
+    {"id": "D0TESTIM1"},
+    {"id": "D0TESTIM2"}
+  ],
+  "mpims": [
+    {"id": "G0TESTMPIM1"}
+  ]
+}

@@ -3,8 +3,9 @@
 // Direct Messages inbox reducer for App.Update.
 //
 //	DMsViewActivatedMsg — user opened Slack's DMs tab: switch the
-//	sidebar to the full conversation list (no IsStale) and keep the
-//	message pane on a conversation.
+//	sidebar to the full conversation list (no IsStale), POST
+//	client.dms, and hydrate last-message previews.
+//	DMsListMsg — merge conversations boot missed; then snippets.
 package ui
 
 import (
@@ -26,6 +27,37 @@ var reduceDMs reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// some other 1:1 while the message pane still shows #general.
 		if a.activeChannelID != "" && a.sidebarChannelIsDirect(a.activeChannelID) {
 			a.sidebar.SelectByID(a.activeChannelID)
+		}
+		list := a.fetchClientDMsCmd()
+		snips := a.fetchDMsSnippetsCmd()
+		switch {
+		case list != nil && snips != nil:
+			return tea.Batch(list, snips), true
+		case list != nil:
+			return list, true
+		default:
+			return snips, true
+		}
+
+	case DMsListMsg:
+		if m.TeamID != "" && m.TeamID != a.activeTeamID {
+			return nil, true
+		}
+		have := map[string]bool{}
+		for _, it := range a.sidebar.Items() {
+			have[it.ID] = true
+		}
+		n := 0
+		for _, it := range m.Added {
+			if it.ID == "" || have[it.ID] {
+				continue
+			}
+			a.sidebar.UpsertItem(it)
+			have[it.ID] = true
+			n++
+		}
+		if n == 0 || a.view != ViewDMs {
+			return nil, true
 		}
 		return a.fetchDMsSnippetsCmd(), true
 
@@ -61,6 +93,14 @@ func (a *App) sidebarChannelIsDirect(id string) bool {
 		}
 	}
 	return false
+}
+
+func (a *App) fetchClientDMsCmd() tea.Cmd {
+	if a.dmsList == nil || a.activeTeamID == "" {
+		return nil
+	}
+	fetch := a.dmsList
+	return func() tea.Msg { return fetch() }
 }
 
 func (a *App) fetchDMsSnippetsCmd() tea.Cmd {

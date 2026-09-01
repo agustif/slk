@@ -300,6 +300,7 @@ type App struct {
 	laterSaved    map[string]bool
 	remindTarget  laterRemindTarget
 	dmsSnippets   func(channelIDs []string) tea.Msg
+	dmsList       func() tea.Msg
 
 	threadsDirtyDebounce time.Duration
 	// fetchingOlder tracks in-flight older-history backfills per
@@ -2572,6 +2573,11 @@ func (a *App) SetSidebarGroupDMs(mode string) {
 // SetDMsSnippetFetch wires last-message hydration for the DMs tab.
 func (a *App) SetDMsSnippetFetch(fn func(channelIDs []string) tea.Msg) {
 	a.dmsSnippets = fn
+}
+
+// SetDMsListFetch wires client.dms for the DMs tab conversation list.
+func (a *App) SetDMsListFetch(fn func() tea.Msg) {
+	a.dmsList = fn
 }
 
 // SetReadStateReader installs a callback the sidebar (and any future

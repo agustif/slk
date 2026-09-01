@@ -1510,7 +1510,8 @@ func run() error {
 			debuglog.Cache("files.favorites.list: %v", ferr)
 			fileIDs = nil
 		}
-		return ui.StarredLoadedMsg{Items: items, FileIDs: fileIDs}
+		files := hydrateStarredFiles(ctx, wctx.Client, fileIDs)
+		return ui.StarredLoadedMsg{Items: items, FileIDs: fileIDs, Files: files}
 	})
 
 	app.SetWidthSaver(func(width int) {
@@ -1992,6 +1993,26 @@ func run() error {
 				}
 				return ui.ChannelManagersAddedMsg{ChannelID: chIDStr, Channel: name, UserIDs: userIDs}
 			},
+			RemoveManagers: func(channelID ids.ChannelID, userIDs []string) tea.Msg {
+				chIDStr := string(channelID)
+				wctx := router.Active()
+				if wctx == nil || wctx.Client == nil {
+					return ui.ChannelManagersRemoveFailedMsg{UserIDs: userIDs, Err: fmt.Errorf("no workspace")}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := wctx.Client.RemoveChannelManagers(ctx, chIDStr, userIDs); err != nil {
+					return ui.ChannelManagersRemoveFailedMsg{UserIDs: userIDs, Err: err}
+				}
+				name := chIDStr
+				for _, ch := range wctx.Channels {
+					if ch.ID == chIDStr {
+						name = ch.Name
+						break
+					}
+				}
+				return ui.ChannelManagersRemovedMsg{ChannelID: chIDStr, Channel: name, UserIDs: userIDs}
+			},
 			InviteEmails: func(emails []string, channelID ids.ChannelID) tea.Msg {
 				chIDStr := string(channelID)
 				wctx := router.Active()
@@ -2387,6 +2408,28 @@ func run() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
 			return fetchDMsSnippets(ctx, db, client, team, channelIDs)
+		})
+
+		app.SetDMsListFetch(func() tea.Msg {
+			wctx := router.Active()
+			team := ""
+			var client *slackclient.Client
+			if wctx != nil {
+				team = wctx.TeamID
+				client = wctx.Client
+			}
+			if client == nil {
+				return ui.DMsListMsg{TeamID: team}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			dms, err := client.ListClientDMs(ctx)
+			if err != nil {
+				debuglog.General("client.dms: %v", err)
+				return ui.DMsListMsg{TeamID: team, Err: err}
+			}
+			added := mergeClientDMsIntoWorkspace(wctx, db, cfg, team, dms)
+			return ui.DMsListMsg{TeamID: team, Added: added}
 		})
 
 		app.SetLaterService(ui.NewLaterService(ui.LaterServiceFuncs{
@@ -5290,16 +5333,21 @@ func workspacePresenceIDs(wctx *WorkspaceContext) []string {
 	return ids
 }
 
-// bumpRecentsNav move-to-fronts a channel in the OG recents list.
-// Only C-prefixed ids are written: the 2026-09-01 capture used
-// object_type=CHANNEL for those. DMs are not posted until captured.
+// bumpRecentsNav move-to-fronts a conversation in the OG recents list.
+// object_type comes from official-client objectTypeForId (gantry MjSP,
+// 2026-09-01): C… → CHANNEL (HAR), D… → DM (JS enum). Other prefixes
+// are not written.
 func bumpRecentsNav(wctx *WorkspaceContext, channelID string) []slackclient.RecentsNavItem {
-	if wctx == nil || channelID == "" || channelID[0] != 'C' {
+	if wctx == nil || channelID == "" {
+		return nil
+	}
+	objectType := slackclient.RecentsObjectTypeForID(channelID)
+	if objectType == "" {
 		return nil
 	}
 	item := slackclient.RecentsNavItem{
 		ID:         channelID,
-		ObjectType: slackclient.RecentsObjectChannel,
+		ObjectType: objectType,
 		Timestamp:  time.Now().UnixMilli(),
 	}
 	out := []slackclient.RecentsNavItem{item}

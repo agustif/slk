@@ -56,13 +56,18 @@ func borderFillStyle() lipgloss.Style {
 }
 
 // Item is one stars.list message row plus names resolved by App,
-// or a files.favorites.list file id (Files-rail Starred).
+// or a files.favorites.list file id (Files-rail Starred). FileTitle
+// comes from files.list / files.info when the id is a F… file (quip
+// canvases included). No canvas editor.
 type Item struct {
 	slackclient.StarredMessage
 	ChannelName string
 	ChannelType string
 	AuthorName  string
 	FileID      string
+	FileTitle   string
+	Filetype    string
+	FileMode    string
 }
 
 func (it Item) Key() string {
@@ -407,9 +412,17 @@ func (m *Model) renderCard(it Item, width int, selected bool) []string {
 		contentWidth = 1
 	}
 	if it.FileID != "" {
-		header := clipToWidth("file", contentWidth)
+		title := it.FileTitle
+		if title == "" {
+			title = it.FileID
+		}
+		kind := "Files-rail Starred"
+		if it.Filetype == "quip" || it.FileMode == "quip" {
+			kind = "Canvas"
+		}
+		header := clipToWidth(title, contentWidth)
 		preview := clipToWidth("  "+it.FileID, contentWidth)
-		footer := clipToWidth("  Files-rail Starred", contentWidth)
+		footer := clipToWidth("  "+kind, contentWidth)
 		return []string{
 			m.borderFill(header, contentWidth, selected, false),
 			m.borderFill(preview, contentWidth, selected, false),

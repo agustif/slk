@@ -2,7 +2,7 @@
 
 What this fork knows about Slack’s **unofficial browser client** protocol, as implemented. A public Web API name is not enough; the official client’s form, `_x_reason`, envelope, and response shape are the contract.
 
-Product gaps (starred files inbox, Unreads section-filter prefs, …): [[Gaps]]. Features: [[Features]].
+Packaging and remaining captured-not-TUI: [[Gaps]]. Features: [[Features]].
 
 Raw HARs are **not** in the repo (live `xoxc` tokens, `d` cookies, message bodies). Digests and golden tests are.
 
@@ -17,6 +17,9 @@ Last reviewed: 2026-09-01.
 | Threads socket | 2026-08-02 coldboot | — | WebSocket `start_args` (typing delivery) |
 | Official web create / invite / notify | 2026-09-01 | Test Workspace (`T0BTKN81S79`) | Public `conversations.create`; `users.admin.inviteBulk`; `users.prefs.setNotifications` multi-pref |
 | Official web private create / member invite / kick / recents / channel manager | 2026-09-01 | Test Workspace (`T0BTKN81S79`) | Private `conversations.create` `is_private=true` (still **no** `_x_reason`); `conversations.invite` (`force=true`, empty `subteams`); `conversations.kick`; `users.prefs.set` `name=recents`; `admin.roles.addMembers` `role_id=Rl0A` (write returned `no_valid_users` until invitee finished signup) |
+| Official web Channel Manager success + recents JS + new file star | 2026-09-01 | Test Workspace (`T0BTKN81S79`) | After signup, `admin.roles.addMembers` `user_ids=U0BU3458TTK` `role_scopes=C0BTX6N7JRK` returned `{ok:true}`; `listAssignments` `role_assignments[{role_id:Rl0A, users:[tester, owner]}]`. gantry MjSP `objectTypeForId`: `D…`→`DM`, `C…`→`CHANNEL`. Created `slk-har-star2.txt` `F0BU15RCQQN`; `files.favorites.add` `{ok:true}`; `files.favorites.list` still empty `file_ids` |
+| Official web template canvas star + custom file sections | 2026-09-01 | Test Workspace (`T0BTKN81S79`, Workspace Tester) | Template canvas `F0BUXHC276C` Employee Onboarding: `files.favorites.add` `{ok:true}`; `files.favorites.list` `file_ids:["F0BUXHC276C"]` (`favorites[]` empty); Starred collection `files:[{id, position}]`; recents `object_type` `FILE`/`CHANNEL`/`DM`. `files.collections.create` / `.update` / `.delete`; sort `recently_viewed\|last_updated\|alpha\|date_added` |
+| Official web canvas open + collection sort + unmanager | 2026-09-01 | Test Workspace | Untitled `F0BU54KT3U1`: `canvases.getCannedTemplates` `_x_reason=fetch-canned-templates`; `quip.lookupThreadIds` `file_ids` → `VOQ9AAYK8SN`; `quip.lookupFileId`; `files.open`/`close` `file_id`. Edit is Quip `Collab`, not `/api`. `admin.roles.removeMembers` `{ok:true}`. |
 | Official web DMs tab + Files rail reload | 2026-09-01 | Test Workspace (`T0BTKN81S79`) | `client.dms` form (`priority_mode=priority` string, `_x_reason=dms-tab-populate`); `files.recentlyDeleted` (`_x_reason=get-deleted-files`); Files Starred is still `files.collections.list` (no `files.favorites.list` on that click) |
 | Official web Unified Files unstar | 2026-09-01 | Test Workspace (`T0BTKN81S79`) | `files.favorites.remove` `file_id` + `collection_id` `_x_reason=remove_file_from_collection` (`{"ok":true}` on `F0BUVQHU6NL` → `Fs0BTURTUXK5`). Same-session Move to… Starred radio `aria-checked=true` plus **Remove from Starred**. After reload, radio is unchecked, `collections.list` `files[]` still empty, `files.info` `is_starred=false`. |
 | Official web All Unreads sort | 2026-09-01 | Obvious AI (`T099JCA82HJ`) | `users.prefs.set` `name=all_unreads_sort_order` `_x_reason=prefs`. Values: `sidebar`, `alphabetical`, `priority` (UI “Sorted by recommended order”; list `All Unreads, sorted scientifically`), `newest`, `oldest`. JS `sortScientifically`: starred then not; channels-with-mentions, channels, IMs, MPIMs; `channels_priority` desc then name. |
@@ -195,7 +198,7 @@ Response modelled: `messages`, `unchanged_messages`, `latest_updates`, `has_more
 | `drafts.create` | `blocks`, `destinations`, `file_ids`, `attachments`, `client_msg_id`, `is_from_composer=true` | |
 | `drafts.update` | + `draft_id`, `client_last_updated_ts` | |
 | `drafts.delete` | `draft_id`, `client_last_updated_ts` | |
-| `stars.list` | `limit=1000`; next page `page=2` (live) or `cursor` from `response_metadata.next_cursor` (JS + live empty `next_cursor=""`) | `type=channel|im|mpim|group` with `channel` → sidebar Starred **section**; `type=message` → inbox (`channel`, `date_create`, `message.{ts,user,text}`). `type=file` unused. slk follows `next_cursor`, else `paging.total` with `page=N+1` |
+| `stars.list` | `limit=1000`; next page `page=2` (live) or `cursor` from `response_metadata.next_cursor` (JS + live empty `next_cursor=""`) | `type=channel|im|mpim|group` with `channel` → sidebar Starred **section**; `type=message` → inbox (`channel`, `date_create`, `message.{ts,user,text}`). `type=file` unused — Files-rail Starred inbox uses `files.favorites.list` `file_ids` (else collection `files[].id`). slk follows `next_cursor`, else `paging.total` with `page=N+1` |
 | `stars.add` / `stars.remove` | Channel star: `channel` only. Message star: `channel` + `timestamp`. Idempotent errors `already_starred` / `no_star` | |
 
 ### Sidebar sections
@@ -266,22 +269,32 @@ Official client used `multipart/form-data` for these; slk sends the same fields 
 | `users.admin.inviteBulk` | `source=invite_emails_to_channel`, `restricted=false`, `ultra_restricted=false`, `invites` JSON `[{email,type:regular}]`, optional `channels`, `team_id` | `_x_reason=send-workspace-invites-from-channel-invite`. Workspace invite from the channel-invite modal. |
 | `conversations.invite` | `channel`, `invite_all=false`, `users` (member id), `subteams` (empty key present), `force=true` | `_x_reason=submit-invite-channel-invite-modal`. Existing member `U0BU3458TTK` into `C0BTX6N7JRK`. Response `ok=true` + channel object; join message `subtype=channel_join`. |
 | `conversations.kick` | `channel`, `user` | `_x_reason=submitKickFromChannel`. Response `{"ok":true,"errors":{}}`. |
-| `admin.roles.entity.listAssignments` | `entity_id` = channel id | `_x_reason=fetch-channel-managers`. Response `role_assignments:[{role_id:"Rl0A", users:[creator]}]`. `Rl0A` is Channel Manager. |
-| `admin.roles.addMembers` | `role_id=Rl0A`, `role_scopes` = channel id, `user_ids` | `_x_reason=add-channel-managers`. slk `:manager U…` posts this form. Official picker still “No matches” for Workspace Tester after signup; success extra JSON uncaptured (`ok` ack only). |
-| `users.prefs.set` recents | `name=recents`, `value` JSON `{"navigation":[{"id","object_type":"CHANNEL","timestamp":ms},…]}` | `_x_reason=prefs-api/setUserPrefByApi`. Posted on channel switch (move-to-front). Captured `object_type` is `CHANNEL` for `C…` ids only. Opening a DM from the DMs tab (`D0BU4SLGVE0`) did **not** POST recents. |
+| `admin.roles.entity.listAssignments` | `entity_id` = channel id | `_x_reason=fetch-channel-managers`. After adding Workspace Tester as manager of `C0BTX6N7JRK`: `{ok:true, role_assignments:[{role_id:"Rl0A", users:["U0BU3458TTK","U0BU12NKA8J"]}]}`. |
+| `admin.roles.addMembers` | `role_id=Rl0A`, `role_scopes` = channel id, `user_ids` | `_x_reason=add-channel-managers`. Live success: `{ok:true}`. |
+| `admin.roles.removeMembers` | same form | `_x_reason=remove-channel-managers`. JS Remove From Channel Managers (chunks of 10). Live `U0BU3458TTK` on `C0BTX6N7JRK` → `{ok:true}`. slk `:unmanager U…`. |
+| `users.prefs.set` recents | `name=recents`, `value` JSON `{"navigation":[{"id","object_type","timestamp":ms},…]}` | `_x_reason=prefs-api/setUserPrefByApi`. `object_type`: `CHANNEL` for `C…` (HAR), `DM` for `D…` (live recents POST + JS `objectTypeForId`), `FILE` for `F…` (live recents POST after starring canvas `F0BUXHC276C`). `setRecentsByApi` is debounced 60s. IA4 `storeKey:"recents"` is a separate client-only history. |
 | `users.prefs.set` All Unreads sort | `name=all_unreads_sort_order`, `value` | `_x_reason=prefs`. Captured values `sidebar` / `alphabetical` / `priority` / `newest` / `oldest`. slk `f`/`F` writes this and applies it from `client.userBoot` prefs. Scientifically is **not** a server sort — `priority` plus client `sortScientifically`. |
 | `users.prefs.set` All Unreads section filter | `name=all_unreads_section_filter`, `value` | `_x_reason=all-unreads-section-filter-menu-item-select`. `all_sections` (All), `priority` (VIP unreads), or a sidebar section id `L…` (Starred / Channels / DMs / custom sections). slk chips write All/VIP/Starred/Channels/DMs; custom sections are not extra chips. |
 | `conversations.listPrefs` | `channel` | `_x_reason=client_redux_store`. Prefs include `who_can_post` / `can_thread` `{type:["ra"]}`. Not a slk write. |
-| `files.collections.list` | (token only) | `_x_reason=fetch_file_collections`. Response `collections:[{id:"Fs0BTURTUXK5", name:"Starred", position:"5000000000", type:"starred", sort:"date_added", files:[]}]`. `files[]` stayed **empty** after a successful `files.favorites.add` of `F0BUVQHU6NL`, including after reload. Collection ids are `Fs…`. With `custom_file_sections=on` this is the Starred-files list source; empty `files[]` means the official Files-rail Starred view is also empty after reload. |
-| `files.favorites.add` | `file_id`, `collection_id` | `_x_reason=add_file_to_collection`. Unified Files `star-file-button` → Move to… **Starred**. Own snippet `F0BUVQHU6NL` → collection `Fs0BTURTUXK5` returned `{"ok":true}`. Slack template canvas returned `internal_error`. slk message menu **Add to Starred files** posts this after listing the starred collection. Same-session Redux marks the radio checked; that does **not** survive reload. |
-| `files.favorites.remove` | `file_id`, `collection_id` | `_x_reason=remove_file_from_collection`. Same-session Move to… Starred when `aria-checked=true` (menu also shows **Remove from Starred**). `F0BUVQHU6NL` → `Fs0BTURTUXK5` returned `{"ok":true}`. slk message menu **Remove from Starred files**. |
-| `files.favorites.list` | `type=all` | `_x_reason=starred_unified_files`. JS `maybeFetchStarredUnifiedFiles` (skipped when `custom_file_sections=on`). Live POST 2026-09-01 Test Workspace: `{ok:true, favorites:[], file_ids:[]}` even after `files.favorites.add` `ok=true`. slk lists `file_ids` reversed (JS `slice().reverse()`). `favorites[]` item JSON uncaptured (empty). |
-| `files.recentlyDeleted` | (token only) | `_x_reason=get-deleted-files`. Response `{ok:true, files:[]}`. Files rail support; slk does not wrap it. |
+| `files.collections.list` | (token only) | `_x_reason=fetch_file_collections`. After starring template canvas `F0BUXHC276C` on Workspace Tester: Starred `Fs0BTZE2TLB0` `files:[{id:"F0BUXHC276C", position:"5000000000"}]`. Collection ids are `Fs…`. `type=custom` sections sit beside `type=starred`. A plain-text snippet add can still leave `files[]` empty. |
+| `files.collections.create` | `name`, optional `emoji` | `_x_reason=unified_files_create_collection`. Files rail Create a Section / context **File section**. Live `name=Files` → `{ok:true, collections:[{id:"Fs0BTZ1LU6A1", name:"Files", position, emoji:"", type:"custom", date_create, date_update, sort:"date_added"}]}`. |
+| `files.collections.update` | `collection`, `name`, `emoji` (empty key present) | `_x_reason=unified_files_update_collection`. Context **Rename section**. Live `Fs0BU194G1UN` `Custom Section` → `slk-har-section`: `{ok:true, collection:{id, name, position, emoji, type:"custom", date_create, date_update, sort}}` (no `files[]` on this response). |
+| `files.collections.update` sort | `collection`, `sort` | `_x_reason=unified_files_set_collection_sort`. Sort by: `recently_viewed` / `last_updated` / `alpha` / `date_added`. Live A-Z on `Fs0BU194G1UN` → `{ok:true, collection:{…, sort:"alpha"}}`. |
+| `files.collections.delete` | `collection` | `_x_reason=unified_files_delete_collection`. Context **Delete section** → alertdialog **Delete sidebar section?** / Confirm. Live delete `Fs0BTZ1LU6A1` (`Files`) → `{ok:true}`. |
+| `files.favorites.add` | `file_id`, `collection_id` | `_x_reason=add_file_to_collection`. Unified Files `star-file-button` (toast **Added … to Starred**). Template canvas `F0BUXHC276C` → tester Starred `Fs0BTZE2TLB0` returned `{ok:true}`. Same form into a custom section (toast **Added Untitled to Custom Section**). |
+| `files.favorites.remove` | `file_id`, `collection_id` | `_x_reason=remove_file_from_collection`. Same-session Move to… Starred when `aria-checked=true` (menu also shows **Remove from Starred**). `{ok:true}`. |
+| `files.favorites.list` | `type=all` | `_x_reason=starred_unified_files`. After starring template canvas: `{ok:true, favorites:[], file_ids:["F0BUXHC276C"]}`. `favorites[]` item JSON still empty. `files.info` `is_starred` stays **false**. slk lists `file_ids` reversed, else Starred collection `files[].id`. |
+| `files.recentlyDeleted` | (token only) | `_x_reason=get-deleted-files`. Response `{ok:true, files:[]}`. slk wraps as `ListRecentlyDeletedFiles`. No trash TUI. |
 | `files.getShares` | `file_id` | `_x_reason=file-shares-store.ConditionalFetchManager.fetch`. File peek. slk does not wrap it. |
-| `files.info` (peek) | `file`, `page=1`, `count=500`, `truncate=true`, `public_shared=false`, `skip_shares=true` | `_x_reason=file-subscription.fetchFileInfo`. File id `F0BUVQHU6NL` (`slk-har-star.txt`). |
-| `files.list` (hydrate) | `files` = comma-separated file ids | `_x_reason=files-store-unknown-fetch`. Browser hydrates known ids. Not the public `files.list` channel/user filter. |
-| `client.dms` | `count=250`, `include_closed=true`, `include_channel=true`, `exclude_bots=true`, `priority_mode=priority` | `_x_reason=dms-tab-populate` (Files-rail reload) or `_x_reason=dms` (clicking the DMs rail tab). Response `{ims, mpims}`. slk’s DMs tab still uses boot cache + `conversations.history` limit=1; this form is attested, not wired. **`priority_mode` is the string `priority`, not a boolean**. |
-| `search.modules.files` | `module=files`, `query` type filters, `page=1`, `count=50`, `sort=last_engaged`, `search_context=desktop_files_browser`, plus highlight/extract flags | Files rail (`_x_reason=fetch-current-browser`). Canvas probe: `query=type:quip creator:U…`, `count=1`, `_x_reason=user-created-canvas-query`. Empty workspace returned `items:[]`. |
+| `files.info` (peek) | `file`, `page=1`, `count=500`, `truncate=true`, `public_shared=false`, `skip_shares=true` | `_x_reason=file-subscription.fetchFileInfo`. File id `F0BUVQHU6NL` (`slk-har-star.txt`). Quip canvas `F0BUXHC276C` live keys `{ok, file, comments, paging}` — **no** `content`. Snippet `slk-har-star2.txt` included `content` / `content_highlight_html`. slk wraps as `GetFileInfo` (name, title, filetype, mode, is_starred, content if present). |
+| `files.list` (hydrate) | `files` = comma-separated file ids | `_x_reason=files-store-unknown-fetch`. Browser hydrates known ids. Not the public `files.list` channel/user filter. slk wraps as `HydrateFiles`. |
+| `files.open` | `file_id` | `{ok, viewers:[], should_subscribe_and_ping:false}`. Canvas presence, not the collab stream. |
+| `files.close` | `file_id` | `{ok:true}`. |
+| `canvases.getCannedTemplates` | (token) | `_x_reason=fetch-canned-templates`. `{ok, files:[…]}` Slackbot quip templates. |
+| `quip.lookupThreadIds` | `file_ids` | `{ok, lookup:{F0BU54KT3U1:"VOQ9AAYK8SN"}}`. |
+| `quip.lookupFileId` | `quip_thread_id` | `{ok, file_id}`. Inverse of lookupThreadIds. |
+| `client.dms` | `count=250`, `include_closed=true`, `include_channel=true`, `exclude_bots=true`, `priority_mode=priority` | `_x_reason=dms-tab-populate` (Files-rail reload) or `_x_reason=dms` (clicking the DMs rail tab). Response `{ims, mpims}`. slk `ListClientDMs` posts this on DMs-tab click (`_x_reason=dms`) and merges ids into the boot / `users.conversations` list. Last-message preview is still `conversations.history` limit=1. **`priority_mode` is the string `priority`, not a boolean**. |
+| `search.modules.files` | `module=files`, `query` type filters, `page=1`, `count=50`, `sort=last_engaged`, `search_context=desktop_files_browser` | Files rail (`_x_reason=fetch-current-browser`) as `SearchModulesFiles`. Canvas probe: `query=type:quip creator:U…`, `count=1`, `_x_reason=user-created-canvas-query` as `SearchUserCreatedCanvases`. Empty workspace returned `items:[]`. Highlight/extract flag **names** were not in the HAR notes; slk omits them. Workspace search Files tab is `search.files` (`SearchFiles`), not this method. |
 | `search.inline` | `query`, `count=3`, `page=1`, `extract_len=110`, `from_me=true`, `with_me=true`, `recent_channels`, `search_session_id`, `client_req_id`, `max_ts`, empty `thread_replies` | `_x_reason=quick-messages/prototype`. Cmd+K message snippets. Envelope `{ok, query, pagination, items}`. slk wraps this. |
 | `search.autocomplete.files` | `query`, `include_shares=true` | `_x_reason=omniswitcher:suggestions-from-searcher`. Cmd+K file suggestions. |
 | `users.priority.list` | (token only) | `_x_reason=fetch-priority-users-on-boot-render`. Response `users.manual_provenance=[]`. |
@@ -315,7 +328,7 @@ Searched Gitee, GitCode, CSDN, Zhihu, 掘金, 52pojie, 看雪 for `xoxc`, `clien
 | They say | Official web client on Test Workspace (2026-09-01) |
 |---|---|
 | `client.dms` `priority_mode` boolean | `priority_mode=priority` (**string enum**), `count=250`, `include_closed=true`, `include_channel=true`, `exclude_bots=true`, `_x_reason=dms-tab-populate` |
-| `files.favorites.list` `type` required = favorited files | Files rail **Starred** still posts `files.collections.list` (`files:[]`). Live `files.favorites.list` `type=all` `_x_reason=starred_unified_files` returns `{ok, favorites:[], file_ids:[]}`. JS skips the call when `custom_file_sections=on`. slk wraps the live list form. |
+| `files.favorites.list` `type` required = favorited files | Files rail **Starred** still posts `files.collections.list`. After starring a template canvas, `files.favorites.list` `type=all` returns `{ok, favorites:[], file_ids:[F…]}`. `favorites[]` stays empty. |
 | `admin.roles.addAssignments` (Enterprise docs) | Browser: `admin.roles.addMembers` `role_scopes`=channel |
 | `users.prefs.set` as a prefs blob (ErikKalkoken / slack-ruby) | Recents write is `name=recents` + JSON `value` |
 | `client.boot` as session health-check | slk boots with `client.userBoot`. `client.init` / `client.extras` / `client.channels` are **deferred-data** after a full reload, not a second first-paint path. |
@@ -323,30 +336,26 @@ Searched Gitee, GitCode, CSDN, Zhihu, 掘金, 52pojie, 看雪 for `xoxc`, `clien
 
 ### karbassi session methods vs slk
 
-**Already wrapped here from our HARs** (do not re-wrap from their args): `client.userBoot`, `client.counts`, `client.shouldReload`, `conversations.view`, `conversations.history`, `conversations.listPrefs`, `conversations.mark`, `subscriptions.thread.getView` / `.mark` / follow, `activity.feed` / `activity.views`, `drafts.list` / `.create` / `.update` / `.delete`, `saved.list` / `.add` / `.delete` / `.update`, `users.channelSections.list` + writes, `users.prefs.get` / `.set` / `setNotifications`, `stars.add` / `.remove` / `.list`, `search.modules.files` (workspace search Files tab), `emoji.list`, reminders, pins, bookmarks, join/leave/create/invite/kick, `users.admin.inviteBulk`.
+**Already wrapped here from our HARs** (do not re-wrap from their args): `client.userBoot`, `client.counts`, `client.shouldReload`, `client.dms`, `conversations.view`, `conversations.history`, `conversations.listPrefs`, `conversations.mark`, `subscriptions.thread.getView` / `.mark` / follow, `activity.feed` / `activity.views`, `drafts.list` / `.create` / `.update` / `.delete`, `saved.list` / `.add` / `.delete` / `.update`, `users.channelSections.list` + writes, `users.prefs.get` / `.set` / `setNotifications`, `stars.add` / `.remove` / `.list`, `files.favorites.add` / `.remove` / `.list`, `files.collections.list` / `.create` / `.update` / `.delete` (sort `recently_viewed|last_updated|alpha|date_added`; no Files-rail TUI), `files.info` (peek), `files.list` (hydrate), `files.open` / `.close`, `canvases.getCannedTemplates`, `quip.lookupThreadIds` / `quip.lookupFileId`, `search.files`, `search.modules.files` (Files-rail + `type:quip`), `admin.roles.addMembers` / `.removeMembers` / `admin.roles.entity.listAssignments`, `emoji.list`, reminders, pins, bookmarks, join/leave/create/invite/kick, `users.admin.inviteBulk`.
 
-**Form captured here, not wrapped** (presence in OG, no slk product surface, or DMs already served another way):
+**Form captured here, no TUI** (see [[Gaps]]):
 
-| Method | Our form | Why unwrapped |
+| Method | Our form | Why no screen |
 |---|---|---|
-| `client.dms` | see table above (`_x_reason=dms-tab-populate` or `dms`) | DMs tab already lists IMs from boot + `conversations.history` limit=1 |
-| `files.collections.list` | token; collection `type=starred`, `files:[]` | List source when `custom_file_sections=on`; empty `files[]`. Inbox uses `files.favorites.list` `file_ids` |
-| `files.recentlyDeleted` | token, `_x_reason=get-deleted-files`, `files:[]` | Files-rail support, not a Home surface |
-| `files.list` hydrate | `files=id,id,…` | Internal store fill; slk uses `files.info` / search |
+| `files.recentlyDeleted` | token, `_x_reason=get-deleted-files`, `files:[]` | Wrapped; no trash TUI |
+| `files.getShares` | `file_id` | File peek |
 | `im.list` | `get_latest=true`, `get_read_state=true` | Boot already has IMs |
-| `users.priority.list` | token | People ranking; not a TUI row |
+| `users.priority.list` | token | People ranking |
 | `activity.feed.scoreEntries` | `scoring_method=two_pass_min_msg_spp` | Activity scoring, not Unreads scientifically |
 | `client.init` / `.extras` / `.channels` | `_x_reason=deferred-data` | Not first paint |
-| `search.modules.files` Files-rail | `search_context=desktop_files_browser`, `sort=last_engaged` | Workspace search Files tab already ships; this is the Files **rail** |
-| `admin.roles.addMembers` | `role_id=Rl0A` | **Shipped** as `:manager U…`. Success extra JSON still uncaptured. |
 
 **Named in karbassi, no form in our HARs** — hints only, do not wrap: `client.boot`, `threads.getView`, `saved.get`, `messages.list`, `search.modules.messages` / `.channels` / `.people` / `.dms`, `search.save`, `today.items.list` (they saw `unknown_method` where Today is not rolled out), `ai.alpha.summarize.unreadsSnapshot`, `ai.alpha.digest.list`, `emoji.collections.list`, `emoji.add` / `.remove` / `.adminList`, `conversations.suggestions`, `conversations.teamConnections`, `conversations.bulkReacjiTriggers`, `connectInvites.list`, `calendar.getInstalledCalendars`, `calendar.user.status`, `users.profile.getExtras`, `enterpriseSearch.getConnectors`.
 
-**Named in official-client JS (gantry boot-async, 2026-09-01), form not HAR’d:** `files.collections.create` / `.update`. `files.favorites.list` / `.add` / `.remove` **are HAR’d** (see table).
+Canvas **editing** is not `/api` form posts. Open loads `window.Collab` from `slack-prod.slack.quip.systems/collab/embedded.js`, plus `/canvas/collab/controller-init`, `/canvas/-/load-data`. Typing did not POST Slack methods. List/star/open/close/lookup **are** wrapped.
 
 **karbassi “Tier 3 skip” we actually wrap or captured:** `activity.views` (Activity tabs), `admin.roles.entity.listAssignments` (Channel Manager list). Their skip list is *their* product cut, not a protocol fact.
 
-**Permanent non-goals** even when the name appears (canvas, lists, huddles, Slack AI, workflows, billing, megaphone, onboarding, Salesforce): `canvases.*`, `lists.*`, `huddles/*`, `aiApps.list`, `functions.workflows.list`, `workflows.triggers.*`, `retail.getAvailablePlans`, `payments.*`, `quip.lookupThreadIds`, `sfdc.*`.
+**Permanent non-goals** even when the name appears (canvas **editing**, lists, huddles, Slack AI, workflows, billing, megaphone, onboarding, Salesforce): `lists.*`, `huddles/*`, `aiApps.list`, `functions.workflows.list`, `workflows.triggers.*`, `retail.getAvailablePlans`, `payments.*`, `sfdc.*`. `canvases.getCannedTemplates` and `quip.lookup*` **are** wrapped. No Quip CRDT writes.
 
 ### rusq edge paths (Flannel)
 
@@ -361,7 +370,7 @@ Rail: **Home / DMs / Activity / Files / Agents & tools / Admin**.
 | **Home** sidebar | Huddles, Directories, **Starred** (section), Channels, DMs, Invite people. **No** Activity/Later/Threads/Drafts/Unreads rows on this workspace (new IA). | Recents write on channel switch; `conversations.history` / `listPrefs` |
 | **DMs** tab | Unreads filter, New message, search, list of IMs. Header: star, details, huddle, **Mute conversation**, search | `client.dms` (`count=250`, `priority_mode=priority`, `_x_reason=dms-tab-populate` or `dms` → `ims`/`mpims`), `conversations.history`, `listPrefs`, `bookmarks.list` |
 | **Activity** | Tabs All / DMs / Mentions / Threads, **Filter unreads**, Filters, Search, Detailed/Dense | `activity.views`, `activity.feed` `mode=chrono_v1`, `activity.feed.scoreEntries` |
-| **Files** | All files / Canvases / Lists / Starred. File overflow: Save for later, View raw, Copy link, Add to folder, Delete | `search.modules.files` (`search_context=desktop_files_browser`), `files.collections.list`, `files.recentlyDeleted`. Starred tab does **not** call `files.favorites.list`. |
+| **Files** | All files / Canvases / Lists / Starred. File overflow: Save for later, View raw, Copy link, Add to folder, Delete | `search.modules.files` (`search_context=desktop_files_browser`), `files.collections.list`, `files.recentlyDeleted`. With `custom_file_sections=on` the Starred **tab** still lists via collections; after starring a canvas, `files.favorites.list` also fires (`file_ids` populated). |
 | **Admin** menu | Workspace settings, Manage members, **Manage roles**, Slack Connect, Apps, exports, analytics | Not walked to a loaded admin page this session (menu only) |
 | Channel details | About / Members / Agents / Automations / Tabs / Settings. **Managed by** → Channel Managers modal | `admin.roles.entity.listAssignments`, `admin.roles.addMembers` |
 
@@ -373,7 +382,7 @@ Unique `/api/` + `edgeapi` pathnames from `performance.getEntriesByType('resourc
 
 Edge: `channels/membership`, `huddles/info`, `huddles/list`, `permissions/info`, `users/counts`, `users/info`, `users/list`.
 
-Permanent non-goals still skip huddles / canvas / lists / Slack AI / admin billing even when they appear here.
+Permanent non-goals still skip huddles / canvas **editing** / lists / Slack AI / admin billing even when they appear here. Listing / starring canvases as files is in-scope.
 
 ### Reminders
 
@@ -404,4 +413,4 @@ Permanent non-goals still skip huddles / canvas / lists / Slack AI / admin billi
 4. Golden-test against `official-request-shape.json` if it changes the envelope.
 5. No live mutating “probe” calls. No invented prefs. Third-party method lists are discovery, not a contract.
 
-See [[Gaps]] for methods we **know exist** but have not captured (recents `object_type` for DMs).
+See [[Gaps]] for remaining packaging holes. Recents `object_type`: `CHANNEL` (HAR, `C…`), `DM` (live recents POST + official JS `objectTypeForId`, `D…`), `FILE` (live recents POST for template canvas `F0BUXHC276C`).

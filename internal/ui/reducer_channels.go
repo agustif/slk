@@ -264,6 +264,21 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case ChannelManagersAddFailedMsg:
 		return toastWithClear(a, "Channel Manager failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
 
+	case RemoveChannelManagersMsg:
+		channels := a.channels
+		chID, users := ids.ChannelID(m.ChannelID), m.UserIDs
+		return func() tea.Msg { return channels.RemoveManagers(chID, users) }, true
+
+	case ChannelManagersRemovedMsg:
+		who := strings.Join(m.UserIDs, ", ")
+		if len(m.UserIDs) == 0 {
+			who = "member"
+		}
+		return toastWithClear(a, "Removed "+who+" as Channel Manager of #"+m.Channel, 2*time.Second), true
+
+	case ChannelManagersRemoveFailedMsg:
+		return toastWithClear(a, "Remove Channel Manager failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true
+
 	case ChannelNotifySetMsg:
 		if m.Err != nil {
 			return toastWithClear(a, "Notify failed: "+truncateReason(m.Err.Error(), 40), 3*time.Second), true

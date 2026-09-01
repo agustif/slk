@@ -829,6 +829,117 @@ func TestApp_DMsViewActivation(t *testing.T) {
 	}
 }
 
+func TestApp_DMsViewActivationFetchesListAndSnippets(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SetItems([]sidebar.ChannelItem{
+		{ID: "D1", Name: "alice", Type: "dm"},
+	})
+	app.SetDMsListFetch(func() tea.Msg {
+		return DMsListMsg{TeamID: "T1", Added: []sidebar.ChannelItem{
+			{ID: "D2", Name: "D2", Type: "dm", Closed: true},
+		}}
+	})
+	app.SetDMsSnippetFetch(func(channelIDs []string) tea.Msg {
+		return DMsSnippetsMsg{TeamID: "T1", Snips: map[string]sidebar.DMSnippet{
+			"D1": {Text: "hi"},
+		}}
+	})
+	_, cmd := app.Update(DMsViewActivatedMsg{})
+	if cmd == nil {
+		t.Fatal("expected fetch cmds on activation")
+	}
+	var sawList, sawSnips bool
+	var collect func(tea.Cmd)
+	collect = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		switch msg := c().(type) {
+		case tea.BatchMsg:
+			for _, inner := range msg {
+				collect(inner)
+			}
+		case DMsListMsg:
+			sawList = true
+			_, follow := app.Update(msg)
+			if follow == nil {
+				t.Fatal("new client.dms ids should refetch snippets")
+			}
+			if got := follow(); got != nil {
+				if _, ok := got.(DMsSnippetsMsg); !ok {
+					t.Errorf("follow-up = %T, want DMsSnippetsMsg", got)
+				}
+			}
+		case DMsSnippetsMsg:
+			sawSnips = true
+		default:
+			t.Errorf("unexpected msg %T", msg)
+		}
+	}
+	collect(cmd)
+	if !sawList || !sawSnips {
+		t.Errorf("sawList=%v sawSnips=%v", sawList, sawSnips)
+	}
+	found := false
+	for _, it := range app.sidebar.Items() {
+		if it.ID == "D1" && it.Name != "alice" {
+			t.Errorf("existing DM name clobbered: %+v", it)
+		}
+		if it.ID == "D2" {
+			found = true
+			if it.Type != "dm" || !it.Closed {
+				t.Errorf("added D2 = %+v", it)
+			}
+		}
+	}
+	if !found {
+		t.Error("D2 from client.dms was not merged")
+	}
+}
+
+func TestApp_DMsListMsgSkipsExistingIDs(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.sidebar.SetItems([]sidebar.ChannelItem{
+		{ID: "D1", Name: "alice", Type: "dm"},
+	})
+	snippetN := 0
+	app.SetDMsSnippetFetch(func(channelIDs []string) tea.Msg {
+		snippetN++
+		return DMsSnippetsMsg{TeamID: "T1"}
+	})
+	_, _ = app.Update(DMsViewActivatedMsg{})
+	_, cmd := app.Update(DMsListMsg{
+		TeamID: "T1",
+		Added: []sidebar.ChannelItem{
+			{ID: "D1", Name: "D1", Type: "dm"},
+			{ID: "G1", Name: "G1", Type: "group_dm"},
+		},
+	})
+	for _, it := range app.sidebar.Items() {
+		if it.ID == "D1" && it.Name != "alice" {
+			t.Errorf("existing DM replaced: %+v", it)
+		}
+	}
+	found := false
+	for _, it := range app.sidebar.Items() {
+		if it.ID == "G1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("missing MPIM was not added")
+	}
+	if cmd == nil {
+		t.Fatal("new MPIM should refetch snippets")
+	}
+	_ = cmd()
+	if snippetN != 1 {
+		t.Errorf("snippet fetches = %d, want 1 (history still used after merge)", snippetN)
+	}
+}
+
 func TestApp_HandleEnterOnDMsRowActivatesView(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
@@ -1142,6 +1253,24 @@ func TestApp_StarredLoadedFillsInbox(t *testing.T) {
 	}
 	if n := len(app.starredView.Items()); n != 1 {
 		t.Errorf("inbox items = %d, want 1", n)
+	}
+}
+
+func TestApp_StarredLoadedHydratesCanvasTitle(t *testing.T) {
+	app := NewApp()
+	_, _ = app.Update(StarredLoadedMsg{
+		FileIDs: []string{"F0BUXHC276C"},
+		Files: []slackclient.FileInfo{{
+			ID: "F0BUXHC276C", Title: "Employee Onboarding", Filetype: "quip", Mode: "quip",
+		}},
+	})
+	items := app.starredView.Items()
+	if len(items) != 1 || items[0].FileID != "F0BUXHC276C" || items[0].FileTitle != "Employee Onboarding" {
+		t.Fatalf("items = %+v", items)
+	}
+	out := app.starredView.View(10, 50)
+	if !strings.Contains(out, "Employee Onboarding") || !strings.Contains(out, "Canvas") {
+		t.Errorf("view missing canvas title:\n%s", out)
 	}
 }
 

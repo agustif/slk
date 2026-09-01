@@ -789,9 +789,10 @@ const ChannelManagerRoleID = "Rl0A"
 
 // AddChannelManagers POSTs admin.roles.addMembers as captured from
 // "Make channel manager": role_id=Rl0A, role_scopes=channel id,
-// user_ids, _x_reason=add-channel-managers. The Test Workspace write
-// returned ok=false error=no_valid_users for an invitee who had not
-// finished signup; the form is still the attested shape.
+// user_ids, _x_reason=add-channel-managers. After Workspace Tester
+// (U0BU3458TTK) finished signup, the live write on C0BTX6N7JRK
+// returned {"ok":true} with no extra keys. listAssignments then
+// showed role_assignments[{role_id:Rl0A, users:[tester, owner]}].
 func (c *Client) AddChannelManagers(ctx context.Context, channelID string, userIDs []string) error {
 	if channelID == "" {
 		return fmt.Errorf("admin.roles.addMembers: channel required")
@@ -820,6 +821,37 @@ func (c *Client) AddChannelManagers(ctx context.Context, channelID string, userI
 	return parseSlackAPIAck("admin.roles.addMembers", raw)
 }
 
+// RemoveChannelManagers POSTs admin.roles.removeMembers as captured
+// from official JS (reason remove-channel-managers) and the inverse
+// of addMembers: role_id=Rl0A, role_scopes=channel id, user_ids.
+func (c *Client) RemoveChannelManagers(ctx context.Context, channelID string, userIDs []string) error {
+	if channelID == "" {
+		return fmt.Errorf("admin.roles.removeMembers: channel required")
+	}
+	var users []string
+	for _, u := range userIDs {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		users = append(users, u)
+	}
+	if len(users) == 0 {
+		return fmt.Errorf("admin.roles.removeMembers: no users")
+	}
+	ctx = slackhttp.WithReason(ctx, "remove-channel-managers")
+	form := url.Values{
+		"role_id":     {ChannelManagerRoleID},
+		"role_scopes": {channelID},
+		"user_ids":    {strings.Join(users, ",")},
+	}
+	raw, err := c.postForm(ctx, "admin.roles.removeMembers", form)
+	if err != nil {
+		return fmt.Errorf("admin.roles.removeMembers: %w", err)
+	}
+	return parseSlackAPIAck("admin.roles.removeMembers", raw)
+}
+
 // RecentsNavItem is one entry in the users.prefs.set name=recents
 // payload (2026-09-01 Test Workspace channel switch).
 type RecentsNavItem struct {
@@ -829,12 +861,42 @@ type RecentsNavItem struct {
 }
 
 // RecentsObjectChannel is the captured object_type for a public or
-// private channel id in the recents navigation list.
+// private channel id in the recents navigation list (users.prefs.set
+// name=recents, 2026-09-01 Test Workspace).
 const RecentsObjectChannel = "CHANNEL"
 
+// RecentsObjectDM is the official-client object_type for a D… id.
+// gantry module MjSP (2026-09-01): Z:{DM:"DM", CHANNEL:"CHANNEL", …};
+// objectTypeForId maps id.startsWith("D") → DM. recordRecentNavigationEvent
+// writes {id, object_type, timestamp} into the recents pref.
+const RecentsObjectDM = "DM"
+
+// RecentsObjectFile is the live object_type for an F… id in
+// users.prefs.set name=recents (2026-09-01 Test Workspace, starring
+// canvas F0BUXHC276C). Matches gantry MjSP Z.FILE.
+const RecentsObjectFile = "FILE"
+
+// RecentsObjectTypeForID returns the attested recents object_type for
+// a conversation or file id, or "" if this client does not write that
+// kind (USER / PAGE / RECORD_CHANNEL are named in JS, not used here).
+func RecentsObjectTypeForID(id string) string {
+	switch {
+	case strings.HasPrefix(id, "D"):
+		return RecentsObjectDM
+	case strings.HasPrefix(id, "C"):
+		return RecentsObjectChannel
+	case strings.HasPrefix(id, "F"):
+		return RecentsObjectFile
+	default:
+		return ""
+	}
+}
+
 // SetRecents writes users.prefs.set name=recents as captured:
-// value={"navigation":[{id, object_type:CHANNEL, timestamp:ms}]},
-// _x_reason=prefs-api/setUserPrefByApi. Empty items is a no-op.
+// value={"navigation":[{id, object_type, timestamp:ms}]},
+// _x_reason=prefs-api/setUserPrefByApi. object_type is CHANNEL for
+// C… ids, DM for D… ids, FILE for F… ids (live recents POST 2026-09-01
+// Test Workspace). Empty items is a no-op.
 func (c *Client) SetRecents(ctx context.Context, items []RecentsNavItem) error {
 	if len(items) == 0 {
 		return nil
@@ -930,17 +992,31 @@ func (c *Client) SetAllUnreadsSectionFilter(ctx context.Context, value string) e
 // (Files rail Starred, 2026-09-01).
 const FileCollectionTypeStarred = "starred"
 
+// FileCollectionTypeCustom is a user-created Files-rail section
+// (files.collections.create type=custom, 2026-09-01).
+const FileCollectionTypeCustom = "custom"
+
+// FileCollectionFile is one files[] entry on a collection (canvas
+// F0BUXHC276C in Starred: {id, position:"5000000000"}).
+type FileCollectionFile struct {
+	ID       string `json:"id"`
+	Position string `json:"position"`
+}
+
 // FileCollection is one files.collections.list entry.
 type FileCollection struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Sort string `json:"sort"`
+	ID       string               `json:"id"`
+	Name     string               `json:"name"`
+	Type     string               `json:"type"`
+	Sort     string               `json:"sort"`
+	Emoji    string               `json:"emoji"`
+	Position string               `json:"position"`
+	Files    []FileCollectionFile `json:"files"`
 }
 
 // ListFileCollections POSTs files.collections.list as captured
-// (_x_reason=fetch_file_collections). The Starred collection's files
-// array was empty even after a successful files.favorites.add.
+// (_x_reason=fetch_file_collections). After starring canvas
+// F0BUXHC276C, type=starred files[] is [{id, position}].
 func (c *Client) ListFileCollections(ctx context.Context) ([]FileCollection, error) {
 	ctx = slackhttp.WithReason(ctx, "fetch_file_collections")
 	raw, err := c.postForm(ctx, "files.collections.list", url.Values{})
@@ -962,6 +1038,153 @@ func (c *Client) ListFileCollections(ctx context.Context) ([]FileCollection, err
 		return nil, fmt.Errorf("files.collections.list: ok=false")
 	}
 	return resp.Collections, nil
+}
+
+// CreateFileCollection POSTs files.collections.create as captured from
+// Files rail "Create a Section" (2026-09-01): name,
+// _x_reason=unified_files_create_collection. Optional emoji is omitted
+// when empty (JS emoji:n||void 0). Response collections[0] is the new
+// type=custom section.
+func (c *Client) CreateFileCollection(ctx context.Context, name, emoji string) (*FileCollection, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("files.collections.create: name required")
+	}
+	ctx = slackhttp.WithReason(ctx, "unified_files_create_collection")
+	form := url.Values{"name": {name}}
+	if emoji != "" {
+		form.Set("emoji", emoji)
+	}
+	raw, err := c.postForm(ctx, "files.collections.create", form)
+	if err != nil {
+		return nil, fmt.Errorf("files.collections.create: %w", err)
+	}
+	var resp struct {
+		OK          bool             `json:"ok"`
+		Error       string           `json:"error"`
+		Collections []FileCollection `json:"collections"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("files.collections.create: %w", err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return nil, fmt.Errorf("files.collections.create: %s", resp.Error)
+		}
+		return nil, fmt.Errorf("files.collections.create: ok=false")
+	}
+	if len(resp.Collections) == 0 {
+		return nil, fmt.Errorf("files.collections.create: no collection")
+	}
+	col := resp.Collections[0]
+	return &col, nil
+}
+
+// UpdateFileCollection POSTs files.collections.update as captured from
+// Files rail "Rename section" (2026-09-01): collection, name, emoji
+// (empty string present), _x_reason=unified_files_update_collection.
+// Response {ok, collection:{id,name,position,emoji,type,sort,…}}.
+func (c *Client) UpdateFileCollection(ctx context.Context, collectionID, name, emoji string) (*FileCollection, error) {
+	if collectionID == "" {
+		return nil, fmt.Errorf("files.collections.update: collection required")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("files.collections.update: name required")
+	}
+	ctx = slackhttp.WithReason(ctx, "unified_files_update_collection")
+	form := url.Values{
+		"collection": {collectionID},
+		"name":       {name},
+		"emoji":      {emoji},
+	}
+	raw, err := c.postForm(ctx, "files.collections.update", form)
+	if err != nil {
+		return nil, fmt.Errorf("files.collections.update: %w", err)
+	}
+	var resp struct {
+		OK         bool           `json:"ok"`
+		Error      string         `json:"error"`
+		Collection FileCollection `json:"collection"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("files.collections.update: %w", err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return nil, fmt.Errorf("files.collections.update: %s", resp.Error)
+		}
+		return nil, fmt.Errorf("files.collections.update: ok=false")
+	}
+	if resp.Collection.ID == "" {
+		return nil, fmt.Errorf("files.collections.update: no collection")
+	}
+	col := resp.Collection
+	return &col, nil
+}
+
+// DeleteFileCollection POSTs files.collections.delete as captured from
+// Files rail "Delete section" (2026-09-01): collection,
+// _x_reason=unified_files_delete_collection. Response {"ok":true}.
+func (c *Client) DeleteFileCollection(ctx context.Context, collectionID string) error {
+	if collectionID == "" {
+		return fmt.Errorf("files.collections.delete: collection required")
+	}
+	ctx = slackhttp.WithReason(ctx, "unified_files_delete_collection")
+	form := url.Values{"collection": {collectionID}}
+	raw, err := c.postForm(ctx, "files.collections.delete", form)
+	if err != nil {
+		return fmt.Errorf("files.collections.delete: %w", err)
+	}
+	return parseSlackAPIAck("files.collections.delete", raw)
+}
+
+// File collection sort values captured from Files rail Sort by
+// (2026-09-01 Test Workspace): Last viewed / Last updated / A-Z /
+// Date added.
+const (
+	FileCollectionSortRecentlyViewed = "recently_viewed"
+	FileCollectionSortLastUpdated    = "last_updated"
+	FileCollectionSortAlpha          = "alpha"
+	FileCollectionSortDateAdded      = "date_added"
+)
+
+// SetFileCollectionSort POSTs files.collections.update as captured
+// from Sort by: collection, sort, _x_reason=unified_files_set_collection_sort.
+func (c *Client) SetFileCollectionSort(ctx context.Context, collectionID, sort string) (*FileCollection, error) {
+	if collectionID == "" {
+		return nil, fmt.Errorf("files.collections.update sort: collection required")
+	}
+	switch sort {
+	case FileCollectionSortRecentlyViewed, FileCollectionSortLastUpdated, FileCollectionSortAlpha, FileCollectionSortDateAdded:
+	default:
+		return nil, fmt.Errorf("files.collections.update sort: unknown %q", sort)
+	}
+	ctx = slackhttp.WithReason(ctx, "unified_files_set_collection_sort")
+	form := url.Values{
+		"collection": {collectionID},
+		"sort":       {sort},
+	}
+	raw, err := c.postForm(ctx, "files.collections.update", form)
+	if err != nil {
+		return nil, fmt.Errorf("files.collections.update sort: %w", err)
+	}
+	var resp struct {
+		OK         bool           `json:"ok"`
+		Error      string         `json:"error"`
+		Collection FileCollection `json:"collection"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("files.collections.update sort: %w", err)
+	}
+	if !resp.OK {
+		if resp.Error != "" {
+			return nil, fmt.Errorf("files.collections.update sort: %s", resp.Error)
+		}
+		return nil, fmt.Errorf("files.collections.update sort: ok=false")
+	}
+	col := resp.Collection
+	return &col, nil
 }
 
 // AddFileToCollection POSTs files.favorites.add as captured from
@@ -1039,10 +1262,11 @@ func (c *Client) RemoveFileFromStarredCollection(ctx context.Context, fileID str
 // ListFavoriteFiles POSTs files.favorites.list as captured 2026-09-01
 // (JS maybeFetchStarredUnifiedFiles + live POST): type=all,
 // _x_reason=starred_unified_files. Response {ok, favorites, file_ids}.
-// Official JS stores t.file_ids reversed. favorites[] item JSON was
-// empty in the live capture — not parsed. With custom_file_sections=on
-// the official client skips this call; the method still returns
-// file_ids:[] after a successful files.favorites.add.
+// Official JS stores t.file_ids reversed. favorites[] stayed empty
+// even with file_ids:["F0BUXHC276C"] after starring a template canvas.
+// files.info is_starred stays false. When file_ids is empty, fall back
+// to files.collections.list type=starred files[].id (OG Files-rail
+// source when custom_file_sections=on).
 func (c *Client) ListFavoriteFiles(ctx context.Context) ([]string, error) {
 	ctx = slackhttp.WithReason(ctx, "starred_unified_files")
 	raw, err := c.postForm(ctx, "files.favorites.list", url.Values{"type": {"all"}})
@@ -1064,6 +1288,23 @@ func (c *Client) ListFavoriteFiles(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("files.favorites.list: ok=false")
 	}
 	ids := append([]string(nil), resp.FileIDs...)
+	if len(ids) == 0 {
+		cols, err := c.ListFileCollections(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, col := range cols {
+			if col.Type != FileCollectionTypeStarred {
+				continue
+			}
+			for _, f := range col.Files {
+				if f.ID != "" {
+					ids = append(ids, f.ID)
+				}
+			}
+		}
+		return ids, nil
+	}
 	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
 		ids[i], ids[j] = ids[j], ids[i]
 	}

@@ -57,7 +57,8 @@ type KeyMap struct {
 	CreateChannel       key.Binding
 	InviteEmails        key.Binding
 	KickUser            key.Binding
-	AddChannelManager   key.Binding
+	AddChannelManager    key.Binding
+	RemoveChannelManager key.Binding
 	NotifyLevel         key.Binding
 	ListPins            key.Binding
 	NewMessage          key.Binding
@@ -216,6 +217,7 @@ func DefaultKeyMap() KeyMap {
 		InviteEmails:        key.NewBinding(key.WithHelp(":invite", "invite email or U…")),
 		KickUser:            key.NewBinding(key.WithHelp(":kick", "remove member")),
 		AddChannelManager:   key.NewBinding(key.WithHelp(":manager", "make Channel Manager")),
+		RemoveChannelManager: key.NewBinding(key.WithHelp(":unmanager", "remove Channel Manager")),
 		NotifyLevel:         key.NewBinding(key.WithHelp(":notify", "all / mentions")),
 		ListPins:            key.NewBinding(key.WithHelp(":pins", "list pinned messages")),
 		NewMessage:          key.NewBinding(key.WithKeys("ctrl+n"), key.WithHelp("ctrl+n", "new message")),

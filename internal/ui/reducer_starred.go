@@ -24,12 +24,32 @@ var reduceStarred reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (a *App) applyStarredInbox(items []slackclient.StarredMessage, fileIDs []string) {
+func (a *App) applyStarredInbox(items []slackclient.StarredMessage, fileIDs []string, files []slackclient.FileInfo) {
 	rows := a.decorateStarredItems(items)
-	for _, id := range fileIDs {
-		if id != "" {
-			rows = append(rows, starredview.Item{FileID: id})
+	byID := make(map[string]slackclient.FileInfo, len(files))
+	for _, f := range files {
+		if f.ID != "" {
+			byID[f.ID] = f
 		}
+	}
+	if len(fileIDs) == 0 {
+		for _, f := range files {
+			if f.ID != "" {
+				fileIDs = append(fileIDs, f.ID)
+			}
+		}
+	}
+	for _, id := range fileIDs {
+		if id == "" {
+			continue
+		}
+		it := starredview.Item{FileID: id}
+		if f, ok := byID[id]; ok {
+			it.FileTitle = f.DisplayName()
+			it.Filetype = f.Filetype
+			it.FileMode = f.Mode
+		}
+		rows = append(rows, it)
 	}
 	a.starredView.SetItems(rows)
 	a.sidebar.SetStarredCount(len(items))

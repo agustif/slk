@@ -196,6 +196,7 @@ type (
 	StarredLoadedMsg struct {
 		Items   []slackclient.StarredMessage
 		FileIDs []string
+		Files   []slackclient.FileInfo
 		Err     error
 	}
 	StarredViewActivatedMsg struct{}
@@ -278,7 +279,15 @@ type (
 	// synthetic Direct Messages sidebar row (or the finder shortcut).
 	// The sidebar becomes Slack's DMs tab: every 1:1 / group DM,
 	// including conversations Home hides as stale or closed.
-	DMsViewActivatedMsg    struct{}
+	DMsViewActivatedMsg struct{}
+	// DMsListMsg is client.dms ids merged into the sidebar. Added are
+	// conversations boot/users.conversations missed; existing rows
+	// are left alone. Last-message previews still come from history.
+	DMsListMsg struct {
+		TeamID string
+		Added  []sidebar.ChannelItem
+		Err    error
+	}
 	DraftsViewActivatedMsg struct{}
 	DraftsListLoadedMsg    struct {
 		TeamID string
@@ -952,6 +961,25 @@ type ChannelManagersAddedMsg struct {
 }
 
 type ChannelManagersAddFailedMsg struct {
+	Channel string
+	UserIDs []string
+	Err     error
+}
+
+// RemoveChannelManagersMsg is emitted when the user confirms :unmanager.
+type RemoveChannelManagersMsg struct {
+	ChannelID string
+	Channel   string
+	UserIDs   []string
+}
+
+type ChannelManagersRemovedMsg struct {
+	ChannelID string
+	Channel   string
+	UserIDs   []string
+}
+
+type ChannelManagersRemoveFailedMsg struct {
 	Channel string
 	UserIDs []string
 	Err     error

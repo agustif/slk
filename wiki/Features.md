@@ -14,7 +14,7 @@ Pinned sidebar rows, matching Slack's left rail (not the channel list):
 4. **Direct Messages** (`✉ Direct Messages`) — full DMs column
 5. **Drafts** (`✎ Drafts`) — unsent compose + scheduled send
 6. **Unreads** (`◉ Unreads`) — Home All Unreads
-7. **Starred** (`★ Starred`) — starred **messages** (`stars.list` `type=message`) plus Files-rail starred **files** (`files.favorites.list` `file_ids`)
+7. **Starred** (`★ Starred`) — starred **messages** (`stars.list` `type=message`) plus Files-rail starred **files** (`files.favorites.list` `file_ids`, else Starred collection `files[].id`). File rows show titles from `files.list` hydrate / `files.info` peek (quip canvases included). No canvas editor.
 
 The channel finder (`Ctrl+t` / `Ctrl+p`) pins the same destinations (type `activity`, `later`, `threads`, `dms`, `drafts`, `unreads`, `starred`). Double-click a **section header** (or `Enter` / `Space` on it) to collapse.
 
@@ -139,7 +139,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   recently read, hiding 30-day stale 1:1 leftover rows and closed IMs
   with `is_open=false`). The dedicated view is a conversation column
   (no Activity/Later/Threads/Drafts/Unreads/Starred switcher rows) of **every** 1:1 DM, group
-  DM, and app DM. Esc returns to Home. Each row shows the last-message
+  DM, and app DM. Opening the tab POSTs `client.dms` (`_x_reason=dms`)
+  and merges ids into the boot / `users.conversations` list. Esc returns to Home. Each row shows the last-message
   preview and a relative date (Today / Yesterday / weekday / Jul 16).
   Sorted unread first, then recency (cache, then
   `conversations.history` limit=1). Group DMs use the first other
@@ -192,21 +193,25 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   others = sidebar section ids). VIP membership is still
   `prefs.vip_users`; Starred is `stars.list`. Workspace switch clears
   the list and reapplies that workspace’s Unreads prefs. The channel
-  finder has an Unreads shortcut (`unreads`). Remaining holes: [[Gaps]].
+  finder has an Unreads shortcut (`unreads`). Packaging / captured-not-wired: [[Gaps]].
 
 ## Starred items
 
 - **Starred items** (`★ Starred` in the sidebar, under Unreads): messages
   starred via `stars.add` with a timestamp, listed from `stars.list`
-  `type=message` (channel stars stay in the Starred *section*). Cards show
-  author, channel, preview, and relative date. `Enter` (or click) opens the
-  message in its channel (same permalink jump as Later / Unreads). `*` or
-  the actions menu Unstar removes it (`stars.remove`). The sidebar badge is
-  the number of starred messages (first `stars.list` page, `limit=1000`).
-  File stars (`type=file`) are omitted — see [[Gaps]]. IM/MPIM
-  conversation stars (`type=im|mpim|group`) land in the Starred *section*,
-  not this inbox. The channel finder has a Starred shortcut (`starred`).
-  `x` on a card: Open / Unstar / Share.
+  `type=message` (channel stars stay in the Starred *section*), then
+  Files-rail starred **files** from `files.favorites.list` `file_ids`
+  (else Starred collection `files[].id`). Message cards show author,
+  channel, preview, and relative date; file cards show the file id and
+  “Files-rail Starred”. `Enter` (or click) opens a starred **message** in
+  its channel (same permalink jump as Later / Unreads). `*` or the actions
+  menu Unstar removes a starred message (`stars.remove`). The sidebar badge
+  is the number of starred messages (first `stars.list` page, `limit=1000`).
+  `stars.list` `type=file` is unused — Files-rail Starred is
+  `files.favorites.*`. IM/MPIM conversation stars (`type=im|mpim|group`)
+  land in the Starred *section*, not this inbox. The channel finder has a
+  Starred shortcut (`starred`). `x` on a message card: Open / Unstar /
+  Share. Add / remove Files-rail Starred is the message-pane `x` menu.
 
 ## Reactions
 
@@ -223,7 +228,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Channel topic shown under the name in the message-pane header (omitted when empty)
 - Channel header extras: bookmark titles (clickable, OSC-8) and a pin count (`📌 N`) on one row under the channel name; empty channels omit the row. Clicking `📌 N` opens the pin list (`:pins`); a single pin jumps to it. Enter on a pin jumps in-app when it has a timestamp, otherwise opens the permalink.
 - **Slack-native sidebar sections** — slk reads your sections directly from Slack and reflects them live: section names, emoji, linked-list order, and channel/DM membership are kept in sync via the same WebSocket events the official client uses. `:move` assigns the active channel to an existing section (`users.channelSections.channels.bulkUpdate`); `:section <name>` creates an empty section (`users.channelSections.create`); `:rename <name>` / `:section-delete` write `users.channelSections.update` / `.delete`; `:section-up` / `:section-down` retarget each section's `next_channel_section_id`. Falls back to glob-based config sections when disabled or if the API is unavailable. Within a section, `[sidebar.sort]` atom pipelines compose (`vip_first` + `recent`, `alphabetical`, …); see [Configuration](Configuration.md#sidebar-sort-atoms).
-- Star / unstar a channel with `*` — adds it to Slack's Starred sidebar **section** (hidden when empty). Star a **message** from the actions menu (`x`) — `stars.add` with timestamp; starred rows show a muted ★ marker. The **Starred items** inbox (`★ Starred`) lists those messages; `*` there unstars. Files-rail Starred **write** is in the message menu; the files inbox is omitted ([[Gaps]]).
+- Star / unstar a channel with `*` — adds it to Slack's Starred sidebar **section** (hidden when empty). Star a **message** from the actions menu (`x`) — `stars.add` with timestamp; starred rows show a muted ★ marker. The **Starred items** inbox (`★ Starred`) lists those messages plus Files-rail starred **files** (`files.favorites.list` `file_ids`, else collection `files[].id`); `*` there unstars a message. Files-rail Starred **write** is in the message menu (`files.favorites.add` / `.remove`).
 - Collapsible sections — `Enter`/`Space` on a section header toggles it, as does double-clicking the header (two clicks within ~500ms; terminals don't report a native double-click). The default Channels section starts collapsed (`▸ Channels •3` shows aggregate unreads); pinned sections and DMs start expanded
 - Live unread indicators: bold + blue dot for unread channels, muted text for read ones, aggregate dot+count on collapsed section headers
 - Mute / unmute a channel (`m`) — writes Slack's per-channel notification pref (`users.prefs.setNotifications` `name=muted`). Muted conversations dim in the sidebar, drop unread dots, and suppress desktop notifications (including mentions). Sidebar-focused `m` toggles the selected row; otherwise it toggles the active channel. Reconciles live via `pref_change`.
@@ -236,10 +241,11 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - Sidebar width `[` / `]`
 - Leave the current public or private channel (`:leave`) — confirmation overlay, then the channel drops from the sidebar and slk switches to last-visited or Threads. On a DM, `:leave` closes the conversation (`conversations.close`).
 - Create a public channel (`:create <name>`) or a private one (`:create private <name>`) — `conversations.create` (`validate_name=true`, `team_id`; private adds `is_private=true`; no `_x_reason`).
-- Invite by email (`:invite email [email…]`) — workspace invite (`users.admin.inviteBulk`). Invite existing members (`:invite U…`) — `conversations.invite`. Remove a member (`:kick U…`) — `conversations.kick` (confirm). Make Channel Manager (`:manager U…`) — `admin.roles.addMembers` `role_id=Rl0A` (confirm).
+- Invite by email (`:invite email [email…]`) — workspace invite (`users.admin.inviteBulk`). Invite existing members (`:invite U…`) — `conversations.invite`. Remove a member (`:kick U…`) — `conversations.kick` (confirm). Make Channel Manager (`:manager U…`) — `admin.roles.addMembers` `role_id=Rl0A` (confirm). Remove (`:unmanager U…`) — `admin.roles.removeMembers`.
 - Add / remove a file in Files-rail Starred (`x` → **Add to Starred files** / **Remove from Starred files**) — `files.favorites.add` / `.remove` (`file_id`, `collection_id` of `type=starred`).
-- Starred files inbox — Home ★ Starred lists `files.favorites.list` `file_ids` after starred messages (`type=all`, `_x_reason=starred_unified_files`).
-- OG Home recents — opening a channel POSTs `users.prefs.set` `name=recents` so the official client’s recents match slk.
+- Starred files inbox — Home ★ Starred lists `files.favorites.list` `file_ids` after starred messages, else Starred collection `files[].id`. Titles from `files.list` / `files.info`. Quip rows show as Canvas. No in-TUI editor.
+- Custom Files-rail sections — `files.collections.create` / `.update` / `.delete` HAR’d and client-wrapped; no TUI. Sort by Last viewed / Last updated / A-Z / Date added writes `sort=recently_viewed|last_updated|alpha|date_added` (`_x_reason=unified_files_set_collection_sort`).
+- OG Home recents — opening a channel or DM POSTs `users.prefs.set` `name=recents` (`object_type=CHANNEL` for `C…` from HAR, `DM` for `D…` from live recents POST + JS `objectTypeForId`). `FILE` for `F…` is attested on the same live recents POST (template canvas `F0BUXHC276C`).
 - **Channel members** (`I`) — overlay listing members of the active channel (filter-as-you-type, `j`/`k` to move). Presence dots appear for users already in the live presence map; `[guest]` marks `is_restricted` / `is_ultra_restricted` users. `Enter` opens a DM with the selected person (same `conversations.open` path as `Ctrl+n`). The message pane header shows the member count when it is already known.
 - Workspace picker (`:ws`) and direct jump (`1`–`9`)
 - All workspaces stay connected in parallel for live unread badges

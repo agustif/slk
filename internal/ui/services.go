@@ -853,6 +853,10 @@ type ChannelService interface {
 	// userIDs on channelID (Make Channel Manager).
 	AddManagers(channelID ids.ChannelID, userIDs []string) tea.Msg
 
+	// RemoveManagers sends admin.roles.removeMembers role_id=Rl0A
+	// (Remove From Channel Managers).
+	RemoveManagers(channelID ids.ChannelID, userIDs []string) tea.Msg
+
 	// SetNotifyLevel writes the captured multi-pref notify form
 	// (desktop=everything or mentions_dms). Returns ChannelNotifySetMsg.
 	SetNotifyLevel(channelID ids.ChannelID, level string) tea.Msg
@@ -890,6 +894,7 @@ type ChannelServiceFuncs struct {
 	InviteUsers      func(userIDs []string, channelID ids.ChannelID) tea.Msg
 	Kick             func(channelID ids.ChannelID, userID string) tea.Msg
 	AddManagers      func(channelID ids.ChannelID, userIDs []string) tea.Msg
+	RemoveManagers   func(channelID ids.ChannelID, userIDs []string) tea.Msg
 	SetNotifyLevel   func(channelID ids.ChannelID, level string) tea.Msg
 	FetchChrome      func(channelID ids.ChannelID) tea.Msg
 }
@@ -1060,6 +1065,13 @@ func (c channelAdapter) AddManagers(channelID ids.ChannelID, userIDs []string) t
 		return nil
 	}
 	return c.fns.AddManagers(channelID, userIDs)
+}
+
+func (c channelAdapter) RemoveManagers(channelID ids.ChannelID, userIDs []string) tea.Msg {
+	if c.fns.RemoveManagers == nil {
+		return nil
+	}
+	return c.fns.RemoveManagers(channelID, userIDs)
 }
 
 func (c channelAdapter) SetNotifyLevel(channelID ids.ChannelID, level string) tea.Msg {

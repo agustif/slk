@@ -283,8 +283,10 @@ unread-only for the rest of the session without rewriting
 `config.toml`. Click the tabs and chips in the toolbar for the same
 controls.
 
-There is **no** `[unreads]` block. Unreads `f`/`F` sort is session-local
-and is not persisted (pref name not captured). See [[Gaps]].
+There is **no** `[unreads]` block. Home Unreads `f`/`F` writes
+`users.prefs.set` `name=all_unreads_sort_order` (persisted; boot-read).
+Activity `f`/`F` / `s` / `u` stay session-local (that view’s own
+filter/sort, not the Home Unreads pref).
 
 ## Terminal-palette themes (`ANSI Dark`, `ANSI Light`)
 

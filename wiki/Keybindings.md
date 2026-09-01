@@ -97,6 +97,7 @@
 | `:invite U…` | Normal | Add existing members (`conversations.invite`) |
 | `:kick U…` | Normal | Remove a member (`conversations.kick`, with confirmation) |
 | `:manager U…` | Normal | Make Channel Manager (`admin.roles.addMembers` `role_id=Rl0A`, with confirmation) |
+| `:unmanager U…` | Normal | Remove Channel Manager (`admin.roles.removeMembers` `role_id=Rl0A`, with confirmation) |
 | `Esc` | Normal (Direct Messages view) | Return to Home (the compact sidebar) |
 | Enter | Normal (Direct Messages, Home row) | Return to Home |
 | `:reminders` | Command | List pending reminders; Enter marks the highlighted one complete |
@@ -135,4 +136,4 @@
 | `Q` | Normal | Quit immediately |
 | `Ctrl+c` | Any | Quit (with confirmation) |
 
-Override bindings in `config.toml` under `[keys]` (snake_case field names, e.g. `toggle_star = "s"`). See [[Configuration]]. Remaining OG holes (create channel, invite, mentions-only, starred files, Unreads extra sorts): [[Gaps]].
+Override bindings in `config.toml` under `[keys]` (snake_case field names, e.g. `toggle_star = "s"`). See [[Configuration]]. Packaging / remaining captured-not-wired: [[Gaps]].

@@ -104,3 +104,16 @@ func TestFileRowRendersID(t *testing.T) {
 		t.Errorf("file id missing:\n%s", out)
 	}
 }
+
+func TestFileRowRendersCanvasTitle(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{
+		{FileID: "F0BUXHC276C", FileTitle: "Employee Onboarding", Filetype: "quip", FileMode: "quip"},
+	})
+	out := m.View(10, 50)
+	for _, want := range []string{"Employee Onboarding", "F0BUXHC276C", "Canvas"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("View missing %q:\n%s", want, out)
+		}
+	}
+}

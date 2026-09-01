@@ -40,7 +40,7 @@ slk/
 ## Further reading
 
 - [[Features]] — what ships
-- [[Gaps]] — what does not, and why
+- [[Gaps]] — packaging, captured-not-TUI, permanent non-goals
 - [[Protocol]] — unofficial browser protocol (envelope, methods, HARs)
 - Design specs (historical): [`docs/superpowers/specs/`](https://github.com/agustif/slk/tree/main/docs/superpowers/specs/)
 - Snapshot: [`docs/STATUS.md`](https://github.com/agustif/slk/blob/main/docs/STATUS.md)

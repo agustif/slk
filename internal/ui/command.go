@@ -39,6 +39,7 @@ var commands = map[string]commandFunc{
 	"invite":         cmdInvite,
 	"kick":           cmdKick,
 	"manager":        cmdManager,
+	"unmanager":      cmdUnmanager,
 	"notify":         cmdNotify,
 	"schedule":       cmdSchedule,
 	"scheduled":      cmdScheduledList,
@@ -178,6 +179,39 @@ func cmdManager(a *App, args []string) tea.Cmd {
 		"Uses admin.roles.addMembers role_id=Rl0A.",
 		func() tea.Msg {
 			return AddChannelManagersMsg{ChannelID: id, Channel: name, UserIDs: users}
+		},
+	)
+	a.SetMode(ModeConfirm)
+	return nil
+}
+
+func cmdUnmanager(a *App, args []string) tea.Cmd {
+	if len(args) < 1 {
+		return toastWithClear(a, "Usage: :unmanager U… [U…]", 2*time.Second)
+	}
+	var users []string
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "U") || strings.Contains(arg, "@") {
+			return toastWithClear(a, "Usage: :unmanager U… [U…]", 2*time.Second)
+		}
+		users = append(users, arg)
+	}
+	id, name, chType, ok := a.activeChannelMeta()
+	if !ok {
+		return toastWithClear(a, "No channel", 2*time.Second)
+	}
+	if isDirectMessage(chType) {
+		return toastWithClear(a, "Channel Manager is for channels, not DMs", 2*time.Second)
+	}
+	who := users[0]
+	if len(users) > 1 {
+		who = fmt.Sprintf("%d people", len(users))
+	}
+	a.confirmPrompt.Open(
+		"Remove "+who+" as Channel Manager of #"+name+"?",
+		"Uses admin.roles.removeMembers role_id=Rl0A.",
+		func() tea.Msg {
+			return RemoveChannelManagersMsg{ChannelID: id, Channel: name, UserIDs: users}
 		},
 	)
 	a.SetMode(ModeConfirm)
