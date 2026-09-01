@@ -21,6 +21,14 @@ That auto-taps [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) a
 
 Update later with `brew upgrade slk` (or `brew upgrade --fetch-HEAD slk` for HEAD).
 
+If `slk --version` still says `dev`, Homebrew’s binary is **shadowed**. `~/.local/bin` is often ahead of `/opt/homebrew/bin` (a leftover `go build` / `mv ~/.local/bin/slk`). Check with `which -a slk` and either:
+
+```bash
+rm ~/.local/bin/slk          # then hash -r / open a new shell
+# or run the Cellar binary directly:
+/opt/homebrew/bin/slk --version
+```
+
 ## Arch Linux
 
 AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This fork ships an in-tree `slk-git` PKGBUILD (`packaging/aur`); it is **not published** to the AUR:

@@ -120,6 +120,8 @@ brew install agustif/tap/slk
 # brew install --HEAD agustif/tap/slk   # track main
 ```
 
+If `slk --version` says `dev`, another binary (often `~/.local/bin/slk`) is earlier on `PATH` than Homebrew. `which -a slk` then `rm ~/.local/bin/slk` (or run `/opt/homebrew/bin/slk`).
+
 **Arch** — AUR package `slk` is upstream. This fork’s `slk-git` PKGBUILD is in-tree and **not published** to the AUR:
 
 ```bash
