@@ -2,7 +2,7 @@
 
 Install **this fork** ([agustif/slk](https://github.com/agustif/slk)). Commands that mention `gammons/slk`, `gammons/tap`, or AUR `slk` install [upstream](https://github.com/gammons/slk) instead.
 
-Current release: **v0.18.0** (first fork tag: v0.17.0). Homebrew formula pins that tag; `--HEAD` tracks `main`. Go: `@v0.18.0` or `@latest`.
+Current release: **v0.18.1** (first fork tag: v0.17.0). Homebrew formula pins that tag; `--HEAD` tracks `main`. Go: `@v0.18.1` or `@latest`.
 
 ## Homebrew (macOS and Linux)
 
@@ -17,7 +17,7 @@ brew install agustif/tap/slk
 # brew install --HEAD agustif/tap/slk
 ```
 
-That auto-taps [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) and builds **v0.18.0** from source (or `main` with `--HEAD`).
+That auto-taps [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) and builds **v0.18.1** from source (or `main` with `--HEAD`).
 
 Update later with `brew upgrade slk` (or `brew upgrade --fetch-HEAD slk` for HEAD).
 
@@ -44,7 +44,7 @@ That provides `slk` and conflicts with the upstream AUR package.
 ## Go
 
 ```bash
-go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.18.0
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.18.1
 ```
 
 The module path is `github.com/agustif/slk`. The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`).
@@ -77,7 +77,7 @@ make build       # binary at bin/slk
 
 ## Nix
 
-In-tree `flake.nix` builds this source (`version = "0.17.0"`). Not a published nixpkgs package.
+In-tree `flake.nix` builds this source (`version = "0.18.1"`). Not a published nixpkgs package.
 
 ```bash
 nix build
@@ -86,7 +86,7 @@ nix build
 
 ## Windows
 
-GitHub Release **v0.18.0** includes Windows zips from GoReleaser. Or clone and build:
+GitHub Release **v0.18.1** includes Windows zips from GoReleaser. Or clone and build:
 
 ```powershell
 git clone https://github.com/agustif/slk.git

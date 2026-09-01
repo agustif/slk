@@ -61,11 +61,10 @@ Product code can be complete while the fork is not a drop-in install of a tagged
 
 | Gap | Status |
 |---|---|
-| **GitHub Release / semver tag** | **v0.18.0** (first fork tag was v0.17.0). Homebrew formula in [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) pins the current tag (`brew install agustif/tap/slk`); `--HEAD` still tracks `main`. |
+| **GitHub Release / semver tag** | **v0.18.1** (first fork tag was v0.17.0). Homebrew formula in [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap) pins the current tag (`brew install agustif/tap/slk`); `--HEAD` still tracks `main`. |
 | **GitHub release artifacts** | Cut with GoReleaser on tag `v*` (linux/windows static, darwin cgo). `workflow_dispatch` can rebuild an existing tag. |
 | **AUR** | AUR [`slk`](https://aur.archlinux.org/packages/slk) is **upstream**. This repo ships `packaging/aur` as `slk-git`; it is **not published** to the AUR. |
-| **Help modal footer** | `agustif/slk · original by Grant Ammons` |
-| **Nix flake** | In-tree `flake.nix` (`version = "0.17.0"`). Not a published nixpkgs/flakehub package. |
+| **Nix flake** | In-tree `flake.nix` (`version = "0.18.1"`). Not a published nixpkgs/flakehub package. |
 
 ## How a gap gets filled
 

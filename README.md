@@ -105,13 +105,13 @@ OG holes still omitted until a HAR exists — **not invented**:
 - Unreads “recommended / scientifically” sort and persisted sort/section prefs
 - `stars.list` past the first page (`limit=1000`)
 
-Packaging: GitHub Release **v0.18.0**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
+Packaging: GitHub Release **v0.18.1**; Homebrew `brew install agustif/tap/slk`; AUR `slk` is upstream; in-tree `packaging/aur` is unpublished `slk-git`.
 
 See [Tradeoffs and Non-Goals](wiki/Tradeoffs-and-Non-Goals.md).
 
 ## Quick install
 
-These commands install **this fork** (`agustif/slk`). Current release: **v0.18.0** (first fork tag: v0.17.0).
+These commands install **this fork** (`agustif/slk`). Current release: **v0.18.1** (first fork tag: v0.17.0).
 
 **Homebrew** (macOS and Linux) — tap is [agustif/homebrew-tap](https://github.com/agustif/homebrew-tap), not `gammons/tap`. Uninstall the upstream cask first if you have it (`brew uninstall --cask slk`):
 
@@ -133,7 +133,7 @@ makepkg -si
 **Go:**
 
 ```bash
-go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.18.0
+go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.18.1
 ```
 
 **From source:**
@@ -141,8 +141,9 @@ go install -ldflags="-s -w" -trimpath github.com/agustif/slk/cmd/slk@v0.18.0
 ```bash
 git clone https://github.com/agustif/slk.git
 cd slk
-go build -ldflags="-s -w" -trimpath -o slk ./cmd/slk
-mv -f slk ~/.local/bin/slk
+make build          # stamps version from git describe; binary at bin/slk
+# Do not copy into ~/.local/bin if you also use Homebrew — that path
+# is ahead of /opt/homebrew/bin and will hide the Cellar binary.
 ```
 
 Details, Wayland/X11 paste deps, and Windows: [Installation](wiki/Installation.md).
@@ -174,7 +175,7 @@ the file before relaunching. Log lines are categorized
 
 In-tree wiki (this fork):
 
-- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.18.0`, GitHub Release binaries
+- [Installation](wiki/Installation.md) — Homebrew `agustif/tap/slk`, Go `@v0.18.1`, GitHub Release binaries
 - [Setup](wiki/Setup.md) — desktop-app auth, adding workspaces
 - [Features](wiki/Features.md) — full feature breakdown
 - [Keybindings](wiki/Keybindings.md) — every key, every mode
